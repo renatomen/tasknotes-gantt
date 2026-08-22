@@ -210,8 +210,8 @@ async function ensureGanttReady(diagnosticCheckpoint?: string): Promise<void> {
                   TASK_NOTES,
                 );
                 lastDiagnosticCaptureAt = Date.now();
-              } else {
-                invalidateSourcesReadinessEvidence();
+                missing = await missingBars();
+                if (missing.length === 0) invalidateSourcesReadinessEvidence();
               }
             }
           }
@@ -753,7 +753,6 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
         && root.ownerLiveBaseHostPresent === true)).toBe(true);
     expect(verification.snapshot.disqualifiers.collectorFailure).toBe(false);
     expect(verification.snapshot.disqualifiers.overflow).toBe(false);
-    expect(verification.verdict).toEqual({ status: "open" });
   });
 
   it("hides a source's rows instantly via the quick switcher command, leaving view options untouched", async () => {

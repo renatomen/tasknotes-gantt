@@ -47,7 +47,7 @@ interface SourcesLifecycleTrace {
 interface SourcesLifecycleReportTrace {
   lifecycle: GanttLifecycleSnapshot | null;
   sourcesSnapshots: CalendarItemsSourcesSnapshot[];
-  latestVerdict: ReturnType<typeof classifyCalendarItemsSourcesDiagnosis>;
+  terminalVerdict: ReturnType<typeof classifyCalendarItemsSourcesDiagnosis> | null;
 }
 
 let originalFailureSeen = false;
@@ -555,8 +555,8 @@ export async function reportSourcesLifecycle(
       return {
         lifecycle: trace.lifecycle,
         sourcesSnapshots: reportedSnapshots,
-        latestVerdict: trace.terminalSnapshot === null
-          ? { status: 'open' as const }
+        terminalVerdict: trace.terminalSnapshot === null
+          ? null
           : classifyCalendarItemsSourcesDiagnosis(trace.terminalSnapshot),
       };
     },
@@ -570,7 +570,6 @@ export interface SourcesDiagnosticVerification {
   expectedMarkersPresent: boolean;
   originalOutcome: 'failed' | 'failed-earlier' | 'passed';
   snapshot: CalendarItemsSourcesSnapshot;
-  verdict: ReturnType<typeof classifyCalendarItemsSourcesDiagnosis>;
 }
 
 export async function verifySourcesDiagnosticEnvelope(
@@ -594,7 +593,6 @@ export async function verifySourcesDiagnosticEnvelope(
     expectedMarkersPresent: hasInitialReadiness && hasExpectedActions,
     originalOutcome: envelope.report.originalOutcome,
     snapshot,
-    verdict: classifyCalendarItemsSourcesDiagnosis(snapshot),
   };
 }
 

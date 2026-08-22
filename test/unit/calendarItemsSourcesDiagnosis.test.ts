@@ -310,7 +310,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
     expect(invalidateCalendarItemsSourcesReadinessEvidence(sealed)).toBe(sealed);
   });
 
-  it('drops an earlier capture when a later readiness poll completes without a census', () => {
+  it('drops an earlier capture when a later readiness poll observes recovery', () => {
     const fixture = wrongOwnerSnapshot();
     const boundary = {
       phase: 'before-each' as const,
