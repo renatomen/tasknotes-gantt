@@ -6,6 +6,7 @@ import {
   recordCalendarItemsSourcesReadinessEvidence,
   sealCalendarItemsSourcesReadinessEvidence,
   selectCalendarItemsSourcesTerminalBoundary,
+  shouldCaptureCalendarItemsSourcesReadinessBoundary,
   startCalendarItemsSourcesReadinessEvidence,
   type CalendarItemsSourcesSnapshot,
   type SourcesDiagnosisDisqualifiers,
@@ -312,6 +313,28 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
     expect(sealed.boundary).toBe(completedBoundary);
     expect(sealed.pollFailed).toBe(true);
     expect(invalidateCalendarItemsSourcesReadinessEvidence(sealed)).toBe(sealed);
+  });
+
+  it('captures readiness boundaries only after a missing-bar observation and at the throttle edge', () => {
+    expect(shouldCaptureCalendarItemsSourcesReadinessBoundary([], 10_000, null, 5_000)).toBe(false);
+    expect(shouldCaptureCalendarItemsSourcesReadinessBoundary(
+      ['Standup 2026-03-23.md'],
+      10_000,
+      null,
+      5_000,
+    )).toBe(true);
+    expect(shouldCaptureCalendarItemsSourcesReadinessBoundary(
+      ['Standup 2026-03-23.md'],
+      14_999,
+      10_000,
+      5_000,
+    )).toBe(false);
+    expect(shouldCaptureCalendarItemsSourcesReadinessBoundary(
+      ['Standup 2026-03-23.md'],
+      15_000,
+      10_000,
+      5_000,
+    )).toBe(true);
   });
 
   it.each(Object.keys(complete) as Array<keyof typeof complete>)(

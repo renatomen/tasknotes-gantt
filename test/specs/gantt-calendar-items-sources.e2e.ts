@@ -20,7 +20,10 @@ import {
   writeSourcesRetrievalFailure,
 } from "./helpers/calendarItemsSourcesLifecycle";
 import { attemptDiagnosticOperation } from "./helpers/lifecycleTrace";
+import { shouldCaptureCalendarItemsSourcesReadinessBoundary } from "./helpers/calendarItemsSourcesDiagnosis";
 import { waitUntilOrExplain } from "./helpers/waitReady";
+
+const READINESS_DIAGNOSTIC_CAPTURE_INTERVAL_MS = 5_000;
 
 /**
  * Calendar-item sources spec: property-based events, timeblocks, the quick
@@ -182,19 +185,30 @@ async function missingBars(): Promise<string[]> {
 /** Wait until the base leaf is front and every fixture task bar is rendered. */
 async function ensureGanttReady(diagnosticCheckpoint?: string): Promise<void> {
   let missing: string[] = ["<never polled>"];
+  let lastDiagnosticCaptureAt: number | null = null;
   if (diagnosticCheckpoint) startSourcesReadinessWindow();
   try {
     await waitUntilOrExplain(
       async () => {
         try {
           await activateBaseLeaf(diagnosticCheckpoint);
-          const diagnosticMissing = diagnosticCheckpoint
-            ? await captureSourcesReadinessPoll(diagnosticCheckpoint, TASK_NOTES)
-            : null;
-          if (diagnosticCheckpoint && diagnosticMissing === null) {
-            invalidateSourcesReadinessEvidence();
+          missing = await missingBars();
+          if (diagnosticCheckpoint) {
+            if (missing.length === 0) {
+              invalidateSourcesReadinessEvidence();
+            } else {
+              const now = Date.now();
+              if (shouldCaptureCalendarItemsSourcesReadinessBoundary(
+                missing,
+                now,
+                lastDiagnosticCaptureAt,
+                READINESS_DIAGNOSTIC_CAPTURE_INTERVAL_MS,
+              )) {
+                lastDiagnosticCaptureAt = now;
+                await captureSourcesReadinessPoll(diagnosticCheckpoint, TASK_NOTES, missing);
+              }
+            }
           }
-          missing = diagnosticMissing ?? await missingBars();
           return missing.length === 0;
         } catch (error) {
           if (diagnosticCheckpoint) invalidateSourcesReadinessEvidence();

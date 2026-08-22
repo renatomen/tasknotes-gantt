@@ -194,6 +194,16 @@ export function recordCalendarItemsSourcesReadinessEvidence(
   return { open: true, boundary, pollFailed: missingBars.length > 0 };
 }
 
+export function shouldCaptureCalendarItemsSourcesReadinessBoundary(
+  missingBars: readonly string[],
+  now: number,
+  lastCaptureAt: number | null,
+  minimumInterval: number,
+): boolean {
+  return missingBars.length > 0
+    && (lastCaptureAt === null || now - lastCaptureAt >= minimumInterval);
+}
+
 export function invalidateCalendarItemsSourcesReadinessEvidence(
   evidence: CalendarItemsSourcesReadinessEvidence,
 ): CalendarItemsSourcesReadinessEvidence {
