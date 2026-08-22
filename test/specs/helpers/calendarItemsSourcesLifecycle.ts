@@ -5,9 +5,14 @@ import {
   buildCalendarItemsSourcesSnapshot,
   CALENDAR_ITEMS_SOURCES_TRACE_SCHEMA,
   classifyCalendarItemsSourcesDiagnosis,
+  invalidateCalendarItemsSourcesReadinessEvidence,
+  recordCalendarItemsSourcesReadinessEvidence,
+  sealCalendarItemsSourcesReadinessEvidence,
   selectCalendarItemsSourcesTerminalBoundary,
+  startCalendarItemsSourcesReadinessEvidence,
   type CalendarItemsSourcesPhase,
   type CalendarItemsSourcesBoundary,
+  type CalendarItemsSourcesReadinessEvidence,
   type CalendarItemsSourcesRootFacts,
   type CalendarItemsSourcesSnapshot,
   type CalendarItemsSourcesTargetFacts,
@@ -46,8 +51,11 @@ interface SourcesLifecycleReportTrace {
 }
 
 let originalFailureSeen = false;
-let lastReadinessBoundary: CalendarItemsSourcesBoundary | null = null;
-let lastReadinessPollFailed = false;
+let readinessEvidence: CalendarItemsSourcesReadinessEvidence = {
+  open: false,
+  boundary: null,
+  pollFailed: false,
+};
 const snapshots: CalendarItemsSourcesSnapshot[] = [];
 
 interface SourcesBoundaryCaptureOptions {
@@ -61,8 +69,7 @@ export function noteSourcesOriginalFailure(): void {
 
 export async function startSourcesLifecycleCapture(): Promise<void> {
   originalFailureSeen = false;
-  lastReadinessBoundary = null;
-  lastReadinessPollFailed = false;
+  readinessEvidence = { open: false, boundary: null, pollFailed: false };
   snapshots.length = 0;
   const started = await browser.execute((capacity, schema) => {
     const diagnosticGlobal = globalThis as typeof globalThis & {
@@ -321,8 +328,6 @@ export async function captureSourcesReadinessPoll(
   checkpoint: string,
   taskNames: readonly string[],
 ): Promise<string[] | null> {
-  lastReadinessBoundary = null;
-  lastReadinessPollFailed = false;
   const captureState: {
     value: Awaited<ReturnType<typeof captureSourcesBoundary>> | null;
   } = { value: null };
@@ -333,14 +338,24 @@ export async function captureSourcesReadinessPoll(
     });
   });
   if (diagnosticFailure !== null || captureState.value === null) return null;
-  lastReadinessBoundary = captureState.value.boundary;
-  lastReadinessPollFailed = captureState.value.missingBars.length > 0;
+  readinessEvidence = recordCalendarItemsSourcesReadinessEvidence(
+    readinessEvidence,
+    captureState.value.boundary,
+    captureState.value.missingBars,
+  );
   return captureState.value.missingBars;
 }
 
-export function beginSourcesReadinessPoll(): void {
-  lastReadinessBoundary = null;
-  lastReadinessPollFailed = false;
+export function startSourcesReadinessWindow(): void {
+  readinessEvidence = startCalendarItemsSourcesReadinessEvidence();
+}
+
+export function invalidateSourcesReadinessEvidence(): void {
+  readinessEvidence = invalidateCalendarItemsSourcesReadinessEvidence(readinessEvidence);
+}
+
+export function sealSourcesReadinessWindow(): void {
+  readinessEvidence = sealCalendarItemsSourcesReadinessEvidence(readinessEvidence);
 }
 
 async function readSourcesLifecycle(): Promise<SourcesLifecycleTrace> {
@@ -506,9 +521,9 @@ async function readSourcesLifecycleAfterFailure(
   }>(browser.capabilities as Record<string, unknown>, expression);
   const terminalBoundary = selectCalendarItemsSourcesTerminalBoundary(
     origin,
-    lastReadinessBoundary,
+    readinessEvidence.boundary,
     result.boundary,
-    lastReadinessPollFailed,
+    readinessEvidence.pollFailed,
   );
   return {
     lifecycle: result.lifecycle,
@@ -558,7 +573,9 @@ export interface SourcesDiagnosticVerification {
 export async function verifySourcesDiagnosticEnvelope(
   checkpoint: string,
 ): Promise<SourcesDiagnosticVerification> {
-  const snapshot = await captureSourcesCheckpoint('config-action-observed', checkpoint);
+  const snapshot = [...snapshots].reverse().find((candidate) =>
+    candidate.phase === 'before-each' && candidate.completeness.configActions);
+  if (!snapshot) throw new Error('No post-property readiness snapshot was captured');
   const envelope = await reportSourcesLifecycle(checkpoint, null);
   const records = envelope.report.trace?.lifecycle?.records ?? [];
   const hasInitialReadiness = records.some((record) =>
@@ -574,7 +591,7 @@ export async function verifySourcesDiagnosticEnvelope(
     expectedMarkersPresent: hasInitialReadiness && hasExpectedActions,
     originalOutcome: envelope.report.originalOutcome,
     snapshot,
-    verdict: envelope.report.trace?.latestVerdict ?? { status: 'open' },
+    verdict: classifyCalendarItemsSourcesDiagnosis(snapshot),
   };
 }
 
@@ -599,8 +616,7 @@ export function writeSourcesRetrievalFailure(
 }
 
 export function stopSourcesLifecycleCapture(): Promise<void> {
-  lastReadinessBoundary = null;
-  lastReadinessPollFailed = false;
+  readinessEvidence = { open: false, boundary: null, pollFailed: false };
   return browser.execute(() => {
     const diagnosticGlobal = globalThis as typeof globalThis & {
       __tnGanttLifecycle?: GanttLifecycleControl;

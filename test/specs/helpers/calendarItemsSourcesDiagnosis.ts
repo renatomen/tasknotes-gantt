@@ -175,6 +175,39 @@ export interface CalendarItemsSourcesBoundary {
   collectorFailure: boolean;
 }
 
+export interface CalendarItemsSourcesReadinessEvidence {
+  open: boolean;
+  boundary: CalendarItemsSourcesBoundary | null;
+  pollFailed: boolean;
+}
+
+export function startCalendarItemsSourcesReadinessEvidence(): CalendarItemsSourcesReadinessEvidence {
+  return { open: true, boundary: null, pollFailed: false };
+}
+
+export function recordCalendarItemsSourcesReadinessEvidence(
+  evidence: CalendarItemsSourcesReadinessEvidence,
+  boundary: CalendarItemsSourcesBoundary,
+  missingBars: readonly string[],
+): CalendarItemsSourcesReadinessEvidence {
+  if (!evidence.open) return evidence;
+  return { open: true, boundary, pollFailed: missingBars.length > 0 };
+}
+
+export function invalidateCalendarItemsSourcesReadinessEvidence(
+  evidence: CalendarItemsSourcesReadinessEvidence,
+): CalendarItemsSourcesReadinessEvidence {
+  if (!evidence.open) return evidence;
+  return { open: true, boundary: null, pollFailed: false };
+}
+
+export function sealCalendarItemsSourcesReadinessEvidence(
+  evidence: CalendarItemsSourcesReadinessEvidence,
+): CalendarItemsSourcesReadinessEvidence {
+  if (!evidence.open) return evidence;
+  return { ...evidence, open: false };
+}
+
 export function selectCalendarItemsSourcesTerminalBoundary(
   origin: string,
   savedReadinessBoundary: CalendarItemsSourcesBoundary | null,

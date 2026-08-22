@@ -2,7 +2,11 @@ import {
   analyzeCalendarItemsSourcesOwnership,
   buildCalendarItemsSourcesSnapshot,
   classifyCalendarItemsSourcesDiagnosis,
+  invalidateCalendarItemsSourcesReadinessEvidence,
+  recordCalendarItemsSourcesReadinessEvidence,
+  sealCalendarItemsSourcesReadinessEvidence,
   selectCalendarItemsSourcesTerminalBoundary,
+  startCalendarItemsSourcesReadinessEvidence,
   type CalendarItemsSourcesSnapshot,
   type SourcesDiagnosisDisqualifiers,
   type SourcesMatchedControl,
@@ -275,6 +279,39 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       resampledBoundary,
       true,
     )).toBe(resampledBoundary);
+  });
+
+  it('seals the last completed readiness poll against a post-deadline write', () => {
+    const fixture = wrongOwnerSnapshot();
+    const completedBoundary = {
+      phase: 'before-each' as const,
+      checkpoint: 'completed-poll',
+      sequence: 18,
+      target: fixture.target,
+      roots: fixture.roots,
+      sameCheckpointObservation: true,
+      initialReadinessCaptured: true,
+      actionHistoryMatches: true,
+      overflow: false,
+      collectorFailure: false,
+    };
+    const lateBoundary = { ...completedBoundary, checkpoint: 'late-poll', sequence: 19 };
+    const open = startCalendarItemsSourcesReadinessEvidence();
+    const completed = recordCalendarItemsSourcesReadinessEvidence(
+      open,
+      completedBoundary,
+      ['Standup 2026-03-23.md'],
+    );
+    const sealed = sealCalendarItemsSourcesReadinessEvidence(completed);
+
+    expect(recordCalendarItemsSourcesReadinessEvidence(
+      sealed,
+      lateBoundary,
+      ['Standup 2026-03-23.md'],
+    )).toBe(sealed);
+    expect(sealed.boundary).toBe(completedBoundary);
+    expect(sealed.pollFailed).toBe(true);
+    expect(invalidateCalendarItemsSourcesReadinessEvidence(sealed)).toBe(sealed);
   });
 
   it.each(Object.keys(complete) as Array<keyof typeof complete>)(

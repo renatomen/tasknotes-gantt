@@ -7,11 +7,13 @@ import { fileURLToPath } from "node:url";
 import type { GanttLifecycleControl } from "../../src/debugLog";
 import {
   attemptSourcesFailureDiagnostics,
-  beginSourcesReadinessPoll,
   captureSourcesCheckpoint,
   captureSourcesReadinessPoll,
+  invalidateSourcesReadinessEvidence,
   noteSourcesOriginalFailure,
   reportSourcesLifecycle,
+  sealSourcesReadinessWindow,
+  startSourcesReadinessWindow,
   startSourcesLifecycleCapture,
   stopSourcesLifecycleCapture,
   verifySourcesDiagnosticEnvelope,
@@ -79,8 +81,9 @@ interface SourcesDiagnosticNodeGlobal {
 
 let sourcesBeforeEachSequence = 0;
 let sourcesSuitePrimaryError: unknown = null;
-let sourcesFailureEnvelopeAttempted = false;
+const sourcesFailureEnvelopeAttempts = new Set<unknown>();
 const sourcesPrimaryErrors = new WeakMap<object, unknown>();
+const MAX_SOURCES_FAILURE_ENVELOPES = 3;
 
 function rememberSourcesPrimaryError(error: unknown): void {
   if (sourcesSuitePrimaryError === null || sourcesSuitePrimaryError === undefined) {
@@ -99,8 +102,9 @@ async function captureSourcesDiagnostic(
 }
 
 async function captureSourcesFailureOnce(origin: string, primaryError: unknown): Promise<void> {
-  if (sourcesFailureEnvelopeAttempted) return;
-  sourcesFailureEnvelopeAttempted = true;
+  if (sourcesFailureEnvelopeAttempts.has(primaryError)
+      || sourcesFailureEnvelopeAttempts.size >= MAX_SOURCES_FAILURE_ENVELOPES) return;
+  sourcesFailureEnvelopeAttempts.add(primaryError);
   const diagnosticFailure = await attemptSourcesFailureDiagnostics(origin, primaryError);
   if (diagnosticFailure === null) return;
   writeSourcesRetrievalFailure(origin, diagnosticFailure, primaryError);
@@ -178,19 +182,31 @@ async function missingBars(): Promise<string[]> {
 /** Wait until the base leaf is front and every fixture task bar is rendered. */
 async function ensureGanttReady(diagnosticCheckpoint?: string): Promise<void> {
   let missing: string[] = ["<never polled>"];
-  await waitUntilOrExplain(
-    async () => {
-      beginSourcesReadinessPoll();
-      await activateBaseLeaf(diagnosticCheckpoint);
-      const diagnosticMissing = diagnosticCheckpoint
-        ? await captureSourcesReadinessPoll(diagnosticCheckpoint, TASK_NOTES)
-        : null;
-      missing = diagnosticMissing ?? await missingBars();
-      return missing.length === 0;
-    },
-    () => `Gantt bars missing: ${JSON.stringify(missing)}`,
-    { timeout: 90000 },
-  );
+  if (diagnosticCheckpoint) startSourcesReadinessWindow();
+  try {
+    await waitUntilOrExplain(
+      async () => {
+        try {
+          await activateBaseLeaf(diagnosticCheckpoint);
+          const diagnosticMissing = diagnosticCheckpoint
+            ? await captureSourcesReadinessPoll(diagnosticCheckpoint, TASK_NOTES)
+            : null;
+          if (diagnosticCheckpoint && diagnosticMissing === null) {
+            invalidateSourcesReadinessEvidence();
+          }
+          missing = diagnosticMissing ?? await missingBars();
+          return missing.length === 0;
+        } catch (error) {
+          if (diagnosticCheckpoint) invalidateSourcesReadinessEvidence();
+          throw error;
+        }
+      },
+      () => `Gantt bars missing: ${JSON.stringify(missing)}`,
+      { timeout: 90000 },
+    );
+  } finally {
+    if (diagnosticCheckpoint) sealSourcesReadinessWindow();
+  }
 }
 
 /** Set a per-view option the way the live options panel does (proven pattern). */
@@ -448,7 +464,7 @@ async function searchState(): Promise<{ value: string; count: string }> {
 describe("Gantt (OG) calendar items — property events, timeblocks, switcher, search", () => {
   before(async () => {
     sourcesSuitePrimaryError = null;
-    sourcesFailureEnvelopeAttempted = false;
+    sourcesFailureEnvelopeAttempts.clear();
     try {
     // Hermetic: copy the in-repo fixture to a disposable temp dir.
     const tmpVault = path.join(os.tmpdir(), "og-gantt-calendar-sources-e2e");
@@ -635,32 +651,6 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     expect(showsTitle).toBe(true);
   });
 
-  it("captures a complete property-event diagnostic envelope without a causal verdict", async () => {
-    const verification = await verifySourcesDiagnosticEnvelope("property-events-diagnostic");
-
-    if (verification.originalOutcome === "failed-earlier") return;
-    expect(verification.diagnosticOutcome).toBe("captured");
-    expect(verification.originalOutcome).toBe("passed");
-    expect(verification.expectedMarkersPresent).toBe(true);
-    expect(verification.snapshot.completeness.configActions).toBe(true);
-    expect(verification.snapshot.completeness.targetFileAndCache).toBe(true);
-    expect(verification.snapshot.completeness.taskNotesFacts).toBe(true);
-    expect(verification.snapshot.completeness.liveBaseResult).toBe(true);
-    expect(verification.snapshot.completeness.rootCensus).toBe(true);
-    expect(verification.snapshot.completeness.ownerDomMembership).toBe(true);
-    expect(verification.snapshot.completeness.correlationKeys).toBe(true);
-    expect(verification.snapshot.target.liveBaseHostPresent).toBe(true);
-    expect(verification.snapshot.target.liveBaseTargetPresent).toBe(true);
-    expect(verification.snapshot.roots.length).toBeGreaterThan(0);
-    expect(verification.snapshot.roots.some((root) =>
-      root.ownsBase === true
-        && root.ownerLeafId !== null
-        && root.ownerLiveBaseHostPresent === true)).toBe(true);
-    expect(verification.snapshot.disqualifiers.collectorFailure).toBe(false);
-    expect(verification.snapshot.disqualifiers.overflow).toBe(false);
-    expect(verification.verdict).toEqual({ status: "open" });
-  });
-
   it("renders daily-note timeblocks when enabled and repaints on a live frontmatter edit", async () => {
     const fired = await fireConfigToggle("tngantt_showTimeblocks", true);
     expect(fired.set && fired.configChanged).toBe(true);
@@ -718,6 +708,32 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     const repaintMs = Date.now() - editStarted;
     expect(repaintMs).toBeLessThanOrEqual(REPAINT_BUDGET_MS);
     expect(census.timeblockIds).toHaveLength(3);
+  });
+
+  it("captures a complete property-event diagnostic envelope without a causal verdict", async () => {
+    if (sourcesSuitePrimaryError !== null && sourcesSuitePrimaryError !== undefined) return;
+    const verification = await verifySourcesDiagnosticEnvelope("property-events-diagnostic");
+
+    expect(verification.diagnosticOutcome).toBe("captured");
+    expect(verification.originalOutcome).toBe("passed");
+    expect(verification.expectedMarkersPresent).toBe(true);
+    expect(verification.snapshot.completeness.configActions).toBe(true);
+    expect(verification.snapshot.completeness.targetFileAndCache).toBe(true);
+    expect(verification.snapshot.completeness.taskNotesFacts).toBe(true);
+    expect(verification.snapshot.completeness.liveBaseResult).toBe(true);
+    expect(verification.snapshot.completeness.rootCensus).toBe(true);
+    expect(verification.snapshot.completeness.ownerDomMembership).toBe(true);
+    expect(verification.snapshot.completeness.correlationKeys).toBe(true);
+    expect(verification.snapshot.target.liveBaseHostPresent).toBe(true);
+    expect(verification.snapshot.target.liveBaseTargetPresent).toBe(true);
+    expect(verification.snapshot.roots.length).toBeGreaterThan(0);
+    expect(verification.snapshot.roots.some((root) =>
+      root.ownsBase === true
+        && root.ownerLeafId !== null
+        && root.ownerLiveBaseHostPresent === true)).toBe(true);
+    expect(verification.snapshot.disqualifiers.collectorFailure).toBe(false);
+    expect(verification.snapshot.disqualifiers.overflow).toBe(false);
+    expect(verification.verdict).toEqual({ status: "open" });
   });
 
   it("hides a source's rows instantly via the quick switcher command, leaving view options untouched", async () => {
