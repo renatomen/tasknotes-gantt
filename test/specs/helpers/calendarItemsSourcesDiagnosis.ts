@@ -303,7 +303,7 @@ export function buildCalendarItemsSourcesSnapshot(
       pendingWork: false,
       supersededWork: false,
       legitimateInvalidator: false,
-      remount: false,
+      remount: hasConcurrentMountTokens(boundary.roots),
       filtered: false,
       reseeded: false,
       overflow: boundary.overflow,
@@ -321,6 +321,17 @@ export type CalendarItemsSourcesVerdict =
 
 function allTrue(values: object): boolean {
   return Object.values(values).every((value) => value === true);
+}
+
+function hasConcurrentMountTokens(roots: CalendarItemsSourcesRootFacts[]): boolean {
+  const mountsByLeaf = new Map<string, Set<number>>();
+  for (const root of roots) {
+    if (root.ownerDomMember !== true || root.ownerLeafId === null || root.mountToken === null) continue;
+    const mounts = mountsByLeaf.get(root.ownerLeafId) ?? new Set<number>();
+    mounts.add(root.mountToken);
+    mountsByLeaf.set(root.ownerLeafId, mounts);
+  }
+  return [...mountsByLeaf.values()].some((mounts) => mounts.size > 1);
 }
 
 function isComplete(snapshot: CalendarItemsSourcesSnapshot): boolean {

@@ -49,7 +49,7 @@ Verification receipts for the final local U1 state:
 
 | Check | Result | Evidence meaning |
 |---|---|---|
-| `npx jest test/unit/lifecycleTrace.test.ts test/unit/calendarItemsSourcesDiagnosis.test.ts --runInBand` | 53 passed | Bounded retrieval, primary-error preservation, bounded best-effort checkpoints, matching failing-poll selection, post-deadline write refusal, green-teardown verdict refusal, post-failure resample refusal, and other fail-closed cases |
+| `npx jest test/unit/lifecycleTrace.test.ts test/unit/calendarItemsSourcesDiagnosis.test.ts --runInBand` | 54 passed | Bounded retrieval, primary-error preservation, bounded best-effort checkpoints, matching failing-poll selection, post-deadline write refusal, concurrent-remount refusal, green-teardown verdict refusal, post-failure resample refusal, and other fail-closed cases |
 | `npm run typecheck` | Passed; 0 errors, with existing Svelte warnings only | Source, test, and e2e TypeScript serialization contracts remain valid |
 | `npm run lint` | Passed | Repository static rules remain satisfied |
 | `npm run e2e:local -- --spec test/specs/gantt-legend.e2e.ts` | 28 passed | Shared lifecycle extraction preserves the existing Legend envelope in real Obsidian |

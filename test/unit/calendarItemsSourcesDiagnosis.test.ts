@@ -348,6 +348,31 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
     expect(classifyCalendarItemsSourcesDiagnosis(snapshot)).toEqual({ status: 'open' });
   });
 
+  it('refuses a wrong-owner verdict while one leaf has concurrent mount tokens', () => {
+    const fixture = wrongOwnerSnapshot();
+    const snapshot = buildCalendarItemsSourcesSnapshot({
+      phase: 'terminal-failure',
+      checkpoint: 'remount-in-flight',
+      sequence: 20,
+      target: fixture.target,
+      roots: fixture.roots.map((root) => ({
+        ...root,
+        ownerLeafId: 'base-leaf-current',
+        ownsBase: true,
+        ownerDomMember: true,
+        connected: true,
+      })),
+      sameCheckpointObservation: true,
+      initialReadinessCaptured: true,
+      actionHistoryMatches: true,
+      overflow: false,
+      collectorFailure: false,
+    });
+
+    expect(snapshot.disqualifiers.remount).toBe(true);
+    expect(classifyCalendarItemsSourcesDiagnosis(snapshot)).toEqual({ status: 'open' });
+  });
+
   it('keeps a stale target-bearing root beside a different current live root open', () => {
     const roots = wrongOwnerSnapshot().roots;
     roots[0] = {
