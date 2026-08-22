@@ -10,6 +10,7 @@ import {
   captureSourcesCheckpoint,
   captureSourcesReadinessPoll,
   invalidateSourcesReadinessEvidence,
+  retainMatchingSourcesReadinessEvidence,
   noteSourcesOriginalFailure,
   reportSourcesLifecycle,
   sealSourcesReadinessWindow,
@@ -195,9 +196,8 @@ async function ensureGanttReady(diagnosticCheckpoint?: string): Promise<void> {
           await activateBaseLeaf(diagnosticCheckpoint);
           missing = await missingBars();
           if (diagnosticCheckpoint) {
-            if (missing.length === 0) {
-              invalidateSourcesReadinessEvidence();
-            } else {
+            retainMatchingSourcesReadinessEvidence(missing);
+            if (missing.length > 0) {
               const now = Date.now();
               if (readinessCaptureAvailable && shouldCaptureCalendarItemsSourcesReadinessBoundary(
                 missing,
@@ -211,7 +211,7 @@ async function ensureGanttReady(diagnosticCheckpoint?: string): Promise<void> {
                 );
                 lastDiagnosticCaptureAt = Date.now();
                 missing = await missingBars();
-                if (missing.length === 0) invalidateSourcesReadinessEvidence();
+                retainMatchingSourcesReadinessEvidence(missing);
               }
             }
           }

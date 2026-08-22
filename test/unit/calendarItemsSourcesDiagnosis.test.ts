@@ -3,6 +3,7 @@ import {
   buildCalendarItemsSourcesSnapshot,
   classifyCalendarItemsSourcesDiagnosis,
   invalidateCalendarItemsSourcesReadinessEvidence,
+  retainMatchingCalendarItemsSourcesReadinessEvidence,
   recordCalendarItemsSourcesReadinessEvidence,
   sealCalendarItemsSourcesReadinessEvidence,
   selectCalendarItemsSourcesTerminalBoundary,
@@ -334,7 +335,43 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       open: true,
       boundary: null,
       pollFailed: false,
+      missingBars: null,
     });
+  });
+
+  it('drops an earlier capture when a later readiness poll has a different missing set', () => {
+    const fixture = wrongOwnerSnapshot();
+    const boundary = {
+      phase: 'before-each' as const,
+      checkpoint: 'second-before-each',
+      sequence: 20,
+      target: fixture.target,
+      roots: fixture.roots,
+      sameCheckpointObservation: true,
+      initialReadinessCaptured: true,
+      actionHistoryMatches: true,
+      overflow: false,
+      collectorFailure: false,
+    };
+    const captured = recordCalendarItemsSourcesReadinessEvidence(
+      startCalendarItemsSourcesReadinessEvidence(),
+      boundary,
+      ['Standup 2026-03-23.md'],
+    );
+
+    expect(retainMatchingCalendarItemsSourcesReadinessEvidence(
+      captured,
+      ['Task A.md'],
+    )).toEqual({
+      open: true,
+      boundary: null,
+      pollFailed: false,
+      missingBars: null,
+    });
+    expect(retainMatchingCalendarItemsSourcesReadinessEvidence(
+      captured,
+      ['Standup 2026-03-23.md'],
+    )).toBe(captured);
   });
 
   it('captures readiness boundaries only after a missing-bar observation and at the throttle edge', () => {

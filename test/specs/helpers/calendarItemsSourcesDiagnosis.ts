@@ -179,10 +179,15 @@ export interface CalendarItemsSourcesReadinessEvidence {
   open: boolean;
   boundary: CalendarItemsSourcesBoundary | null;
   pollFailed: boolean;
+  missingBars: readonly string[] | null;
 }
 
 export function startCalendarItemsSourcesReadinessEvidence(): CalendarItemsSourcesReadinessEvidence {
-  return { open: true, boundary: null, pollFailed: false };
+  return { open: true, boundary: null, pollFailed: false, missingBars: null };
+}
+
+function normalizeMissingBars(missingBars: readonly string[]): string[] {
+  return [...new Set(missingBars)].sort();
 }
 
 export function recordCalendarItemsSourcesReadinessEvidence(
@@ -191,7 +196,23 @@ export function recordCalendarItemsSourcesReadinessEvidence(
   missingBars: readonly string[],
 ): CalendarItemsSourcesReadinessEvidence {
   if (!evidence.open) return evidence;
-  return { open: true, boundary, pollFailed: missingBars.length > 0 };
+  return {
+    open: true,
+    boundary,
+    pollFailed: missingBars.length > 0,
+    missingBars: normalizeMissingBars(missingBars),
+  };
+}
+
+export function retainMatchingCalendarItemsSourcesReadinessEvidence(
+  evidence: CalendarItemsSourcesReadinessEvidence,
+  missingBars: readonly string[],
+): CalendarItemsSourcesReadinessEvidence {
+  if (!evidence.open || evidence.boundary === null || evidence.missingBars === null) return evidence;
+  const observed = normalizeMissingBars(missingBars);
+  const matches = observed.length === evidence.missingBars.length
+    && observed.every((bar, index) => bar === evidence.missingBars?.[index]);
+  return matches ? evidence : invalidateCalendarItemsSourcesReadinessEvidence(evidence);
 }
 
 export function shouldCaptureCalendarItemsSourcesReadinessBoundary(
@@ -208,7 +229,7 @@ export function invalidateCalendarItemsSourcesReadinessEvidence(
   evidence: CalendarItemsSourcesReadinessEvidence,
 ): CalendarItemsSourcesReadinessEvidence {
   if (!evidence.open) return evidence;
-  return { open: true, boundary: null, pollFailed: false };
+  return { open: true, boundary: null, pollFailed: false, missingBars: null };
 }
 
 export function sealCalendarItemsSourcesReadinessEvidence(

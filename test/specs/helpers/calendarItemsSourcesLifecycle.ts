@@ -7,6 +7,7 @@ import {
   classifyCalendarItemsSourcesDiagnosis,
   invalidateCalendarItemsSourcesReadinessEvidence,
   recordCalendarItemsSourcesReadinessEvidence,
+  retainMatchingCalendarItemsSourcesReadinessEvidence,
   sealCalendarItemsSourcesReadinessEvidence,
   selectCalendarItemsSourcesTerminalBoundary,
   startCalendarItemsSourcesReadinessEvidence,
@@ -55,6 +56,7 @@ let readinessEvidence: CalendarItemsSourcesReadinessEvidence = {
   open: false,
   boundary: null,
   pollFailed: false,
+  missingBars: null,
 };
 const snapshots: CalendarItemsSourcesSnapshot[] = [];
 
@@ -69,7 +71,7 @@ export function noteSourcesOriginalFailure(): void {
 
 export async function startSourcesLifecycleCapture(): Promise<void> {
   originalFailureSeen = false;
-  readinessEvidence = { open: false, boundary: null, pollFailed: false };
+  readinessEvidence = { open: false, boundary: null, pollFailed: false, missingBars: null };
   snapshots.length = 0;
   const started = await browser.execute((capacity, schema) => {
     const diagnosticGlobal = globalThis as typeof globalThis & {
@@ -357,6 +359,13 @@ export function invalidateSourcesReadinessEvidence(): void {
   readinessEvidence = invalidateCalendarItemsSourcesReadinessEvidence(readinessEvidence);
 }
 
+export function retainMatchingSourcesReadinessEvidence(missingBars: readonly string[]): void {
+  readinessEvidence = retainMatchingCalendarItemsSourcesReadinessEvidence(
+    readinessEvidence,
+    missingBars,
+  );
+}
+
 export function sealSourcesReadinessWindow(): void {
   readinessEvidence = sealCalendarItemsSourcesReadinessEvidence(readinessEvidence);
 }
@@ -617,7 +626,7 @@ export function writeSourcesRetrievalFailure(
 }
 
 export function stopSourcesLifecycleCapture(): Promise<void> {
-  readinessEvidence = { open: false, boundary: null, pollFailed: false };
+  readinessEvidence = { open: false, boundary: null, pollFailed: false, missingBars: null };
   return browser.execute(() => {
     const diagnosticGlobal = globalThis as typeof globalThis & {
       __tnGanttLifecycle?: GanttLifecycleControl;
