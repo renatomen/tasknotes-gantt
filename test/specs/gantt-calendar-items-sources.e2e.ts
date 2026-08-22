@@ -75,7 +75,14 @@ interface SourcesDiagnosticNodeGlobal {
 }
 
 let sourcesBeforeEachSequence = 0;
+let sourcesSuitePrimaryError: unknown = null;
 const sourcesPrimaryErrors = new WeakMap<object, unknown>();
+
+function rememberSourcesPrimaryError(error: unknown): void {
+  if (sourcesSuitePrimaryError === null || sourcesSuitePrimaryError === undefined) {
+    sourcesSuitePrimaryError = error;
+  }
+}
 
 async function captureSourcesDiagnostic(
   origin: string,
@@ -424,6 +431,7 @@ async function searchState(): Promise<{ value: string; count: string }> {
 
 describe("Gantt (OG) calendar items — property events, timeblocks, switcher, search", () => {
   before(async () => {
+    sourcesSuitePrimaryError = null;
     try {
     // Hermetic: copy the in-repo fixture to a disposable temp dir.
     const tmpVault = path.join(os.tmpdir(), "og-gantt-calendar-sources-e2e");
@@ -438,6 +446,7 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     await captureSourcesDiagnostic("collector-start", startSourcesLifecycleCapture);
     (globalThis as SourcesDiagnosticNodeGlobal).__tnGanttLegendRunnerFailureReporter =
       async (testTitle, error) => {
+        rememberSourcesPrimaryError(error);
         noteSourcesOriginalFailure();
         const origin = `afterTest:${testTitle}`;
         const diagnosticFailure = await attemptSourcesFailureDiagnostics(origin, error);
@@ -484,6 +493,7 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     await captureSourcesDiagnostic("initial-readiness", () =>
       captureSourcesCheckpoint("initial-readiness", "initial-readiness"));
     } catch (error) {
+      rememberSourcesPrimaryError(error);
       noteSourcesOriginalFailure();
       const diagnosticFailure = await attemptSourcesFailureDiagnostics("before-hook", error);
       if (diagnosticFailure !== null) {
@@ -504,6 +514,7 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
         try {
           return await originalTest.apply(this, args);
         } catch (error) {
+          rememberSourcesPrimaryError(error);
           sourcesPrimaryErrors.set(currentTest, error);
           throw error;
         }
@@ -516,6 +527,7 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
       await captureSourcesDiagnostic(checkpoint, () =>
         captureSourcesCheckpoint("before-each", checkpoint));
     } catch (error) {
+      rememberSourcesPrimaryError(error);
       if (currentTest) sourcesPrimaryErrors.set(currentTest, error);
       noteSourcesOriginalFailure();
       const origin = `beforeEach:${checkpoint}`;
@@ -531,6 +543,7 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     const currentTest = this.currentTest as { title?: string; err?: unknown } | undefined;
     const primaryError = (currentTest ? sourcesPrimaryErrors.get(currentTest) : undefined) ?? currentTest?.err;
     if (primaryError === null || primaryError === undefined) return;
+    rememberSourcesPrimaryError(primaryError);
     noteSourcesOriginalFailure();
     const origin = `test:${currentTest?.title ?? "unknown"}`;
     const diagnosticFailure = await attemptSourcesFailureDiagnostics(origin, primaryError);
@@ -541,16 +554,22 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
 
   after(async function () {
     this.timeout(60000);
-    try {
-      await captureSourcesCheckpoint("suite-after", "suite-after");
-      await reportSourcesLifecycle("suite-after", null);
-    } catch (error) {
-      writeSourcesRetrievalFailure("suite-after", error, null);
-    }
-    try {
-      await stopSourcesLifecycleCapture();
-    } catch {
-      // The browser session can already be gone after a hook failure.
+    if (sourcesSuitePrimaryError !== null && sourcesSuitePrimaryError !== undefined) {
+      const diagnosticFailure = await attemptSourcesFailureDiagnostics(
+        "suite-after",
+        sourcesSuitePrimaryError,
+      );
+      if (diagnosticFailure !== null) {
+        writeSourcesRetrievalFailure("suite-after", diagnosticFailure, sourcesSuitePrimaryError);
+      }
+    } else {
+      try {
+        await captureSourcesCheckpoint("suite-after", "suite-after");
+        await reportSourcesLifecycle("suite-after", null);
+        await stopSourcesLifecycleCapture();
+      } catch (error) {
+        writeSourcesRetrievalFailure("suite-after", error, null);
+      }
     }
     delete (globalThis as SourcesDiagnosticNodeGlobal).__tnGanttLegendRunnerFailureReporter;
   });

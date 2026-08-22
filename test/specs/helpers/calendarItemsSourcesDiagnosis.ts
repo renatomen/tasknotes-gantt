@@ -95,6 +95,7 @@ export function analyzeCalendarItemsSourcesOwnership(
 }
 
 export interface SourcesDiagnosisCompleteness {
+  sameCheckpointObservation: boolean;
   orderedPhases: boolean;
   targetFileAndCache: boolean;
   taskNotesFacts: boolean;
@@ -167,6 +168,7 @@ export interface CalendarItemsSourcesBoundary {
   sequence: number;
   target: CalendarItemsSourcesTargetFacts;
   roots: CalendarItemsSourcesRootFacts[];
+  sameCheckpointObservation: boolean;
   initialReadinessCaptured: boolean;
   actionHistoryMatches: boolean;
   overflow: boolean;
@@ -216,6 +218,7 @@ export function buildCalendarItemsSourcesSnapshot(
     },
     workState: prerequisiteTerminal && boundary.target.liveBaseTargetPresent === true ? 'settled' : 'unknown',
     completeness: {
+      sameCheckpointObservation: boundary.sameCheckpointObservation,
       orderedPhases: boundary.initialReadinessCaptured && boundary.actionHistoryMatches && terminalEvidence,
       targetFileAndCache: boundary.target.fileExists !== null && boundary.target.cacheEntryExists !== null,
       taskNotesFacts: boundary.target.taskNotesOccurrenceListed !== null
@@ -245,7 +248,7 @@ export function buildCalendarItemsSourcesSnapshot(
       crossMountJoin: ownership.crossMountJoin,
       authoritativeTargetAbsent: ownership.authoritativeTargetAbsent
         || (boundary.target.liveBaseTargetPresent === true && ownership.authoritativeRoot === null),
-      missingBoundarySide: false,
+      missingBoundarySide: !boundary.sameCheckpointObservation,
       missingCorrelationKey: boundary.roots.some(({ mountToken, ownerLeafId }) =>
         mountToken === null || ownerLeafId === null),
       pendingWork: false,

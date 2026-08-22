@@ -8,6 +8,7 @@ import {
 } from '../specs/helpers/calendarItemsSourcesDiagnosis';
 
 const complete = {
+  sameCheckpointObservation: true,
   orderedPhases: true,
   targetFileAndCache: true,
   taskNotesFacts: true,
@@ -134,6 +135,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
         liveBaseTargetPresent: false,
       },
       roots: fixture.roots,
+      sameCheckpointObservation: true,
       initialReadinessCaptured: true,
       actionHistoryMatches: true,
       overflow: false,
@@ -153,6 +155,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       sequence: 14,
       target: fixture.target,
       roots: [owner],
+      sameCheckpointObservation: true,
       initialReadinessCaptured: true,
       actionHistoryMatches: true,
       overflow: false,
@@ -164,6 +167,25 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       available: true,
       equality,
     }));
+    expect(classifyCalendarItemsSourcesDiagnosis(snapshot)).toEqual({ status: 'open' });
+  });
+
+  it('refuses a wrong-owner verdict from a post-failure resample', () => {
+    const fixture = wrongOwnerSnapshot();
+    const snapshot = buildCalendarItemsSourcesSnapshot({
+      phase: 'terminal-failure',
+      checkpoint: 'post-failure-resample',
+      sequence: 15,
+      target: fixture.target,
+      roots: fixture.roots,
+      sameCheckpointObservation: false,
+      initialReadinessCaptured: true,
+      actionHistoryMatches: true,
+      overflow: false,
+      collectorFailure: false,
+    });
+
+    expect(snapshot.disqualifiers.missingBoundarySide).toBe(true);
     expect(classifyCalendarItemsSourcesDiagnosis(snapshot)).toEqual({ status: 'open' });
   });
 
@@ -246,6 +268,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       sequence: 18,
       target: fixture.target,
       roots: fixture.roots,
+      sameCheckpointObservation: true,
       initialReadinessCaptured: true,
       actionHistoryMatches: true,
       overflow: false,

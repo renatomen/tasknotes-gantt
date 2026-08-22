@@ -247,6 +247,7 @@ export async function captureSourcesCheckpoint(
       sequence: collectorSnapshot?.nextSequence ?? 0,
       target,
       roots: rootFacts,
+      sameCheckpointObservation: true,
       initialReadinessCaptured: collectorSnapshot?.records.some((record) =>
         record.event === 'sources-checkpoint'
           && record.facts?.checkpoint === 'initial-readiness') === true,
@@ -394,6 +395,7 @@ async function readSourcesLifecycleAfterFailure(
         liveBaseTargetPresent
       },
       roots: rootFacts,
+      sameCheckpointObservation: false,
       initialReadinessCaptured: collectorBeforeTerminal?.records?.some((record) =>
         record.event === "sources-checkpoint" && record.facts?.checkpoint === "initial-readiness") === true,
       actionHistoryMatches: JSON.stringify(actionHistory) === JSON.stringify(expectedActions),
