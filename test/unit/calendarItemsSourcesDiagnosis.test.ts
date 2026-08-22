@@ -190,6 +190,48 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
     expect(classifyCalendarItemsSourcesDiagnosis(snapshot)).toEqual({ status: 'open' });
   });
 
+  it('keeps a green suite-after snapshot ineligible for a causal verdict', () => {
+    const fixture = wrongOwnerSnapshot();
+    const snapshot = buildCalendarItemsSourcesSnapshot({
+      phase: 'suite-after',
+      checkpoint: 'suite-after',
+      sequence: 16,
+      target: fixture.target,
+      roots: fixture.roots,
+      sameCheckpointObservation: true,
+      initialReadinessCaptured: true,
+      actionHistoryMatches: true,
+      overflow: false,
+      collectorFailure: false,
+    });
+
+    expect(snapshot.completeness.terminalEvidence).toBe(false);
+    expect(classifyCalendarItemsSourcesDiagnosis(snapshot)).toEqual({ status: 'open' });
+  });
+
+  it('marks an empty root census and missing live Base host incomplete', () => {
+    const fixture = wrongOwnerSnapshot();
+    const snapshot = buildCalendarItemsSourcesSnapshot({
+      phase: 'terminal-failure',
+      checkpoint: 'missing-host',
+      sequence: 17,
+      target: {
+        ...fixture.target,
+        liveBaseHostPresent: false,
+        liveBaseTargetPresent: false,
+      },
+      roots: [],
+      sameCheckpointObservation: true,
+      initialReadinessCaptured: true,
+      actionHistoryMatches: true,
+      overflow: false,
+      collectorFailure: false,
+    });
+
+    expect(snapshot.completeness.liveBaseResult).toBe(false);
+    expect(snapshot.completeness.rootCensus).toBe(false);
+  });
+
   it('promotes only the matching failing readiness poll to terminal evidence', () => {
     const fixture = wrongOwnerSnapshot();
     const savedBoundary = {

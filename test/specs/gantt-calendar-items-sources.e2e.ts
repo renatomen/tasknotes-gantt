@@ -79,6 +79,7 @@ interface SourcesDiagnosticNodeGlobal {
 
 let sourcesBeforeEachSequence = 0;
 let sourcesSuitePrimaryError: unknown = null;
+let sourcesFailureEnvelopeCaptured = false;
 const sourcesPrimaryErrors = new WeakMap<object, unknown>();
 
 function rememberSourcesPrimaryError(error: unknown): void {
@@ -95,6 +96,16 @@ async function captureSourcesDiagnostic(
   if (diagnosticFailure !== null) {
     writeSourcesRetrievalFailure(origin, diagnosticFailure, null);
   }
+}
+
+async function captureSourcesFailureOnce(origin: string, primaryError: unknown): Promise<void> {
+  if (sourcesFailureEnvelopeCaptured) return;
+  const diagnosticFailure = await attemptSourcesFailureDiagnostics(origin, primaryError);
+  if (diagnosticFailure === null) {
+    sourcesFailureEnvelopeCaptured = true;
+    return;
+  }
+  writeSourcesRetrievalFailure(origin, diagnosticFailure, primaryError);
 }
 
 const CALENDAR_CONFIG_KEYS = [
@@ -439,6 +450,7 @@ async function searchState(): Promise<{ value: string; count: string }> {
 describe("Gantt (OG) calendar items — property events, timeblocks, switcher, search", () => {
   before(async () => {
     sourcesSuitePrimaryError = null;
+    sourcesFailureEnvelopeCaptured = false;
     try {
     // Hermetic: copy the in-repo fixture to a disposable temp dir.
     const tmpVault = path.join(os.tmpdir(), "og-gantt-calendar-sources-e2e");
@@ -456,10 +468,7 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
         rememberSourcesPrimaryError(error);
         noteSourcesOriginalFailure();
         const origin = `afterTest:${testTitle}`;
-        const diagnosticFailure = await attemptSourcesFailureDiagnostics(origin, error);
-        if (diagnosticFailure !== null) {
-          writeSourcesRetrievalFailure(origin, diagnosticFailure, error);
-        }
+        await captureSourcesFailureOnce(origin, error);
       };
 
     // Core plugins: `bases` opens the .base files; `daily-notes` makes the
@@ -502,10 +511,7 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     } catch (error) {
       rememberSourcesPrimaryError(error);
       noteSourcesOriginalFailure();
-      const diagnosticFailure = await attemptSourcesFailureDiagnostics("before-hook", error);
-      if (diagnosticFailure !== null) {
-        writeSourcesRetrievalFailure("before-hook", diagnosticFailure, error);
-      }
+      await captureSourcesFailureOnce("before-hook", error);
       throw error;
     }
   });
@@ -538,10 +544,7 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
       if (currentTest) sourcesPrimaryErrors.set(currentTest, error);
       noteSourcesOriginalFailure();
       const origin = `beforeEach:${checkpoint}`;
-      const diagnosticFailure = await attemptSourcesFailureDiagnostics(origin, error);
-      if (diagnosticFailure !== null) {
-        writeSourcesRetrievalFailure(origin, diagnosticFailure, error);
-      }
+      await captureSourcesFailureOnce(origin, error);
       throw error;
     }
   });
@@ -553,30 +556,24 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     rememberSourcesPrimaryError(primaryError);
     noteSourcesOriginalFailure();
     const origin = `test:${currentTest?.title ?? "unknown"}`;
-    const diagnosticFailure = await attemptSourcesFailureDiagnostics(origin, primaryError);
-    if (diagnosticFailure !== null) {
-      writeSourcesRetrievalFailure(origin, diagnosticFailure, primaryError);
-    }
+    await captureSourcesFailureOnce(origin, primaryError);
   });
 
   after(async function () {
     this.timeout(60000);
-    if (sourcesSuitePrimaryError !== null && sourcesSuitePrimaryError !== undefined) {
-      const diagnosticFailure = await attemptSourcesFailureDiagnostics(
-        "suite-after",
-        sourcesSuitePrimaryError,
-      );
-      if (diagnosticFailure !== null) {
-        writeSourcesRetrievalFailure("suite-after", diagnosticFailure, sourcesSuitePrimaryError);
+    try {
+      if (sourcesSuitePrimaryError !== null && sourcesSuitePrimaryError !== undefined) {
+        await captureSourcesFailureOnce("suite-after", sourcesSuitePrimaryError);
+      } else {
+        await captureSourcesDiagnostic("suite-after-checkpoint", () =>
+          captureSourcesCheckpoint("suite-after", "suite-after"));
+        await captureSourcesDiagnostic("suite-after-report", () =>
+          reportSourcesLifecycle("suite-after", null));
       }
-    } else {
-      await captureSourcesDiagnostic("suite-after", async () => {
-        await captureSourcesCheckpoint("suite-after", "suite-after");
-        await reportSourcesLifecycle("suite-after", null);
-        await stopSourcesLifecycleCapture();
-      });
+    } finally {
+      await captureSourcesDiagnostic("collector-stop", stopSourcesLifecycleCapture);
+      delete (globalThis as SourcesDiagnosticNodeGlobal).__tnGanttLegendRunnerFailureReporter;
     }
-    delete (globalThis as SourcesDiagnosticNodeGlobal).__tnGanttLegendRunnerFailureReporter;
   });
 
   it("renders property events only when the family is on AND the start picker is set, scoped by the query", async () => {
@@ -643,12 +640,24 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
   it("captures a complete property-event diagnostic envelope without a causal verdict", async () => {
     const verification = await verifySourcesDiagnosticEnvelope("property-events-diagnostic");
 
+    if (verification.originalOutcome === "failed-earlier") return;
     expect(verification.diagnosticOutcome).toBe("captured");
     expect(verification.originalOutcome).toBe("passed");
     expect(verification.expectedMarkersPresent).toBe(true);
     expect(verification.snapshot.completeness.configActions).toBe(true);
     expect(verification.snapshot.completeness.targetFileAndCache).toBe(true);
     expect(verification.snapshot.completeness.taskNotesFacts).toBe(true);
+    expect(verification.snapshot.completeness.liveBaseResult).toBe(true);
+    expect(verification.snapshot.completeness.rootCensus).toBe(true);
+    expect(verification.snapshot.completeness.ownerDomMembership).toBe(true);
+    expect(verification.snapshot.completeness.correlationKeys).toBe(true);
+    expect(verification.snapshot.target.liveBaseHostPresent).toBe(true);
+    expect(verification.snapshot.target.liveBaseTargetPresent).toBe(true);
+    expect(verification.snapshot.roots.length).toBeGreaterThan(0);
+    expect(verification.snapshot.roots.some((root) =>
+      root.ownsBase === true
+        && root.ownerLeafId !== null
+        && root.ownerLiveBaseHostPresent === true)).toBe(true);
     expect(verification.snapshot.disqualifiers.collectorFailure).toBe(false);
     expect(verification.snapshot.disqualifiers.overflow).toBe(false);
     expect(verification.verdict).toEqual({ status: "open" });

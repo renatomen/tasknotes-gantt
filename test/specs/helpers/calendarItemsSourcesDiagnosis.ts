@@ -203,9 +203,7 @@ export function buildCalendarItemsSourcesSnapshot(
     boundary.roots,
     boundary.target.liveBaseTargetPresent,
   );
-  const terminalEvidence = boundary.phase === 'terminal-failure'
-    || boundary.phase === 'suite-after'
-    || boundary.phase === 'teardown';
+  const terminalEvidence = boundary.phase === 'terminal-failure';
   const authoritativeRoot = ownership.authoritativeRoot;
   const matchedControl = authoritativeRoot === null ? null : {
     kind: 'simultaneous-owner' as const,
@@ -242,9 +240,9 @@ export function buildCalendarItemsSourcesSnapshot(
       taskNotesFacts: boundary.target.taskNotesOccurrenceListed !== null
         && boundary.target.recurrenceParentPresent !== null
         && boundary.target.occurrenceDateMatches !== null,
-      liveBaseResult: boundary.target.liveBaseHostPresent !== null
+      liveBaseResult: boundary.target.liveBaseHostPresent === true
         && boundary.target.liveBaseTargetPresent !== null,
-      rootCensus: true,
+      rootCensus: boundary.roots.length > 0,
       ownerDomMembership: boundary.roots.every(({ ownerDomMember }) => ownerDomMember !== null),
       configActions: boundary.actionHistoryMatches,
       terminalEvidence,

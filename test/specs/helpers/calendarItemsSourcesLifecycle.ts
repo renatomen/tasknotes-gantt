@@ -175,8 +175,12 @@ async function captureSourcesBoundary(
       };
     });
     const targetLeafFacts = leafFacts.filter(({ filePath }) => filePath === args.basePath);
-    const liveBaseHostPresent = targetLeafFacts.some(({ liveHostPresent }) => liveHostPresent);
-    const liveBaseTargetPresent = targetLeafFacts.some(({ liveTargetPresent }) => liveTargetPresent);
+    const liveBaseHostPresent = targetLeafFacts.length === 0
+      ? null
+      : targetLeafFacts.some(({ liveHostPresent }) => liveHostPresent);
+    const liveBaseTargetPresent = targetLeafFacts.length === 0
+      ? null
+      : targetLeafFacts.some(({ liveTargetPresent }) => liveTargetPresent);
 
     const roots = Array.from(document.querySelectorAll<HTMLElement>('.og-bases-gantt'));
     const globallySelectedRoot = document.querySelector<HTMLElement>('.og-bases-gantt');
@@ -282,8 +286,9 @@ async function captureSourcesBoundary(
     } satisfies CalendarItemsSourcesBoundary;
     const barIds = Array.from(globallySelectedRoot?.querySelectorAll<HTMLElement>('.wx-bar') ?? [])
       .map((bar) => bar.getAttribute('data-id') ?? '');
-    const missingBars = args.taskNames.filter((name: string) =>
-      !barIds.some((id) => id.endsWith(name)));
+    const missingBars = globallySelectedRoot === null && args.taskNames.length > 0
+      ? ['<.og-bases-gantt absent>']
+      : args.taskNames.filter((name: string) => !barIds.some((id) => id.endsWith(name)));
     return { boundary, missingBars };
   }, {
     phase,
@@ -416,8 +421,12 @@ async function readSourcesLifecycleAfterFailure(
       };
     });
     const targetLeafFacts = leafFacts.filter((leaf) => leaf.filePath === basePath);
-    const liveBaseHostPresent = targetLeafFacts.some((leaf) => leaf.liveHostPresent);
-    const liveBaseTargetPresent = targetLeafFacts.some((leaf) => leaf.liveTargetPresent);
+    const liveBaseHostPresent = targetLeafFacts.length === 0
+      ? null
+      : targetLeafFacts.some((leaf) => leaf.liveHostPresent);
+    const liveBaseTargetPresent = targetLeafFacts.length === 0
+      ? null
+      : targetLeafFacts.some((leaf) => leaf.liveTargetPresent);
     const roots = [...document.querySelectorAll(".og-bases-gantt")];
     const globalProxy = document.querySelector(".og-bases-gantt");
     const rootFacts = roots.map((root, index) => {
@@ -528,9 +537,9 @@ export async function reportSourcesLifecycle(
       return {
         lifecycle: trace.lifecycle,
         sourcesSnapshots: reportedSnapshots,
-        latestVerdict: reportedSnapshots.length === 0
+        latestVerdict: trace.terminalSnapshot === null
           ? { status: 'open' as const }
-          : classifyCalendarItemsSourcesDiagnosis(reportedSnapshots[reportedSnapshots.length - 1]),
+          : classifyCalendarItemsSourcesDiagnosis(trace.terminalSnapshot),
       };
     },
   });

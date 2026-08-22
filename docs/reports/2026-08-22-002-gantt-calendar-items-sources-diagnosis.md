@@ -49,11 +49,11 @@ Verification receipts for the final local U1 state:
 
 | Check | Result | Evidence meaning |
 |---|---|---|
-| `npx jest test/unit/lifecycleTrace.test.ts test/unit/calendarItemsSourcesDiagnosis.test.ts --runInBand` | 50 passed | Bounded retrieval, primary-error preservation, bounded best-effort checkpoints, matching failing-poll selection, post-failure resample refusal, and other fail-closed cases |
+| `npx jest test/unit/lifecycleTrace.test.ts test/unit/calendarItemsSourcesDiagnosis.test.ts --runInBand` | 52 passed | Bounded retrieval, primary-error preservation, bounded best-effort checkpoints, matching failing-poll selection, green-teardown verdict refusal, post-failure resample refusal, and other fail-closed cases |
 | `npm run typecheck` | Passed; 0 errors, with existing Svelte warnings only | Source, test, and e2e TypeScript serialization contracts remain valid |
 | `npm run lint` | Passed | Repository static rules remain satisfied |
 | `npm run e2e:local -- --spec test/specs/gantt-legend.e2e.ts` | 28 passed | Shared lifecycle extraction preserves the existing Legend envelope in real Obsidian |
-| `npm run e2e:local -- --spec test/specs/gantt-calendar-items-sources.e2e.ts` | 5 passed; diagnostic test asserted the property-event markers and `{"status":"open"}`; suite emitted `latestVerdict: {"status":"open"}` | The complete property-event-first journey completed with the probe armed, and the focused spec fails if its diagnostic envelope silently degrades |
+| `npm run e2e:local -- --spec test/specs/gantt-calendar-items-sources.e2e.ts` | 5 passed; diagnostic test asserted the property-event markers, live Base host and target, owning-root correlation, and `{"status":"open"}`; suite emitted `latestVerdict: {"status":"open"}` | The complete property-event-first journey completed with the probe armed, and the focused spec fails if its ownership or live-host evidence silently degrades |
 | `git diff --check` | Passed | No whitespace-error drift |
 
 Both real-Obsidian runs used the cached launcher version inventory after the environment reported `UNABLE_TO_VERIFY_LEAF_SIGNATURE`; the tests themselves completed successfully. These are ordinary verification executions, not repeat-run measurements, replacements, or top-ups. They add zero legs to the fixed 48-leg denominator.
