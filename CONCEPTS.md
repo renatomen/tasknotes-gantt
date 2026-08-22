@@ -181,6 +181,28 @@ The explicitly stated boundary that closes a measurement window whose subject in
 ### Honest denominator
 The execution count a failure rate is stated over, counted exactly from its source of record: `run_attempt` summed across the window's CI runs for ordinary-CI incident windows, and the enumerated matrix-leg conclusions for repeat-run executions — re-derived from that source on every recount. Rates are stated with this denominator, never as bare instance counts; a rerun counted as evidence is counted in the denominator, and a leg that ran fewer than the expected specs is excluded as invalid with its exclusion reported, never counted as a pass.
 
+## Reliability diagnosis
+
+### Lifecycle envelope
+The terminal diagnostic record that keeps the original test outcome separate from the best-effort diagnostic outcome while carrying the bounded page-local trace gathered for the same failure.
+
+A diagnostic retrieval failure may make the trace incomplete, but it never replaces or downgrades the primary test failure.
+
+### Matched control
+A passing observation that is comparable to a failing trace because it shares every relevant causal input and boundary and supplies complete evidence for the distinction being tested.
+
+A later pass is not automatically a matched control; comparison is unavailable when configuration, journey, ownership, mount, checkpoint, or trace completeness differs.
+
+### Organic recurrence
+A later occurrence of a known symptom during ordinary verification or product work, rather than through a commissioned repeat-run or measurement top-up.
+
+It may activate a deeper diagnostic boundary, but it does not enter or reopen the historical measurement denominator.
+
+### Open diagnosis
+A settled diagnostic outcome that withholds causal attribution because the available evidence does not distinguish the candidate causes completely.
+
+An open diagnosis is a valid bounded result, including when the diagnostic mechanism is verified but the symptom does not recur organically.
+
 ## Flagged ambiguities
 
 - "Calendar role" had been used for plugin-assigned semantics layered over passive calendar sources — retired: a calendar note declares its own availability, and the view's calendar mode chooses how that availability is applied.
