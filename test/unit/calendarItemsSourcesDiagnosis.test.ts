@@ -3,12 +3,15 @@ import {
   buildCalendarItemsSourcesSnapshot,
   classifyCalendarItemsSourcesDiagnosis,
   invalidateCalendarItemsSourcesReadinessEvidence,
+  recordCalendarItemsSourcesReadinessRetrievalFailure,
   retainMatchingCalendarItemsSourcesReadinessEvidence,
   recordCalendarItemsSourcesReadinessEvidence,
   sealCalendarItemsSourcesReadinessEvidence,
   selectCalendarItemsSourcesTerminalBoundary,
   shouldCaptureCalendarItemsSourcesReadinessBoundary,
   startCalendarItemsSourcesReadinessEvidence,
+  type CalendarItemsSourcesBoundary,
+  type CalendarItemsSourcesReadinessEvidence,
   type CalendarItemsSourcesSnapshot,
   type SourcesDiagnosisDisqualifiers,
   type SourcesMatchedControl,
@@ -59,6 +62,20 @@ const noDisqualifiers: SourcesDiagnosisDisqualifiers = {
   unmatchedControl: false,
 };
 
+function readinessEvidenceFor(
+  boundary: CalendarItemsSourcesBoundary | null,
+  overrides: Partial<CalendarItemsSourcesReadinessEvidence> = {},
+): CalendarItemsSourcesReadinessEvidence {
+  return {
+    open: false,
+    boundary,
+    pollFailed: boundary !== null,
+    missingBars: boundary === null ? null : ['Standup 2026-03-23.md'],
+    diagnosticRetrievalFailure: false,
+    ...overrides,
+  };
+}
+
 function wrongOwnerSnapshot(): CalendarItemsSourcesSnapshot {
   return buildCalendarItemsSourcesSnapshot({
     phase: 'terminal-failure',
@@ -107,6 +124,7 @@ function wrongOwnerSnapshot(): CalendarItemsSourcesSnapshot {
     actionHistoryMatches: true,
     overflow: false,
     collectorFailure: false,
+    diagnosticRetrievalFailure: false,
   });
 }
 
@@ -142,6 +160,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       actionHistoryMatches: true,
       overflow: false,
       collectorFailure: false,
+      diagnosticRetrievalFailure: false,
     });
 
     expect(snapshot.prerequisite.state).toBe('pending');
@@ -162,6 +181,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       actionHistoryMatches: true,
       overflow: false,
       collectorFailure: false,
+      diagnosticRetrievalFailure: false,
     });
 
     expect(snapshot.matchedControl).toEqual(expect.objectContaining({
@@ -185,6 +205,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       actionHistoryMatches: true,
       overflow: false,
       collectorFailure: false,
+      diagnosticRetrievalFailure: false,
     });
 
     expect(snapshot.disqualifiers.missingBoundarySide).toBe(true);
@@ -204,6 +225,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       actionHistoryMatches: true,
       overflow: false,
       collectorFailure: false,
+      diagnosticRetrievalFailure: false,
     });
 
     expect(snapshot.completeness.terminalEvidence).toBe(false);
@@ -227,6 +249,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       actionHistoryMatches: true,
       overflow: false,
       collectorFailure: false,
+      diagnosticRetrievalFailure: false,
     });
 
     expect(snapshot.completeness.liveBaseResult).toBe(false);
@@ -246,6 +269,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       actionHistoryMatches: true,
       overflow: false,
       collectorFailure: false,
+      diagnosticRetrievalFailure: false,
     };
     const resampledBoundary = {
       ...savedBoundary,
@@ -256,9 +280,8 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
 
     expect(selectCalendarItemsSourcesTerminalBoundary(
       'beforeEach:before-each-2',
-      savedBoundary,
+      readinessEvidenceFor(savedBoundary),
       resampledBoundary,
-      true,
     )).toEqual(expect.objectContaining({
       checkpoint: 'before-each-2',
       phase: 'terminal-failure',
@@ -266,16 +289,217 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
     }));
     expect(selectCalendarItemsSourcesTerminalBoundary(
       'beforeEach:before-each-2',
-      savedBoundary,
+      readinessEvidenceFor(savedBoundary, { pollFailed: false }),
       resampledBoundary,
-      false,
     )).toBe(resampledBoundary);
     expect(selectCalendarItemsSourcesTerminalBoundary(
       'test:property events',
-      savedBoundary,
+      readinessEvidenceFor(savedBoundary),
       resampledBoundary,
-      true,
     )).toBe(resampledBoundary);
+  });
+
+  it.each([
+    ['root', { rootId: 'owner-remounted' }],
+    ['mount', { mountToken: 3 }],
+    ['owner', { ownerLeafId: 'base-leaf-remounted' }],
+  ])('refuses promotion when terminal %s identity differs', (_identity, rootOverride) => {
+    const fixture = wrongOwnerSnapshot();
+    const savedBoundary = {
+      phase: 'before-each' as const,
+      checkpoint: 'before-each-2',
+      sequence: 15,
+      target: fixture.target,
+      roots: fixture.roots,
+      sameCheckpointObservation: true,
+      initialReadinessCaptured: true,
+      actionHistoryMatches: true,
+      overflow: false,
+      collectorFailure: false,
+      diagnosticRetrievalFailure: false,
+    };
+    const resampledBoundary = {
+      ...savedBoundary,
+      phase: 'terminal-failure' as const,
+      roots: fixture.roots.map((root) => root.ownsBase === true
+        ? { ...root, ...rootOverride }
+        : root),
+      sameCheckpointObservation: false,
+    };
+
+    const selected = selectCalendarItemsSourcesTerminalBoundary(
+      'beforeEach:before-each-2',
+      readinessEvidenceFor(savedBoundary),
+      resampledBoundary,
+    );
+
+    expect(selected).toBe(resampledBoundary);
+    expect(classifyCalendarItemsSourcesDiagnosis(
+      buildCalendarItemsSourcesSnapshot(selected),
+    )).toEqual({ status: 'open' });
+  });
+
+  it.each([
+    ['owner live target', { ownerLiveBaseTargetPresent: false }],
+    ['root target bar', { targetPresent: false }],
+  ])('refuses promotion when terminal %s membership differs', (_membership, rootOverride) => {
+    const fixture = wrongOwnerSnapshot();
+    const savedBoundary = {
+      phase: 'before-each' as const,
+      checkpoint: 'before-each-2',
+      sequence: 15,
+      target: fixture.target,
+      roots: fixture.roots,
+      sameCheckpointObservation: true,
+      initialReadinessCaptured: true,
+      actionHistoryMatches: true,
+      overflow: false,
+      collectorFailure: false,
+      diagnosticRetrievalFailure: false,
+    };
+    const resampledBoundary = {
+      ...savedBoundary,
+      phase: 'terminal-failure' as const,
+      roots: fixture.roots.map((root) => root.ownsBase === true
+        ? { ...root, ...rootOverride }
+        : root),
+      sameCheckpointObservation: false,
+    };
+
+    const selected = selectCalendarItemsSourcesTerminalBoundary(
+      'beforeEach:before-each-2',
+      readinessEvidenceFor(savedBoundary),
+      resampledBoundary,
+    );
+
+    expect(selected).toBe(resampledBoundary);
+    expect(classifyCalendarItemsSourcesDiagnosis(
+      buildCalendarItemsSourcesSnapshot(selected),
+    )).toEqual({ status: 'open' });
+  });
+
+  it('refuses promotion when terminal live target presence differs', () => {
+    const fixture = wrongOwnerSnapshot();
+    const savedBoundary = {
+      phase: 'before-each' as const,
+      checkpoint: 'before-each-2',
+      sequence: 15,
+      target: fixture.target,
+      roots: fixture.roots,
+      sameCheckpointObservation: true,
+      initialReadinessCaptured: true,
+      actionHistoryMatches: true,
+      overflow: false,
+      collectorFailure: false,
+      diagnosticRetrievalFailure: false,
+    };
+    const resampledBoundary = {
+      ...savedBoundary,
+      phase: 'terminal-failure' as const,
+      target: { ...savedBoundary.target, liveBaseTargetPresent: false },
+      sameCheckpointObservation: false,
+    };
+
+    const selected = selectCalendarItemsSourcesTerminalBoundary(
+      'beforeEach:before-each-2',
+      readinessEvidenceFor(savedBoundary),
+      resampledBoundary,
+    );
+
+    expect(selected).toBe(resampledBoundary);
+    expect(classifyCalendarItemsSourcesDiagnosis(
+      buildCalendarItemsSourcesSnapshot(selected),
+    )).toEqual({ status: 'open' });
+  });
+
+  it.each([
+    ['overflow', { overflow: true }],
+    ['collector failure', { collectorFailure: true }],
+  ])('propagates terminal %s into promoted readiness evidence', (_name, terminalFailure) => {
+    const fixture = wrongOwnerSnapshot();
+    const savedBoundary = {
+      phase: 'before-each' as const,
+      checkpoint: 'before-each-2',
+      sequence: 15,
+      target: fixture.target,
+      roots: fixture.roots,
+      sameCheckpointObservation: true,
+      initialReadinessCaptured: true,
+      actionHistoryMatches: true,
+      overflow: false,
+      collectorFailure: false,
+      diagnosticRetrievalFailure: false,
+    };
+    const resampledBoundary = {
+      ...savedBoundary,
+      ...terminalFailure,
+      phase: 'terminal-failure' as const,
+      sameCheckpointObservation: false,
+    };
+
+    const selected = selectCalendarItemsSourcesTerminalBoundary(
+      'beforeEach:before-each-2',
+      readinessEvidenceFor(savedBoundary),
+      resampledBoundary,
+    );
+    const snapshot = buildCalendarItemsSourcesSnapshot(selected);
+
+    expect(snapshot.disqualifiers).toEqual(expect.objectContaining(terminalFailure));
+    expect(classifyCalendarItemsSourcesDiagnosis(snapshot)).toEqual({ status: 'open' });
+  });
+
+  it('propagates readiness-census retrieval failure into terminal evidence', () => {
+    const fixture = wrongOwnerSnapshot();
+    const savedBoundary = {
+      phase: 'before-each' as const,
+      checkpoint: 'before-each-2',
+      sequence: 15,
+      target: fixture.target,
+      roots: fixture.roots,
+      sameCheckpointObservation: true,
+      initialReadinessCaptured: true,
+      actionHistoryMatches: true,
+      overflow: false,
+      collectorFailure: false,
+      diagnosticRetrievalFailure: false,
+    };
+    const evidence = readinessEvidenceFor(savedBoundary, {
+      diagnosticRetrievalFailure: true,
+    });
+    const resampledBoundary = {
+      ...savedBoundary,
+      phase: 'terminal-failure' as const,
+      sequence: 16,
+      sameCheckpointObservation: false,
+    };
+
+    const selected = selectCalendarItemsSourcesTerminalBoundary(
+      'beforeEach:before-each-2',
+      evidence,
+      resampledBoundary,
+    );
+    const snapshot = buildCalendarItemsSourcesSnapshot(selected);
+
+    expect(selected).toEqual(expect.objectContaining({
+      checkpoint: savedBoundary.checkpoint,
+      sameCheckpointObservation: true,
+    }));
+    expect(snapshot.disqualifiers.diagnosticRetrievalFailure).toBe(true);
+    expect(classifyCalendarItemsSourcesDiagnosis(snapshot)).toEqual({ status: 'open' });
+  });
+
+  it('retains a readiness retrieval failure when saved evidence is invalidated', () => {
+    const failed = recordCalendarItemsSourcesReadinessRetrievalFailure(
+      startCalendarItemsSourcesReadinessEvidence(),
+    );
+
+    expect(invalidateCalendarItemsSourcesReadinessEvidence(failed)).toEqual({
+      open: true,
+      boundary: null,
+      pollFailed: false,
+      missingBars: null,
+      diagnosticRetrievalFailure: true,
+    });
   });
 
   it('seals the last completed readiness poll against a post-deadline write', () => {
@@ -291,6 +515,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       actionHistoryMatches: true,
       overflow: false,
       collectorFailure: false,
+      diagnosticRetrievalFailure: false,
     };
     const lateBoundary = { ...completedBoundary, checkpoint: 'late-poll', sequence: 19 };
     const open = startCalendarItemsSourcesReadinessEvidence();
@@ -324,6 +549,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       actionHistoryMatches: true,
       overflow: false,
       collectorFailure: false,
+      diagnosticRetrievalFailure: false,
     };
     const captured = recordCalendarItemsSourcesReadinessEvidence(
       startCalendarItemsSourcesReadinessEvidence(),
@@ -336,6 +562,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       boundary: null,
       pollFailed: false,
       missingBars: null,
+      diagnosticRetrievalFailure: false,
     });
   });
 
@@ -352,6 +579,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       actionHistoryMatches: true,
       overflow: false,
       collectorFailure: false,
+      diagnosticRetrievalFailure: false,
     };
     const captured = recordCalendarItemsSourcesReadinessEvidence(
       startCalendarItemsSourcesReadinessEvidence(),
@@ -367,6 +595,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       boundary: null,
       pollFailed: false,
       missingBars: null,
+      diagnosticRetrievalFailure: false,
     });
     expect(retainMatchingCalendarItemsSourcesReadinessEvidence(
       captured,
@@ -449,6 +678,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       actionHistoryMatches: true,
       overflow: false,
       collectorFailure: false,
+      diagnosticRetrievalFailure: false,
     });
 
     expect(snapshot.disqualifiers.remount).toBe(true);
@@ -505,6 +735,7 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
       actionHistoryMatches: true,
       overflow: false,
       collectorFailure: false,
+      diagnosticRetrievalFailure: false,
     });
 
     expect(snapshot.disqualifiers).toEqual(expect.objectContaining({

@@ -7,13 +7,13 @@ import {
   classifyCalendarItemsSourcesDiagnosis,
   invalidateCalendarItemsSourcesReadinessEvidence,
   recordCalendarItemsSourcesReadinessEvidence,
+  recordCalendarItemsSourcesReadinessRetrievalFailure,
   retainMatchingCalendarItemsSourcesReadinessEvidence,
   sealCalendarItemsSourcesReadinessEvidence,
   selectCalendarItemsSourcesTerminalBoundary,
   startCalendarItemsSourcesReadinessEvidence,
   type CalendarItemsSourcesPhase,
   type CalendarItemsSourcesBoundary,
-  type CalendarItemsSourcesReadinessEvidence,
   type CalendarItemsSourcesRootFacts,
   type CalendarItemsSourcesSnapshot,
   type CalendarItemsSourcesTargetFacts,
@@ -52,12 +52,9 @@ interface SourcesLifecycleReportTrace {
 }
 
 let originalFailureSeen = false;
-let readinessEvidence: CalendarItemsSourcesReadinessEvidence = {
-  open: false,
-  boundary: null,
-  pollFailed: false,
-  missingBars: null,
-};
+let readinessEvidence = sealCalendarItemsSourcesReadinessEvidence(
+  startCalendarItemsSourcesReadinessEvidence(),
+);
 const snapshots: CalendarItemsSourcesSnapshot[] = [];
 
 interface SourcesBoundaryCaptureOptions {
@@ -71,7 +68,9 @@ export function noteSourcesOriginalFailure(): void {
 
 export async function startSourcesLifecycleCapture(): Promise<void> {
   originalFailureSeen = false;
-  readinessEvidence = { open: false, boundary: null, pollFailed: false, missingBars: null };
+  readinessEvidence = sealCalendarItemsSourcesReadinessEvidence(
+    startCalendarItemsSourcesReadinessEvidence(),
+  );
   snapshots.length = 0;
   const started = await browser.execute((capacity, schema) => {
     const diagnosticGlobal = globalThis as typeof globalThis & {
@@ -292,6 +291,7 @@ async function captureSourcesBoundary(
       actionHistoryMatches: JSON.stringify(actionHistory) === JSON.stringify(expectedActions),
       overflow: collectorSnapshot?.incomplete.overflow ?? true,
       collectorFailure: collectorSnapshot?.incomplete.collectorFailure ?? true,
+      diagnosticRetrievalFailure: false,
     } satisfies CalendarItemsSourcesBoundary;
     const barIds = Array.from(globallySelectedRoot?.querySelectorAll<HTMLElement>('.wx-bar') ?? [])
       .map((bar) => bar.getAttribute('data-id') ?? '');
@@ -340,7 +340,7 @@ export async function captureSourcesReadinessPoll(
     });
   });
   if (diagnosticFailure !== null || captureState.value === null) {
-    readinessEvidence = invalidateCalendarItemsSourcesReadinessEvidence(readinessEvidence);
+    readinessEvidence = recordCalendarItemsSourcesReadinessRetrievalFailure(readinessEvidence);
     return false;
   }
   readinessEvidence = recordCalendarItemsSourcesReadinessEvidence(
@@ -505,7 +505,8 @@ async function readSourcesLifecycleAfterFailure(
         record.event === "sources-checkpoint" && record.facts?.checkpoint === "initial-readiness") === true,
       actionHistoryMatches: JSON.stringify(actionHistory) === JSON.stringify(expectedActions),
       overflow: collectorBeforeTerminal?.incomplete?.overflow ?? true,
-      collectorFailure: collectorBeforeTerminal?.incomplete?.collectorFailure ?? true
+      collectorFailure: collectorBeforeTerminal?.incomplete?.collectorFailure ?? true,
+      diagnosticRetrievalFailure: false
     };
     control?.record({
       scope: "calendar-items-sources",
@@ -525,7 +526,12 @@ async function readSourcesLifecycleAfterFailure(
         sameCheckpointObservation: false
       }
     });
-    return { lifecycle: control?.snapshot() ?? null, boundary: resampledBoundary };
+    const terminalCollector = control?.snapshot() ?? null;
+    resampledBoundary.overflow = resampledBoundary.overflow
+      || (terminalCollector?.incomplete?.overflow ?? true);
+    resampledBoundary.collectorFailure = resampledBoundary.collectorFailure
+      || (terminalCollector?.incomplete?.collectorFailure ?? true);
+    return { lifecycle: terminalCollector, boundary: resampledBoundary };
   })()`;
   const result = await evaluateBoundedCdp<{
     lifecycle: GanttLifecycleSnapshot | null;
@@ -533,9 +539,8 @@ async function readSourcesLifecycleAfterFailure(
   }>(browser.capabilities as Record<string, unknown>, expression);
   const terminalBoundary = selectCalendarItemsSourcesTerminalBoundary(
     origin,
-    readinessEvidence.boundary,
+    readinessEvidence,
     result.boundary,
-    readinessEvidence.pollFailed,
   );
   return {
     lifecycle: result.lifecycle,
@@ -626,7 +631,9 @@ export function writeSourcesRetrievalFailure(
 }
 
 export function stopSourcesLifecycleCapture(): Promise<void> {
-  readinessEvidence = { open: false, boundary: null, pollFailed: false, missingBars: null };
+  readinessEvidence = sealCalendarItemsSourcesReadinessEvidence(
+    startCalendarItemsSourcesReadinessEvidence(),
+  );
   return browser.execute(() => {
     const diagnosticGlobal = globalThis as typeof globalThis & {
       __tnGanttLifecycle?: GanttLifecycleControl;

@@ -173,6 +173,7 @@ export interface CalendarItemsSourcesBoundary {
   actionHistoryMatches: boolean;
   overflow: boolean;
   collectorFailure: boolean;
+  diagnosticRetrievalFailure: boolean;
 }
 
 export interface CalendarItemsSourcesReadinessEvidence {
@@ -180,10 +181,17 @@ export interface CalendarItemsSourcesReadinessEvidence {
   boundary: CalendarItemsSourcesBoundary | null;
   pollFailed: boolean;
   missingBars: readonly string[] | null;
+  diagnosticRetrievalFailure: boolean;
 }
 
 export function startCalendarItemsSourcesReadinessEvidence(): CalendarItemsSourcesReadinessEvidence {
-  return { open: true, boundary: null, pollFailed: false, missingBars: null };
+  return {
+    open: true,
+    boundary: null,
+    pollFailed: false,
+    missingBars: null,
+    diagnosticRetrievalFailure: false,
+  };
 }
 
 function normalizeMissingBars(missingBars: readonly string[]): string[] {
@@ -201,6 +209,17 @@ export function recordCalendarItemsSourcesReadinessEvidence(
     boundary,
     pollFailed: missingBars.length > 0,
     missingBars: normalizeMissingBars(missingBars),
+    diagnosticRetrievalFailure: evidence.diagnosticRetrievalFailure,
+  };
+}
+
+export function recordCalendarItemsSourcesReadinessRetrievalFailure(
+  evidence: CalendarItemsSourcesReadinessEvidence,
+): CalendarItemsSourcesReadinessEvidence {
+  if (!evidence.open) return evidence;
+  return {
+    ...startCalendarItemsSourcesReadinessEvidence(),
+    diagnosticRetrievalFailure: true,
   };
 }
 
@@ -229,7 +248,10 @@ export function invalidateCalendarItemsSourcesReadinessEvidence(
   evidence: CalendarItemsSourcesReadinessEvidence,
 ): CalendarItemsSourcesReadinessEvidence {
   if (!evidence.open) return evidence;
-  return { open: true, boundary: null, pollFailed: false, missingBars: null };
+  return {
+    ...startCalendarItemsSourcesReadinessEvidence(),
+    diagnosticRetrievalFailure: evidence.diagnosticRetrievalFailure,
+  };
 }
 
 export function sealCalendarItemsSourcesReadinessEvidence(
@@ -241,20 +263,70 @@ export function sealCalendarItemsSourcesReadinessEvidence(
 
 export function selectCalendarItemsSourcesTerminalBoundary(
   origin: string,
-  savedReadinessBoundary: CalendarItemsSourcesBoundary | null,
+  readinessEvidence: CalendarItemsSourcesReadinessEvidence,
   resampledBoundary: CalendarItemsSourcesBoundary,
-  readinessPollFailed: boolean,
 ): CalendarItemsSourcesBoundary {
-  if (!readinessPollFailed
-      || savedReadinessBoundary === null
-      || origin !== `beforeEach:${savedReadinessBoundary.checkpoint}`) {
-    return resampledBoundary;
-  }
-  return {
-    ...savedReadinessBoundary,
+  const savedBoundary = readinessEvidence.boundary;
+  const promoteSavedBoundary = readinessEvidence.pollFailed
+    && savedBoundary !== null
+    && origin === `beforeEach:${savedBoundary.checkpoint}`
+    && calendarItemsSourcesCensusesMatch(savedBoundary, resampledBoundary);
+  const selectedBoundary: CalendarItemsSourcesBoundary = promoteSavedBoundary ? {
+    ...savedBoundary,
     phase: 'terminal-failure',
     sameCheckpointObservation: true,
-  };
+  } : resampledBoundary;
+  return mergeCalendarItemsSourcesTerminalFailureFacts(
+    selectedBoundary,
+    resampledBoundary,
+    readinessEvidence.diagnosticRetrievalFailure,
+  );
+}
+
+function mergeCalendarItemsSourcesTerminalFailureFacts(
+  boundary: CalendarItemsSourcesBoundary,
+  terminalBoundary: CalendarItemsSourcesBoundary,
+  readinessDiagnosticRetrievalFailure: boolean,
+): CalendarItemsSourcesBoundary {
+  const overflow = boundary.overflow || terminalBoundary.overflow;
+  const collectorFailure = boundary.collectorFailure || terminalBoundary.collectorFailure;
+  const diagnosticRetrievalFailure = boundary.diagnosticRetrievalFailure
+    || terminalBoundary.diagnosticRetrievalFailure
+    || readinessDiagnosticRetrievalFailure;
+  if (overflow === boundary.overflow
+      && collectorFailure === boundary.collectorFailure
+      && diagnosticRetrievalFailure === boundary.diagnosticRetrievalFailure) return boundary;
+  return { ...boundary, overflow, collectorFailure, diagnosticRetrievalFailure };
+}
+
+function calendarItemsSourcesCensusesMatch(
+  savedBoundary: CalendarItemsSourcesBoundary,
+  terminalBoundary: CalendarItemsSourcesBoundary,
+): boolean {
+  if (savedBoundary.target.liveBaseHostPresent !== terminalBoundary.target.liveBaseHostPresent
+      || savedBoundary.target.liveBaseTargetPresent !== terminalBoundary.target.liveBaseTargetPresent
+      || savedBoundary.roots.length !== terminalBoundary.roots.length) return false;
+  const terminalRoots = new Map(terminalBoundary.roots.map((root) => [root.rootId, root]));
+  return savedBoundary.roots.every((savedRoot) => {
+    const terminalRoot = terminalRoots.get(savedRoot.rootId);
+    return terminalRoot !== undefined && calendarItemsSourcesRootsMatch(savedRoot, terminalRoot);
+  });
+}
+
+function calendarItemsSourcesRootsMatch(
+  savedRoot: CalendarItemsSourcesRootFacts,
+  terminalRoot: CalendarItemsSourcesRootFacts,
+): boolean {
+  return savedRoot.mountToken === terminalRoot.mountToken
+    && savedRoot.ownerLeafId === terminalRoot.ownerLeafId
+    && savedRoot.selectedByGlobalProxy === terminalRoot.selectedByGlobalProxy
+    && savedRoot.connected === terminalRoot.connected
+    && savedRoot.visible === terminalRoot.visible
+    && savedRoot.ownsBase === terminalRoot.ownsBase
+    && savedRoot.ownerDomMember === terminalRoot.ownerDomMember
+    && savedRoot.ownerLiveBaseHostPresent === terminalRoot.ownerLiveBaseHostPresent
+    && savedRoot.ownerLiveBaseTargetPresent === terminalRoot.ownerLiveBaseTargetPresent
+    && savedRoot.targetPresent === terminalRoot.targetPresent;
 }
 
 export function buildCalendarItemsSourcesSnapshot(
@@ -339,7 +411,7 @@ export function buildCalendarItemsSourcesSnapshot(
       reseeded: false,
       overflow: boundary.overflow,
       collectorFailure: boundary.collectorFailure,
-      diagnosticRetrievalFailure: false,
+      diagnosticRetrievalFailure: boundary.diagnosticRetrievalFailure,
       unmatchedControl: matchedControl === null || !allTrue(matchedControl.equality),
     },
     matchedControl,
