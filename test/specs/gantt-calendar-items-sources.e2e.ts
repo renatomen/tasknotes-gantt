@@ -4,6 +4,16 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
+import type { GanttLifecycleControl } from "../../src/debugLog";
+import {
+  attemptSourcesFailureDiagnostics,
+  captureSourcesCheckpoint,
+  noteSourcesOriginalFailure,
+  reportSourcesLifecycle,
+  startSourcesLifecycleCapture,
+  stopSourcesLifecycleCapture,
+  writeSourcesRetrievalFailure,
+} from "./helpers/calendarItemsSourcesLifecycle";
 import { waitUntilOrExplain } from "./helpers/waitReady";
 
 /**
@@ -57,6 +67,14 @@ const DAILY_NOTE = "2026-03-11.md";
 
 /** Watch settle (500ms) + refresh debounce (500ms) + index/render overhead. */
 const REPAINT_BUDGET_MS = 10000;
+type SourcesRunnerFailureReporter = (testTitle: string, error: unknown) => Promise<void>;
+
+interface SourcesDiagnosticNodeGlobal {
+  __tnGanttLegendRunnerFailureReporter?: SourcesRunnerFailureReporter;
+}
+
+let sourcesBeforeEachSequence = 0;
+const sourcesPrimaryErrors = new WeakMap<object, unknown>();
 
 const CALENDAR_CONFIG_KEYS = [
   "tngantt_showRecurring",
@@ -71,8 +89,8 @@ const CALENDAR_CONFIG_KEYS = [
 ];
 
 /** Force the OG Gantt to be the ACTIVE, visible leaf (starter-note steal heal). */
-async function activateBaseLeaf(): Promise<void> {
-  await browser.executeObsidian(async ({ app }, basePath) => {
+async function activateBaseLeaf(diagnosticCheckpoint?: string): Promise<void> {
+  await browser.executeObsidian(async ({ app }, args) => {
     const ws = app.workspace as unknown as {
       iterateAllLeaves: (cb: (l: { view?: { getViewType?: () => string }; detach?: () => void }) => void) => void;
       getLeavesOfType: (t: string) => unknown[];
@@ -82,7 +100,7 @@ async function activateBaseLeaf(): Promise<void> {
     };
     let baseLeaf = ws.getLeavesOfType("bases")[0];
     if (!baseLeaf) {
-      const file = app.vault.getAbstractFileByPath(basePath);
+      const file = app.vault.getAbstractFileByPath(args.basePath);
       if (!file) return;
       const leaf = ws.getLeaf(false);
       await leaf.openFile(file as never);
@@ -95,7 +113,26 @@ async function activateBaseLeaf(): Promise<void> {
     markdownLeaves.forEach((l) => l.detach?.());
     ws.setActiveLeaf(baseLeaf, { focus: true });
     ws.revealLeaf(baseLeaf);
-  }, DAY_BASE);
+    if (args.diagnosticCheckpoint) {
+      const diagnosticGlobal = globalThis as typeof globalThis & {
+        __tnGanttLifecycle?: GanttLifecycleControl;
+        __tnGanttSourcesPhaseCheckpoint?: string;
+      };
+      if (diagnosticGlobal.__tnGanttSourcesPhaseCheckpoint === args.diagnosticCheckpoint) return;
+      diagnosticGlobal.__tnGanttSourcesPhaseCheckpoint = args.diagnosticCheckpoint;
+      const control = diagnosticGlobal.__tnGanttLifecycle;
+      control?.setPhase("before-each");
+      control?.record({
+        scope: "calendar-items-sources",
+        mountToken: 0,
+        controllerStarted: null,
+        controllerDelivered: null,
+        svarGeneration: null,
+        event: "sources-phase",
+        facts: { checkpoint: args.diagnosticCheckpoint },
+      });
+    }
+  }, { basePath: DAY_BASE, diagnosticCheckpoint });
 }
 
 /** Which of the fixture's three task bars are missing from the rendered chart. */
@@ -109,11 +146,11 @@ async function missingBars(): Promise<string[]> {
 }
 
 /** Wait until the base leaf is front and every fixture task bar is rendered. */
-async function ensureGanttReady(): Promise<void> {
+async function ensureGanttReady(diagnosticCheckpoint?: string): Promise<void> {
   let missing: string[] = ["<never polled>"];
   await waitUntilOrExplain(
     async () => {
-      await activateBaseLeaf();
+      await activateBaseLeaf(diagnosticCheckpoint);
       missing = await missingBars();
       return missing.length === 0;
     },
@@ -129,6 +166,22 @@ async function fireConfigToggle(
 ): Promise<{ set: boolean; configChanged: boolean }> {
   return browser.executeObsidian(
     ({ app }, k, v) => {
+      const diagnosticGlobal = globalThis as typeof globalThis & {
+        __tnGanttLifecycle?: GanttLifecycleControl;
+        __tnGanttSourcesActionHistory?: string[];
+      };
+      const lifecycle = diagnosticGlobal.__tnGanttLifecycle;
+      diagnosticGlobal.__tnGanttSourcesActionHistory?.push(`${k}:start`);
+      lifecycle?.setPhase("config-action-start");
+      lifecycle?.record({
+        scope: "calendar-items-sources",
+        mountToken: 0,
+        controllerStarted: null,
+        controllerDelivered: null,
+        svarGeneration: null,
+        event: "sources-config-action-start",
+        facts: { action: k },
+      });
       const ws = app.workspace as unknown as {
         getLeavesOfType: (t: string) => Array<{ view?: Record<string, unknown> }>;
       };
@@ -165,6 +218,17 @@ async function fireConfigToggle(
         }
       };
       for (const leaf of ws.getLeavesOfType("bases")) if (leaf.view) visit(leaf.view, 0);
+      diagnosticGlobal.__tnGanttSourcesActionHistory?.push(`${k}:observed`);
+      lifecycle?.setPhase("config-action-observed");
+      lifecycle?.record({
+        scope: "calendar-items-sources",
+        mountToken: 0,
+        controllerStarted: null,
+        controllerDelivered: null,
+        svarGeneration: null,
+        event: "sources-config-action-observed",
+        facts: { action: k, set, configChanged },
+      });
       return { set, configChanged };
     },
     key,
@@ -349,6 +413,7 @@ async function searchState(): Promise<{ value: string; count: string }> {
 
 describe("Gantt (OG) calendar items — property events, timeblocks, switcher, search", () => {
   before(async () => {
+    try {
     // Hermetic: copy the in-repo fixture to a disposable temp dir.
     const tmpVault = path.join(os.tmpdir(), "og-gantt-calendar-sources-e2e");
     fs.rmSync(tmpVault, { recursive: true, force: true });
@@ -358,6 +423,17 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
       vault: tmpVault,
       plugins: ["tasknotes-gantt", "tasknotes"],
     });
+    sourcesBeforeEachSequence = 0;
+    await startSourcesLifecycleCapture();
+    (globalThis as SourcesDiagnosticNodeGlobal).__tnGanttLegendRunnerFailureReporter =
+      async (testTitle, error) => {
+        noteSourcesOriginalFailure();
+        const origin = `afterTest:${testTitle}`;
+        const diagnosticFailure = await attemptSourcesFailureDiagnostics(origin, error);
+        if (diagnosticFailure !== null) {
+          writeSourcesRetrievalFailure(origin, diagnosticFailure, error);
+        }
+      };
 
     // Core plugins: `bases` opens the .base files; `daily-notes` makes the
     // fixture's `2026-03-11.md` a daily note (default folder/format).
@@ -394,10 +470,76 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     );
 
     await ensureGanttReady();
+    await captureSourcesCheckpoint("initial-readiness", "initial-readiness");
+    } catch (error) {
+      noteSourcesOriginalFailure();
+      const diagnosticFailure = await attemptSourcesFailureDiagnostics("before-hook", error);
+      if (diagnosticFailure !== null) {
+        writeSourcesRetrievalFailure("before-hook", diagnosticFailure, error);
+      }
+      throw error;
+    }
   });
 
-  beforeEach(async () => {
-    await ensureGanttReady();
+  beforeEach(async function () {
+    const currentTest = this.currentTest as {
+      title?: string;
+      fn?: (this: unknown, ...args: unknown[]) => unknown;
+    } | undefined;
+    const originalTest = currentTest?.fn;
+    if (currentTest && originalTest) {
+      currentTest.fn = async function (this: unknown, ...args: unknown[]): Promise<unknown> {
+        try {
+          return await originalTest.apply(this, args);
+        } catch (error) {
+          sourcesPrimaryErrors.set(currentTest, error);
+          throw error;
+        }
+      };
+    }
+    sourcesBeforeEachSequence += 1;
+    const checkpoint = `before-each:${sourcesBeforeEachSequence}:${currentTest?.title ?? "unknown"}`;
+    try {
+      await ensureGanttReady(checkpoint);
+      await captureSourcesCheckpoint("before-each", checkpoint);
+    } catch (error) {
+      if (currentTest) sourcesPrimaryErrors.set(currentTest, error);
+      noteSourcesOriginalFailure();
+      const origin = `beforeEach:${checkpoint}`;
+      const diagnosticFailure = await attemptSourcesFailureDiagnostics(origin, error);
+      if (diagnosticFailure !== null) {
+        writeSourcesRetrievalFailure(origin, diagnosticFailure, error);
+      }
+      throw error;
+    }
+  });
+
+  afterEach(async function () {
+    const currentTest = this.currentTest as { title?: string; err?: unknown } | undefined;
+    const primaryError = (currentTest ? sourcesPrimaryErrors.get(currentTest) : undefined) ?? currentTest?.err;
+    if (primaryError === null || primaryError === undefined) return;
+    noteSourcesOriginalFailure();
+    const origin = `test:${currentTest?.title ?? "unknown"}`;
+    const diagnosticFailure = await attemptSourcesFailureDiagnostics(origin, primaryError);
+    if (diagnosticFailure !== null) {
+      writeSourcesRetrievalFailure(origin, diagnosticFailure, primaryError);
+    }
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    try {
+      await captureSourcesCheckpoint("suite-after", "suite-after");
+      await reportSourcesLifecycle("suite-after", null);
+    } catch (error) {
+      writeSourcesRetrievalFailure("suite-after", error, null);
+    }
+    try {
+      await stopSourcesLifecycleCapture();
+    } catch {
+      // The browser session can already be gone after a hook failure.
+    }
+    delete (globalThis as SourcesDiagnosticNodeGlobal).__tnGanttLegendRunnerFailureReporter;
   });
 
   it("renders property events only when the family is on AND the start picker is set, scoped by the query", async () => {
