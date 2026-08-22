@@ -79,7 +79,7 @@ interface SourcesDiagnosticNodeGlobal {
 
 let sourcesBeforeEachSequence = 0;
 let sourcesSuitePrimaryError: unknown = null;
-let sourcesFailureEnvelopeCaptured = false;
+let sourcesFailureEnvelopeAttempted = false;
 const sourcesPrimaryErrors = new WeakMap<object, unknown>();
 
 function rememberSourcesPrimaryError(error: unknown): void {
@@ -99,12 +99,10 @@ async function captureSourcesDiagnostic(
 }
 
 async function captureSourcesFailureOnce(origin: string, primaryError: unknown): Promise<void> {
-  if (sourcesFailureEnvelopeCaptured) return;
+  if (sourcesFailureEnvelopeAttempted) return;
+  sourcesFailureEnvelopeAttempted = true;
   const diagnosticFailure = await attemptSourcesFailureDiagnostics(origin, primaryError);
-  if (diagnosticFailure === null) {
-    sourcesFailureEnvelopeCaptured = true;
-    return;
-  }
+  if (diagnosticFailure === null) return;
   writeSourcesRetrievalFailure(origin, diagnosticFailure, primaryError);
 }
 
@@ -450,7 +448,7 @@ async function searchState(): Promise<{ value: string; count: string }> {
 describe("Gantt (OG) calendar items — property events, timeblocks, switcher, search", () => {
   before(async () => {
     sourcesSuitePrimaryError = null;
-    sourcesFailureEnvelopeCaptured = false;
+    sourcesFailureEnvelopeAttempted = false;
     try {
     // Hermetic: copy the in-repo fixture to a disposable temp dir.
     const tmpVault = path.join(os.tmpdir(), "og-gantt-calendar-sources-e2e");
