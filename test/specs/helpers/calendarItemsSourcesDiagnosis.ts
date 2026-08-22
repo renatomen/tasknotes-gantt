@@ -175,6 +175,22 @@ export interface CalendarItemsSourcesBoundary {
   collectorFailure: boolean;
 }
 
+export function selectCalendarItemsSourcesTerminalBoundary(
+  origin: string,
+  savedReadinessBoundary: CalendarItemsSourcesBoundary | null,
+  resampledBoundary: CalendarItemsSourcesBoundary,
+): CalendarItemsSourcesBoundary {
+  if (savedReadinessBoundary === null
+      || origin !== `beforeEach:${savedReadinessBoundary.checkpoint}`) {
+    return resampledBoundary;
+  }
+  return {
+    ...savedReadinessBoundary,
+    phase: 'terminal-failure',
+    sameCheckpointObservation: true,
+  };
+}
+
 export function buildCalendarItemsSourcesSnapshot(
   boundary: CalendarItemsSourcesBoundary,
 ): CalendarItemsSourcesSnapshot {

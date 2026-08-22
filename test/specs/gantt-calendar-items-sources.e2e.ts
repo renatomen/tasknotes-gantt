@@ -8,10 +8,12 @@ import type { GanttLifecycleControl } from "../../src/debugLog";
 import {
   attemptSourcesFailureDiagnostics,
   captureSourcesCheckpoint,
+  captureSourcesReadinessPoll,
   noteSourcesOriginalFailure,
   reportSourcesLifecycle,
   startSourcesLifecycleCapture,
   stopSourcesLifecycleCapture,
+  verifySourcesDiagnosticEnvelope,
   writeSourcesRetrievalFailure,
 } from "./helpers/calendarItemsSourcesLifecycle";
 import { attemptDiagnosticOperation } from "./helpers/lifecycleTrace";
@@ -169,7 +171,9 @@ async function ensureGanttReady(diagnosticCheckpoint?: string): Promise<void> {
   await waitUntilOrExplain(
     async () => {
       await activateBaseLeaf(diagnosticCheckpoint);
-      missing = await missingBars();
+      missing = diagnosticCheckpoint
+        ? await captureSourcesReadinessPoll(diagnosticCheckpoint, TASK_NOTES)
+        : await missingBars();
       return missing.length === 0;
     },
     () => `Gantt bars missing: ${JSON.stringify(missing)}`,
@@ -563,13 +567,11 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
         writeSourcesRetrievalFailure("suite-after", diagnosticFailure, sourcesSuitePrimaryError);
       }
     } else {
-      try {
+      await captureSourcesDiagnostic("suite-after", async () => {
         await captureSourcesCheckpoint("suite-after", "suite-after");
         await reportSourcesLifecycle("suite-after", null);
         await stopSourcesLifecycleCapture();
-      } catch (error) {
-        writeSourcesRetrievalFailure("suite-after", error, null);
-      }
+      });
     }
     delete (globalThis as SourcesDiagnosticNodeGlobal).__tnGanttLegendRunnerFailureReporter;
   });
@@ -633,6 +635,20 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
       { timeout: 10000, timeoutMsg: "property event title never resolved into the view" },
     );
     expect(showsTitle).toBe(true);
+  });
+
+  it("captures a complete property-event diagnostic envelope without a causal verdict", async () => {
+    const verification = await verifySourcesDiagnosticEnvelope("property-events-diagnostic");
+
+    expect(verification.diagnosticOutcome).toBe("captured");
+    expect(verification.originalOutcome).toBe("passed");
+    expect(verification.expectedMarkersPresent).toBe(true);
+    expect(verification.snapshot.completeness.configActions).toBe(true);
+    expect(verification.snapshot.completeness.targetFileAndCache).toBe(true);
+    expect(verification.snapshot.completeness.taskNotesFacts).toBe(true);
+    expect(verification.snapshot.disqualifiers.collectorFailure).toBe(false);
+    expect(verification.snapshot.disqualifiers.overflow).toBe(false);
+    expect(verification.verdict).toEqual({ status: "open" });
   });
 
   it("renders daily-note timeblocks when enabled and repaints on a live frontmatter edit", async () => {

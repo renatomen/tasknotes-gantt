@@ -2,6 +2,7 @@ import {
   analyzeCalendarItemsSourcesOwnership,
   buildCalendarItemsSourcesSnapshot,
   classifyCalendarItemsSourcesDiagnosis,
+  selectCalendarItemsSourcesTerminalBoundary,
   type CalendarItemsSourcesSnapshot,
   type SourcesDiagnosisDisqualifiers,
   type SourcesMatchedControl,
@@ -187,6 +188,43 @@ describe('classifyCalendarItemsSourcesDiagnosis', () => {
 
     expect(snapshot.disqualifiers.missingBoundarySide).toBe(true);
     expect(classifyCalendarItemsSourcesDiagnosis(snapshot)).toEqual({ status: 'open' });
+  });
+
+  it('promotes only the matching failing readiness poll to terminal evidence', () => {
+    const fixture = wrongOwnerSnapshot();
+    const savedBoundary = {
+      phase: 'before-each' as const,
+      checkpoint: 'before-each-2',
+      sequence: 15,
+      target: fixture.target,
+      roots: fixture.roots,
+      sameCheckpointObservation: true,
+      initialReadinessCaptured: true,
+      actionHistoryMatches: true,
+      overflow: false,
+      collectorFailure: false,
+    };
+    const resampledBoundary = {
+      ...savedBoundary,
+      phase: 'terminal-failure' as const,
+      checkpoint: 'post-failure-resample',
+      sameCheckpointObservation: false,
+    };
+
+    expect(selectCalendarItemsSourcesTerminalBoundary(
+      'beforeEach:before-each-2',
+      savedBoundary,
+      resampledBoundary,
+    )).toEqual(expect.objectContaining({
+      checkpoint: 'before-each-2',
+      phase: 'terminal-failure',
+      sameCheckpointObservation: true,
+    }));
+    expect(selectCalendarItemsSourcesTerminalBoundary(
+      'test:property events',
+      savedBoundary,
+      resampledBoundary,
+    )).toBe(resampledBoundary);
   });
 
   it.each(Object.keys(complete) as Array<keyof typeof complete>)(

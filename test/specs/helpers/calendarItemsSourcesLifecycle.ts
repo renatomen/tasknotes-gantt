@@ -5,6 +5,7 @@ import {
   buildCalendarItemsSourcesSnapshot,
   CALENDAR_ITEMS_SOURCES_TRACE_SCHEMA,
   classifyCalendarItemsSourcesDiagnosis,
+  selectCalendarItemsSourcesTerminalBoundary,
   type CalendarItemsSourcesPhase,
   type CalendarItemsSourcesBoundary,
   type CalendarItemsSourcesRootFacts,
@@ -16,6 +17,7 @@ import {
   evaluateBoundedCdp,
   writeLifecycleEnvelope,
   writeLifecycleRetrievalFailure,
+  type LifecycleEnvelope,
 } from './lifecycleTrace';
 
 export const SOURCES_DIAGNOSTIC_TRAVERSAL_LIMIT = 8;
@@ -36,8 +38,20 @@ interface SourcesLifecycleTrace {
   terminalSnapshot: CalendarItemsSourcesSnapshot | null;
 }
 
+interface SourcesLifecycleReportTrace {
+  lifecycle: GanttLifecycleSnapshot | null;
+  sourcesSnapshots: CalendarItemsSourcesSnapshot[];
+  latestVerdict: ReturnType<typeof classifyCalendarItemsSourcesDiagnosis>;
+}
+
 let originalFailureSeen = false;
 const snapshots: CalendarItemsSourcesSnapshot[] = [];
+
+interface SourcesBoundaryCaptureOptions {
+  record: boolean;
+  saveAsLastReadinessBoundary: boolean;
+  taskNames: readonly string[];
+}
 
 export function noteSourcesOriginalFailure(): void {
   originalFailureSeen = true;
@@ -51,6 +65,7 @@ export async function startSourcesLifecycleCapture(): Promise<void> {
       __tnGanttLifecycle?: GanttLifecycleControl;
       __tnGanttSourcesActionHistory?: string[];
       __tnGanttSourcesPhaseCheckpoint?: string;
+      __tnGanttSourcesLastReadinessBoundary?: CalendarItemsSourcesBoundary;
     };
     const control = diagnosticGlobal.__tnGanttLifecycle;
     if (!control) return false;
@@ -58,6 +73,7 @@ export async function startSourcesLifecycleCapture(): Promise<void> {
     control.setPhase('suite-before');
     diagnosticGlobal.__tnGanttSourcesActionHistory = [];
     delete diagnosticGlobal.__tnGanttSourcesPhaseCheckpoint;
+    delete diagnosticGlobal.__tnGanttSourcesLastReadinessBoundary;
     control.record({
       scope: 'calendar-items-sources',
       mountToken: 0,
@@ -72,18 +88,20 @@ export async function startSourcesLifecycleCapture(): Promise<void> {
   if (!started) throw new Error('Gantt lifecycle collector was unavailable after plugin reload');
 }
 
-export async function captureSourcesCheckpoint(
+async function captureSourcesBoundary(
   phase: CalendarItemsSourcesPhase,
   checkpoint: string,
-): Promise<CalendarItemsSourcesSnapshot> {
-  const boundary = await browser.executeObsidian(async ({ app }, args) => {
+  options: SourcesBoundaryCaptureOptions,
+): Promise<{ snapshot: CalendarItemsSourcesSnapshot; missingBars: string[] }> {
+  const result = await browser.executeObsidian(async ({ app }, args) => {
     const diagnosticGlobal = globalThis as typeof globalThis & {
       __tnGanttLifecycle?: GanttLifecycleControl;
       __tnGanttSourcesActionHistory?: string[];
       __tnGanttSourcesPhaseCheckpoint?: string;
+      __tnGanttSourcesLastReadinessBoundary?: CalendarItemsSourcesBoundary;
     };
     const control = diagnosticGlobal.__tnGanttLifecycle;
-    control?.setPhase(args.phase);
+    if (args.record) control?.setPhase(args.phase);
 
     const targetFile = app.vault.getAbstractFileByPath(args.targetPath);
     const cacheEntry = targetFile ? app.metadataCache.getFileCache(targetFile as never) : null;
@@ -200,48 +218,50 @@ export async function captureSourcesCheckpoint(
       liveBaseHostPresent,
       liveBaseTargetPresent,
     } satisfies CalendarItemsSourcesTargetFacts;
-    control?.record({
-      scope: 'calendar-items-sources',
-      mountToken: rootFacts.find(({ ownsBase }) => ownsBase === true)?.mountToken ?? 0,
-      controllerStarted: null,
-      controllerDelivered: null,
-      svarGeneration: null,
-      event: 'sources-checkpoint',
-      facts: {
-        checkpoint: args.checkpoint,
-        targetFileExists: target.fileExists,
-        targetCacheExists: target.cacheEntryExists,
-        taskNotesOccurrenceListed: target.taskNotesOccurrenceListed,
-        recurrenceParentPresent: target.recurrenceParentPresent,
-        occurrenceDateMatches: target.occurrenceDateMatches,
-        liveBaseHostPresent,
-        liveBaseTargetPresent,
-        rootCount: rootFacts.length,
-      },
-    });
-    for (const root of rootFacts) {
+    if (args.record) {
       control?.record({
-        scope: root.rootId,
-        mountToken: root.mountToken ?? 0,
+        scope: 'calendar-items-sources',
+        mountToken: rootFacts.find(({ ownsBase }) => ownsBase === true)?.mountToken ?? 0,
         controllerStarted: null,
         controllerDelivered: null,
         svarGeneration: null,
-        event: 'sources-root',
+        event: 'sources-checkpoint',
         facts: {
           checkpoint: args.checkpoint,
-          ownerLeafId: root.ownerLeafId,
-          selectedByGlobalProxy: root.selectedByGlobalProxy,
-          connected: root.connected,
-          visible: root.visible,
-          ownsBase: root.ownsBase,
-          ownerDomMember: root.ownerDomMember,
-          ownerLiveBaseHostPresent: root.ownerLiveBaseHostPresent,
-          ownerLiveBaseTargetPresent: root.ownerLiveBaseTargetPresent,
-          targetPresent: root.targetPresent,
+          targetFileExists: target.fileExists,
+          targetCacheExists: target.cacheEntryExists,
+          taskNotesOccurrenceListed: target.taskNotesOccurrenceListed,
+          recurrenceParentPresent: target.recurrenceParentPresent,
+          occurrenceDateMatches: target.occurrenceDateMatches,
+          liveBaseHostPresent,
+          liveBaseTargetPresent,
+          rootCount: rootFacts.length,
         },
       });
+      for (const root of rootFacts) {
+        control?.record({
+          scope: root.rootId,
+          mountToken: root.mountToken ?? 0,
+          controllerStarted: null,
+          controllerDelivered: null,
+          svarGeneration: null,
+          event: 'sources-root',
+          facts: {
+            checkpoint: args.checkpoint,
+            ownerLeafId: root.ownerLeafId,
+            selectedByGlobalProxy: root.selectedByGlobalProxy,
+            connected: root.connected,
+            visible: root.visible,
+            ownsBase: root.ownsBase,
+            ownerDomMember: root.ownerDomMember,
+            ownerLiveBaseHostPresent: root.ownerLiveBaseHostPresent,
+            ownerLiveBaseTargetPresent: root.ownerLiveBaseTargetPresent,
+            targetPresent: root.targetPresent,
+          },
+        });
+      }
     }
-    return {
+    const boundary = {
       phase: args.phase,
       checkpoint: args.checkpoint,
       sequence: collectorSnapshot?.nextSequence ?? 0,
@@ -255,6 +275,14 @@ export async function captureSourcesCheckpoint(
       overflow: collectorSnapshot?.incomplete.overflow ?? true,
       collectorFailure: collectorSnapshot?.incomplete.collectorFailure ?? true,
     } satisfies CalendarItemsSourcesBoundary;
+    if (args.saveAsLastReadinessBoundary) {
+      diagnosticGlobal.__tnGanttSourcesLastReadinessBoundary = boundary;
+    }
+    const barIds = Array.from(globallySelectedRoot?.querySelectorAll<HTMLElement>('.wx-bar') ?? [])
+      .map((bar) => bar.getAttribute('data-id') ?? '');
+    const missingBars = args.taskNames.filter((name: string) =>
+      !barIds.some((id) => id.endsWith(name)));
+    return { boundary, missingBars };
   }, {
     phase,
     checkpoint,
@@ -263,10 +291,37 @@ export async function captureSourcesCheckpoint(
     basePath: BASE_PATH,
     configActions: CONFIG_ACTIONS,
     traversalLimit: SOURCES_DIAGNOSTIC_TRAVERSAL_LIMIT,
+    record: options.record,
+    saveAsLastReadinessBoundary: options.saveAsLastReadinessBoundary,
+    taskNames: options.taskNames,
   });
-  const snapshot = buildCalendarItemsSourcesSnapshot(boundary);
-  snapshots.push(snapshot);
+  const snapshot = buildCalendarItemsSourcesSnapshot(result.boundary);
+  if (options.record) snapshots.push(snapshot);
+  return { snapshot, missingBars: result.missingBars };
+}
+
+export async function captureSourcesCheckpoint(
+  phase: CalendarItemsSourcesPhase,
+  checkpoint: string,
+): Promise<CalendarItemsSourcesSnapshot> {
+  const { snapshot } = await captureSourcesBoundary(phase, checkpoint, {
+    record: true,
+    saveAsLastReadinessBoundary: false,
+    taskNames: [],
+  });
   return snapshot;
+}
+
+export async function captureSourcesReadinessPoll(
+  checkpoint: string,
+  taskNames: readonly string[],
+): Promise<string[]> {
+  const { missingBars } = await captureSourcesBoundary('before-each', checkpoint, {
+    record: false,
+    saveAsLastReadinessBoundary: true,
+    taskNames,
+  });
+  return missingBars;
 }
 
 async function readSourcesLifecycle(): Promise<SourcesLifecycleTrace> {
@@ -376,7 +431,7 @@ async function readSourcesLifecycleAfterFailure(
     const actionHistory = globalThis.__tnGanttSourcesActionHistory ?? [];
     const expectedActions = ${rendered.configActions}.flatMap((action) => [action + ":start", action + ":observed"]);
     const collectorBeforeTerminal = control?.snapshot();
-    const boundary = {
+    const resampledBoundary = {
       phase: "terminal-failure",
       checkpoint: ${rendered.checkpoint},
       sequence: collectorBeforeTerminal?.nextSequence ?? 0,
@@ -412,26 +467,40 @@ async function readSourcesLifecycleAfterFailure(
       facts: {
         origin: ${rendered.origin},
         checkpoint: ${rendered.checkpoint},
-        targetFileExists: boundary.target.fileExists,
-        targetCacheExists: boundary.target.cacheEntryExists,
+        targetFileExists: resampledBoundary.target.fileExists,
+        targetCacheExists: resampledBoundary.target.cacheEntryExists,
         liveBaseHostPresent,
         liveBaseTargetPresent,
-        rootCount: rootFacts.length
+        rootCount: rootFacts.length,
+        savedReadinessBoundaryPresent: globalThis.__tnGanttSourcesLastReadinessBoundary != null
       }
     });
-    return { lifecycle: control?.snapshot() ?? null, boundary };
+    return {
+      lifecycle: control?.snapshot() ?? null,
+      boundary: resampledBoundary,
+      savedReadinessBoundary: globalThis.__tnGanttSourcesLastReadinessBoundary ?? null
+    };
   })()`;
   const result = await evaluateBoundedCdp<{
     lifecycle: GanttLifecycleSnapshot | null;
     boundary: CalendarItemsSourcesBoundary;
+    savedReadinessBoundary: CalendarItemsSourcesBoundary | null;
   }>(browser.capabilities as Record<string, unknown>, expression);
+  const terminalBoundary = selectCalendarItemsSourcesTerminalBoundary(
+    origin,
+    result.savedReadinessBoundary,
+    result.boundary,
+  );
   return {
     lifecycle: result.lifecycle,
-    terminalSnapshot: buildCalendarItemsSourcesSnapshot(result.boundary),
+    terminalSnapshot: buildCalendarItemsSourcesSnapshot(terminalBoundary),
   };
 }
 
-export async function reportSourcesLifecycle(origin: string, primaryError: unknown): Promise<void> {
+export async function reportSourcesLifecycle(
+  origin: string,
+  primaryError: unknown,
+): Promise<LifecycleEnvelope<SourcesLifecycleReportTrace>> {
   if (primaryError !== null && primaryError !== undefined) originalFailureSeen = true;
   const envelope = await captureLifecycleEnvelope({
     origin,
@@ -456,6 +525,38 @@ export async function reportSourcesLifecycle(origin: string, primaryError: unkno
     },
   });
   writeLifecycleEnvelope(envelope);
+  return envelope;
+}
+
+export interface SourcesDiagnosticVerification {
+  diagnosticOutcome: 'captured' | 'failed' | 'unavailable';
+  expectedMarkersPresent: boolean;
+  originalOutcome: 'failed' | 'failed-earlier' | 'passed';
+  snapshot: CalendarItemsSourcesSnapshot;
+  verdict: ReturnType<typeof classifyCalendarItemsSourcesDiagnosis>;
+}
+
+export async function verifySourcesDiagnosticEnvelope(
+  checkpoint: string,
+): Promise<SourcesDiagnosticVerification> {
+  const snapshot = await captureSourcesCheckpoint('config-action-observed', checkpoint);
+  const envelope = await reportSourcesLifecycle(checkpoint, null);
+  const records = envelope.report.trace?.lifecycle?.records ?? [];
+  const hasInitialReadiness = records.some((record) =>
+    record.event === 'sources-checkpoint'
+      && record.facts?.checkpoint === 'initial-readiness');
+  const hasExpectedActions = CONFIG_ACTIONS.every((action) =>
+    records.some((record) =>
+      record.event === 'sources-config-action-start' && record.facts?.action === action)
+      && records.some((record) =>
+        record.event === 'sources-config-action-observed' && record.facts?.action === action));
+  return {
+    diagnosticOutcome: envelope.report.diagnosticOutcome,
+    expectedMarkersPresent: hasInitialReadiness && hasExpectedActions,
+    originalOutcome: envelope.report.originalOutcome,
+    snapshot,
+    verdict: envelope.report.trace?.latestVerdict ?? { status: 'open' },
+  };
 }
 
 export async function attemptSourcesFailureDiagnostics(
@@ -484,6 +585,7 @@ export function stopSourcesLifecycleCapture(): Promise<void> {
       __tnGanttLifecycle?: GanttLifecycleControl;
       __tnGanttSourcesActionHistory?: string[];
       __tnGanttSourcesPhaseCheckpoint?: string;
+      __tnGanttSourcesLastReadinessBoundary?: CalendarItemsSourcesBoundary;
     };
     const control = diagnosticGlobal.__tnGanttLifecycle;
     control?.setPhase('teardown');
@@ -499,5 +601,6 @@ export function stopSourcesLifecycleCapture(): Promise<void> {
     control?.stop();
     delete diagnosticGlobal.__tnGanttSourcesActionHistory;
     delete diagnosticGlobal.__tnGanttSourcesPhaseCheckpoint;
+    delete diagnosticGlobal.__tnGanttSourcesLastReadinessBoundary;
   });
 }

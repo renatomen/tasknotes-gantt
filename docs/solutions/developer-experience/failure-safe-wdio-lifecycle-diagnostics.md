@@ -66,9 +66,9 @@ Save the primary thrown value before diagnostic work. Retrieval returns that sam
 
 An unavailable collector is different from a failed retrieval, and neither changes the original outcome ([`src/debugLog.ts`](../../../src/debugLog.ts#L375)). Hook code reports best-effort diagnostics and then rethrows the original error.
 
-### 4. Capture a terminal checkpoint before emitting the envelope
+### 4. Preserve the failing poll before emitting the envelope
 
-The post-failure expression must record the terminal phase and same-checkpoint boundary facts before taking its lifecycle snapshot. Calendar-sources does this inside the CDP expression and returns the snapshot plus the boundary through the shared envelope ([`calendarItemsSourcesLifecycle.ts`](../../../test/specs/helpers/calendarItemsSourcesLifecycle.ts#L277), [`calendarItemsSourcesLifecycle.ts`](../../../test/specs/helpers/calendarItemsSourcesLifecycle.ts#L415)).
+Post-failure resampling is later evidence, not the failing poll. When the verdict needs same-checkpoint facts, save the bounded root/target census inside the browser operation that observes each readiness poll. The CDP fallback may then select that saved boundary only when its checkpoint matches the primary failure; every other resample remains ineligible for a causal verdict ([`calendarItemsSourcesLifecycle.ts`](../../../test/specs/helpers/calendarItemsSourcesLifecycle.ts), [`calendarItemsSourcesDiagnosis.ts`](../../../test/specs/helpers/calendarItemsSourcesDiagnosis.ts)).
 
 Keep the payload bounded and joinable. Prefer scalar identifiers and booleans such as execution id, checkpoint, mount token, owning leaf, connectivity, visibility, live-host presence, and target presence. Avoid note contents, raw task arrays, absolute vault paths, console interception, or unbounded object graphs.
 
@@ -76,7 +76,7 @@ Keep the payload bounded and joinable. Prefer scalar identifiers and booleans su
 
 A plausible trace is not yet a verdict. Require every prerequisite, one unambiguous owner, same-checkpoint correlation, no overflow or collector failure, settled work, and a valid matched control. Missing or cross-mounted facts remain `open` ([`calendarItemsSourcesDiagnosis.ts`](../../../test/specs/helpers/calendarItemsSourcesDiagnosis.ts#L184), [`calendarItemsSourcesDiagnosis.ts`](../../../test/specs/helpers/calendarItemsSourcesDiagnosis.ts#L283)).
 
-A later green run verifies that the diagnostic mechanism preserves the journey. It does not explain an earlier failure, replace its denominator, or authorize a rerun. If ordinary verification does not reproduce the symptom, `open — no traced recurrence` is a successful bounded stopping point.
+A later green run shows that the instrumented journey can complete; a dedicated diagnostic assertion proves the expected envelope was present in that execution. Neither result explains an earlier failure, proves zero timing perturbation, replaces the denominator, or authorizes a rerun. If ordinary verification does not reproduce the symptom, `open — no traced recurrence` is a successful bounded stopping point.
 
 ### 6. Prove both paths at their fastest reliable tiers
 

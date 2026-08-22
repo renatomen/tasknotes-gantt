@@ -39,18 +39,18 @@ The test-owned probe:
 - captures the terminal failure envelope through a CDP path bounded to 7.5 seconds;
 - keeps the original WDIO error primary when diagnostic retrieval succeeds or fails;
 - requires leaf-correlated ownership and fails closed on ambiguous, incomplete, cross-mount, overflowing, or unmatched evidence;
-- lets the pure classifier emit class (b) only for a positively demonstrated wrong-owner proxy with a simultaneous authoritative-owner control;
+- records the readiness root census in the same browser operation that observes each readiness poll, and lets the pure classifier emit class (b) only when the terminal failure matches that saved poll and positively demonstrates a wrong-owner proxy with a simultaneous authoritative-owner control;
 - marks the bounded post-failure CDP resample as later evidence, never as the failed poll itself, so it remains `open`; readiness evidence without a distinct matched execution also remains `open`, and U1 does not emit class (d).
 
 Verification receipts for the final local U1 state:
 
 | Check | Result | Evidence meaning |
 |---|---|---|
-| `npx jest test/unit/lifecycleTrace.test.ts test/unit/calendarItemsSourcesDiagnosis.test.ts --runInBand` | 49 passed | Bounded retrieval, primary-error preservation, bounded best-effort checkpoints, observed simultaneous-owner controls, post-failure resample refusal, and other fail-closed cases |
+| `npx jest test/unit/lifecycleTrace.test.ts test/unit/calendarItemsSourcesDiagnosis.test.ts --runInBand` | 50 passed | Bounded retrieval, primary-error preservation, bounded best-effort checkpoints, matching failing-poll selection, post-failure resample refusal, and other fail-closed cases |
 | `npm run typecheck` | Passed; 0 errors, with existing Svelte warnings only | Source, test, and e2e TypeScript serialization contracts remain valid |
 | `npm run lint` | Passed | Repository static rules remain satisfied |
 | `npm run e2e:local -- --spec test/specs/gantt-legend.e2e.ts` | 28 passed | Shared lifecycle extraction preserves the existing Legend envelope in real Obsidian |
-| `npm run e2e:local -- --spec test/specs/gantt-calendar-items-sources.e2e.ts` | 4 passed; emitted `latestVerdict: {"status":"open"}` | The complete property-event-first journey remains green with the probe armed |
+| `npm run e2e:local -- --spec test/specs/gantt-calendar-items-sources.e2e.ts` | 5 passed; diagnostic test asserted the property-event markers and `{"status":"open"}`; suite emitted `latestVerdict: {"status":"open"}` | The complete property-event-first journey completed with the probe armed, and the focused spec fails if its diagnostic envelope silently degrades |
 | `git diff --check` | Passed | No whitespace-error drift |
 
 Both real-Obsidian runs used the cached launcher version inventory after the environment reported `UNABLE_TO_VERIFY_LEAF_SIGNATURE`; the tests themselves completed successfully. These are ordinary verification executions, not repeat-run measurements, replacements, or top-ups. They add zero legs to the fixed 48-leg denominator.
