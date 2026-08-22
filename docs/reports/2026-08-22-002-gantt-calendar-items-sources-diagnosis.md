@@ -30,7 +30,7 @@ The source report's dispatches, denominator, attempt rules, runtime fingerprint,
 
 ## New verification: diagnostic capability, not measurement
 
-U1 was implemented and verified in the local working tree. It has not been committed, pushed, or published as a PR under the maintainer's local-only direction.
+U1 was implemented and verified locally before this report was published. Its verification receipts are independent of branch, push, or PR state.
 
 The test-owned probe:
 
