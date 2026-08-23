@@ -453,8 +453,17 @@ These may already be shipped — confirm against current code before opening an 
 Low-value or condition-gated; kept here so nothing is lost. Not actionable until the trigger fires.
 - **Mechanical maintainability gate** — compute churn share and separable-concern
   count in CI instead of manual re-measures. Referenced by STRATEGY.md's
-  maintainability metric ("a mechanical gate is a parked candidate"). Trigger:
-  manual re-measures prove error-prone, or the metrics regress unnoticed.
+  maintainability metric. **Trigger fired 2026-08-21:** PR #446 grew the rank-1
+  file (`src/bases/GanttContainer.svelte`) by a net 678 lines and 37 diagnostic
+  call sites with every gate green, while the reliability plan's text had paused
+  the trend report. Its churn-in-CI half lands as R8 of plan `2026-08-23-001`
+  (the per-PR trend measurement: churn share, ranked-file sizes, at-ceiling
+  count, ranked files touched — informs, never fails). The blocking half — a CI
+  gate on concern counts — stays parked: concern counts cannot be mechanized
+  (they are enumerated by the dated per-session report), and the informs/blocks
+  decision (placement is the blocking invariant; size is feedback) and the
+  2026-07-30 ruling "file length is not a quality gate" hold. Trigger for the
+  remaining half: the trend artifact shows a regression that review missed.
 - **Validate upgraded release Actions on the next real release** — confirm checkout/setup,
   provenance attestation, and release publication complete. The pre-upgrade workflow base was
   `e6a2e742cf58d0243cf8c41607a1993f24f3a84a`; PR validation covers the shared build path but cannot
@@ -510,22 +519,6 @@ derived from the view default, so the undo writes an explicit estimate equal to 
 was implicit — the appearance is restored exactly, the authorship is not. Restoring
 absence needs a patch path that can *clear* a field (today `applyEstimateWrite`
 only writes numbers, and TaskNotes-field clearing semantics are unverified).
-
-## Test code is never typechecked
-
-Source: the cross-model peer layer, on its first review of product code.
-`tsconfig.json` includes only `src` and `**/*.svelte`, and jest transpiles via
-SWC without type information, so a test can call a two-argument function with
-one argument and pass. That happened here: four new coordinator tests omitted
-`createAppliedGanttSyncState`'s required `baseSortKey`, and two of them went on
-to exercise `baseSortKey === undefined` — a state the view cannot produce, since
-"no Base sort" is `''`. The tests were green throughout.
-
-The fix is to typecheck `test/` (its own tsconfig, or widening `include`), which
-will surface an unknown number of existing arity/shape drifts in 160+ suites —
-too large to fold into an unrelated refactor, and worth its own pass. Until then,
-a test asserting against a stale signature fails silently in exactly the way a
-test is supposed to prevent.
 
 ## The peer-review gate is roughly 7x the size its purpose needs
 
@@ -710,9 +703,16 @@ breaks the everyday path.
 A dependency-cruiser-class check enforcing module boundaries (e.g. views never
 import the data layer directly) — "mechanism, not memory" for the layering the
 governing docs now name. Deliberately NOT built with the docs port (no new
-enforcement mechanisms shipped with it). **Trigger:** adopt when the
-maintainability campaign's extractions define stable module boundaries worth
-mechanically enforcing — likely after the GanttController/register.ts slices.
+enforcement mechanisms shipped with it). **First instance landing:** the
+lifecycle-capture placement boundary — the ranked junction files may not import
+the debug-log module's lifecycle-capture names, or the seam module's non-public
+names, in any import form — lands as R4 of plan `2026-08-23-001` (U2), expressed
+with ESLint core `no-restricted-imports` + `no-restricted-syntax` in
+registry-derived per-file overrides, no new script or plugin. The broader
+candidate here — views never import the data layer — stays parked with its
+existing **trigger:** adopt when the maintainability campaign's extractions
+define stable module boundaries worth mechanically enforcing — likely after the
+GanttController/register.ts slices.
 
 ## Per-calendar diagnostics are recorded but never surfaced
 

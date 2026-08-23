@@ -54,8 +54,12 @@ notes they already own, TaskNotes installed or not.
 - **Reliability, verifiable** — main is always releasable: CI green including
   e2e against real Obsidian. Measured in CI.
 - **Maintainability, verifiable** — cohesion and churn metrics stay healthy so
-  improvements ship fast. Measured manually today at each re-measure (churn
-  share and separable-concern count); a mechanical gate is a parked candidate.
+  improvements ship fast. Measured by the per-PR trend measurement in CI
+  (churn share, ranked-file sizes, at-ceiling complexity count) and by the
+  dated per-session trend reports, which remain the record for enumerated
+  concern counts; the complexity ceiling and the placement boundary are the
+  pillar's mechanical gates, and a blocking concern-count gate stays a parked
+  candidate.
 - **Performance and security, verifiable** — commissioned: each pillar's
   metric set is defined by its re-diagnosis when it lands (performance from
   the existing perf harness; security from a plugin threat model). Until
@@ -100,12 +104,20 @@ a pillar carries that label only once its measurements say so, through a
 measured baseline, a ranked defect list worked top-down, a per-session trend
 report, and a mechanical gate that keeps it. Pillar
 authorities: **maintainability** is measured — baseline and ranked list at
-`docs/reports/2026-08-15-001-maintainability-rediagnosis.md`; its one
-mechanized dimension is the complexity gate, while churn share and concern
-counts are held by the per-session manual re-measure, whose trend reports
-land as dated notes under `docs/reports/` (first post-baseline report:
-`docs/reports/2026-08-16-001-slice2-u1-trend-report.md`; their CI gate is a
-deliberately parked candidate). **Reliability** is measured — baseline
+`docs/reports/2026-08-15-001-maintainability-rediagnosis.md`; its two
+mechanized dimensions are the complexity gate and the placement boundary
+(instrumentation and diagnostics live behind a seam — the lifecycle-capture
+names of the debug-log module are imported only by the seam module, enforced
+on the ranked junction files by the lint gate); its trend instrument is the
+per-PR trend measurement (churn share, ranked-file sizes, at-ceiling count,
+ranked files touched — published by CI on every PR, printed at pre-push,
+embedded in the peer review's input), which feeds — but does not replace —
+the dated per-session trend reports under `docs/reports/`, the record for
+enumerated concern counts (first post-baseline report:
+`docs/reports/2026-08-16-001-slice2-u1-trend-report.md`). A plan may pause
+new work on the ranked list; it never pauses the guard or the measurement
+(amended 2026-08-23 per plan `2026-08-23-001` R15; a blocking concern-count
+gate stays a deliberately parked candidate). **Reliability** is measured — baseline
 flake rate, incident record, and ranked defect list at
 `docs/reports/2026-08-19-001-reliability-rediagnosis.md`, which also names
 the pillar's trend metrics and nominates its mechanical-gate candidate; its
