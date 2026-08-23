@@ -232,6 +232,16 @@ U1 (docs: invariant text, learning, STRATEGY, backlog, CONCEPTS) → U2 (registr
 
   A plan that omits a ranked-defect file from its Files list never triggers the R10 citation requirement, while the invariant binds every PR; nothing compares a PR's changed paths against the ranked list. The proposed remedy is a PR-time check requiring every ranked-file touch to be named and justified by the governing plan — surfaced here rather than applied because the invariant forbids regression, not touch: the R8 "ranked file touched" line prompts the reviewer, and a blocking touch check would be a second mechanism for the maintainer to weigh.
 
+### From 2026-08-24 pre-push peer review (deferred findings)
+
+Recorded by U1's independent cross-model peer against the committed plan; deferred here because each binds a later unit's implementation, not U1's text. The unit that resolves each states its resolution in its PR.
+
+- **U2 has no passing registry state as literally specified** — KTD2/KTD3, R5 (P1, cross-model peer). KTD2's registry test asserts "the `boundary` paths exist on disk", but `seamModule` is created only in U4, while KTD3/R5 make a placeholder seam trigger the no-allowance-after-seam failure. U2's implementer must scope the path-existence assertion so `seamModule` existence is asserted only once the seam is due (e.g. exists-on-disk required for `rankedFiles` and `boundary.module`; `seamModule` asserted existent iff any allowance has been removed or the file exists), keeping KTD3's condition intact. Implementation-detail resolution, already delegated by "Deferred to implementation: the exact registry JSON field names beyond those in KTD2".
+
+- **The gate as enumerated can be laundered through a helper module** — R2/R4, KTD1 (P1, cross-model peer). The per-file overrides patrol only the four junction files, and the registry test prohibits only re-exporting a restricted *name*; a helper that imports `captureGanttLifecycle` and exports a differently named wrapper (`recordLifecycle`) importable by `GanttContainer.svelte` passes both. R2's own text ("the lifecycle-capture names ... are imported only by the seam module") is the wider contract: U2 must add the repo-wide half — no module other than `src/debugLog.ts` and the seam imports a restricted name (expressible as a repo-wide `no-restricted-imports` allowlist entry or a registry-test import census) — so the junction-file overrides are the hard edge of a closed boundary, not its whole extent.
+
+- **The "PRs since latest report" count includes the report-landing PR itself** — R8/KTD4, U4 (P1 as filed; informational-value class). The report and its registry entry land inside U4's PR, whose squash SHA cannot be recorded beforehand, so the next PR reads "1 PR since" for a change the report already covers. U3/U4's implementer picks the anchor semantics that avoid the off-by-one (e.g. exclude squash commits whose changed paths include the dated report itself, or record the anchor as the report's parent and let the script skip the report-bearing commit). Values are informational and never fail; the fix is accuracy, not gating.
+
 ---
 
 ## Implementation Units
