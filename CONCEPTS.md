@@ -203,6 +203,14 @@ A settled diagnostic outcome that withholds causal attribution because the avail
 
 An open diagnosis is a valid bounded result, including when the diagnostic mechanism is verified but the symptom does not recur organically.
 
+## Pillar measurement
+
+### Ranked-defect file
+A file that holds a measured entry in a pillar's ranked defect list — today the maintainability report's ranked list, with its recorded line count, enumerated concern count, and complexity-band membership. The record is the reference every later change is judged against: a PR that grows such a file's measured metrics regresses the pillar unless its governing plan argues the growth, and instrumentation or diagnostics never live inside one — they sit in their own module behind a seam, leaving only call hooks behind.
+
+### Placement boundary
+The lint-gate rule that a ranked-defect junction file may not import the lifecycle-capture API of the debug-log module or touch the lifecycle global: instrumentation and diagnostics live in their own seam module, and junction files keep only the call hooks. It encodes the cohesion invariant directly — the first visible act of the 2026-08-21 regression was that import — so it is binary, not gameable by formatting, and fails at pre-commit. A new allowed import is a boundary exception: a dated, structured allowance with its record (delta, why the seam cannot carry it, alternatives, the maintainer's approval), never a sentence. File size is not a gate (the 2026-07-30 ruling stands); it is published for review by the trend measurement.
+
 ## Flagged ambiguities
 
 - "Calendar role" had been used for plugin-assigned semantics layered over passive calendar sources — retired: a calendar note declares its own availability, and the view's calendar mode chooses how that availability is applied.
