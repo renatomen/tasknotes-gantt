@@ -58,8 +58,9 @@ notes they already own, TaskNotes installed or not.
   (churn share, ranked-file sizes, at-ceiling complexity count) and by the
   dated per-session trend reports, which remain the record for enumerated
   concern counts; the complexity ceiling and the placement boundary are the
-  pillar's mechanical gates, and a blocking concern-count gate stays a parked
-  candidate.
+  pillar's mechanical gates (the boundary and the measurement land under plan
+  `2026-08-23-001` U2/U3 — until each lands, its rule binds by review), and a
+  blocking concern-count gate stays a parked candidate.
 - **Performance and security, verifiable** — commissioned: each pillar's
   metric set is defined by its re-diagnosis when it lands (performance from
   the existing perf harness; security from a plugin threat model). Until
@@ -114,7 +115,10 @@ ranked files touched — published by CI on every PR, printed at pre-push,
 embedded in the peer review's input), which feeds — but does not replace —
 the dated per-session trend reports under `docs/reports/`, the record for
 enumerated concern counts (first post-baseline report:
-`docs/reports/2026-08-16-001-slice2-u1-trend-report.md`). A plan may pause
+`docs/reports/2026-08-16-001-slice2-u1-trend-report.md`). The boundary and
+the measurement are mechanized by plan `2026-08-23-001` (U2 the boundary, U3
+the measurement); until each lands, its rule binds by review under the
+AGENTS.md rubric. A plan may pause
 new work on the ranked list; it never pauses the guard or the measurement
 (amended 2026-08-23 per plan `2026-08-23-001` R15; a blocking concern-count
 gate stays a deliberately parked candidate). **Reliability** is measured — baseline
