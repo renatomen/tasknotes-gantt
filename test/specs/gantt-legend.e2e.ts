@@ -1,7 +1,6 @@
-/* global AbortSignal, CustomEvent, Event, fetch, getComputedStyle, HTMLButtonElement, MouseEvent */
+/* global CustomEvent, Event, getComputedStyle, HTMLButtonElement, MouseEvent */
 import { browser, expect, $, $$ } from "@wdio/globals";
 import type { ChainablePromiseElement } from "webdriverio";
-import WebSocket from "ws";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -9,12 +8,16 @@ import { fileURLToPath } from "node:url";
 import type { EstimateMeaning, NonWorkingRendering } from "../../src/bases/viewOptions";
 import type { GanttVisualSemanticId } from "../../src/bases/visualSemantics";
 import {
-  buildGanttLifecycleReport,
-  readDiagnosticsPreservingPrimary,
-  withGanttDiagnosticDeadline,
   type GanttLifecycleControl,
   type GanttLifecycleSnapshot,
 } from "../../src/debugLog";
+import {
+  captureLifecycleEnvelope,
+  evaluateBoundedCdp,
+  renderLifecycleFailure as renderFailure,
+  writeLifecycleEnvelope,
+  writeLifecycleRetrievalFailure,
+} from "./helpers/lifecycleTrace";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -108,20 +111,6 @@ interface FailedClickBrowserEvidence {
   scriptFailure: string | null;
 }
 
-interface CdpTargetDescriptor {
-  type?: string;
-  webSocketDebuggerUrl?: string;
-}
-
-interface CdpEvaluationResponse {
-  id?: number;
-  error?: { message?: string };
-  result?: {
-    exceptionDetails?: { text?: string };
-    result?: { value?: unknown };
-  };
-}
-
 type LegendRunnerFailureReporter = (testTitle: string, error: unknown) => Promise<void>;
 
 interface LegendDiagnosticNodeGlobal {
@@ -176,7 +165,6 @@ function viewportSourceHasDeterministicOutcome(
     viewportSourceSettledBefore(records, source, beforeSequence);
 }
 
-const DIAGNOSTIC_RETRIEVAL_OUTER_TIMEOUT_MS = 7_500;
 const legendWdioClickFailures: WdioClickFailureEvidence[] = [];
 const legendWdioClickAttempts: WdioClickAttemptEvidence[] = [];
 let legendWdioInvocationSequence = 0;
@@ -257,67 +245,6 @@ async function startLegendLifecycleCapture(): Promise<void> {
   if (!started) throw new Error("Gantt lifecycle collector was unavailable after plugin reload");
 }
 
-function chromeDebuggerAddress(): string {
-  const capabilities = browser.capabilities as Record<string, unknown>;
-  const chromeOptions = capabilities["goog:chromeOptions"];
-  if (typeof chromeOptions !== "object" || chromeOptions === null) {
-    throw new Error("Chrome debugger options are unavailable for bounded diagnostics");
-  }
-  const debuggerAddress = (chromeOptions as Record<string, unknown>).debuggerAddress;
-  if (typeof debuggerAddress !== "string" || debuggerAddress.length === 0) {
-    throw new Error("Chrome debugger address is unavailable for bounded diagnostics");
-  }
-  return debuggerAddress;
-}
-
-async function evaluateBoundedCdp<T>(expression: string, signal: AbortSignal): Promise<T> {
-  const targetResponse = await fetch(`http://${chromeDebuggerAddress()}/json/list`, { signal });
-  if (!targetResponse.ok) throw new Error(`Chrome diagnostic target lookup failed: ${targetResponse.status}`);
-  const targets = await targetResponse.json() as CdpTargetDescriptor[];
-  const target = targets.find(({ type, webSocketDebuggerUrl }) =>
-    type === "page" && typeof webSocketDebuggerUrl === "string");
-  if (!target?.webSocketDebuggerUrl) throw new Error("Obsidian Chrome diagnostic target is unavailable");
-
-  return new Promise<T>((resolve, reject) => {
-    const socket = new WebSocket(target.webSocketDebuggerUrl as string);
-    let settled = false;
-    const finish = (outcome: { value: T } | { error: unknown }): void => {
-      if (settled) return;
-      settled = true;
-      signal.removeEventListener("abort", abort);
-      socket.close();
-      if ("error" in outcome) reject(outcome.error);
-      else resolve(outcome.value);
-    };
-    const abort = (): void => finish({ error: new Error("Chrome diagnostic retrieval was cancelled") });
-    signal.addEventListener("abort", abort, { once: true });
-    socket.addEventListener("open", () => {
-      socket.send(JSON.stringify({
-        id: 1,
-        method: "Runtime.evaluate",
-        params: { expression, returnByValue: true, awaitPromise: false },
-      }));
-    }, { once: true });
-    socket.addEventListener("message", (event) => {
-      try {
-        const response = JSON.parse(String(event.data)) as CdpEvaluationResponse;
-        if (response.id !== 1) return;
-        const protocolFailure = response.error?.message ?? response.result?.exceptionDetails?.text;
-        if (protocolFailure) {
-          finish({ error: new Error(`Chrome diagnostic evaluation failed: ${protocolFailure}`) });
-          return;
-        }
-        finish({ value: response.result?.result?.value as T });
-      } catch (error) {
-        finish({ error });
-      }
-    });
-    socket.addEventListener("error", () => {
-      finish({ error: new Error("Chrome diagnostic connection failed") });
-    }, { once: true });
-  });
-}
-
 async function setLegendLifecyclePhase(phase: string): Promise<void> {
   currentLegendLifecyclePhase = phase;
   await browser.execute((nextPhase) => {
@@ -333,12 +260,9 @@ async function readLegendLifecycle(): Promise<GanttLifecycleSnapshot | null> {
 }
 
 async function readLegendLifecycleAfterFailure(): Promise<GanttLifecycleSnapshot | null> {
-  return withGanttDiagnosticDeadline(
-    (signal) => evaluateBoundedCdp<GanttLifecycleSnapshot | null>(
-      "globalThis.__tnGanttLifecycle?.snapshot() ?? null",
-      signal,
-    ),
-    DIAGNOSTIC_RETRIEVAL_OUTER_TIMEOUT_MS,
+  return evaluateBoundedCdp<GanttLifecycleSnapshot | null>(
+    browser.capabilities as Record<string, unknown>,
+    "globalThis.__tnGanttLifecycle?.snapshot() ?? null",
   );
 }
 
@@ -393,9 +317,9 @@ async function readFailedClickEvidence(
       };
     }
   })()`;
-  return withGanttDiagnosticDeadline(
-    (signal) => evaluateBoundedCdp<FailedClickBrowserEvidence>(expression, signal),
-    DIAGNOSTIC_RETRIEVAL_OUTER_TIMEOUT_MS,
+  return evaluateBoundedCdp<FailedClickBrowserEvidence>(
+    browser.capabilities as Record<string, unknown>,
+    expression,
   );
 }
 
@@ -510,15 +434,6 @@ async function captureViewportCheckpoint(checkpoint: string): Promise<void> {
   }, checkpoint);
 }
 
-function renderFailure(error: unknown): string | null {
-  if (error === null || error === undefined) return null;
-  try {
-    return (error instanceof Error ? (error.stack ?? error.message) : String(error)).slice(0, 2000);
-  } catch {
-    return "Unrenderable failure";
-  }
-}
-
 function isStaleWebdriverElementFailure(error: unknown): boolean {
   return renderFailure(error)?.toLowerCase().includes("stale element reference") === true;
 }
@@ -526,28 +441,21 @@ function isStaleWebdriverElementFailure(error: unknown): boolean {
 async function reportLegendLifecycle(origin: string, primaryError: unknown): Promise<void> {
   const hasPrimaryFailure = primaryError !== null && primaryError !== undefined;
   if (hasPrimaryFailure) legendOriginalFailureSeen = true;
-  const readLifecycle = hasPrimaryFailure ? readLegendLifecycleAfterFailure : readLegendLifecycle;
-  const result = await readDiagnosticsPreservingPrimary(primaryError, readLifecycle);
-  const lifecycleUnavailable = result.diagnosticValue === null || result.diagnosticValue === undefined;
-  const diagnosticValue = lifecycleUnavailable
-    ? undefined
-    : {
-        ...result.diagnosticValue,
+  const envelope = await captureLifecycleEnvelope({
+    origin,
+    primaryError,
+    originalFailureSeen: legendOriginalFailureSeen,
+    readers: {
+      ordinary: readLegendLifecycle,
+      afterFailure: readLegendLifecycleAfterFailure,
+    },
+    decorate: (snapshot) => ({
+        ...snapshot,
         wdioClickAttempts: [...legendWdioClickAttempts],
         wdioClickFailures: [...legendWdioClickFailures],
-      };
-  const diagnosticError = result.diagnosticError;
-  try {
-    console.error(`[OG-LIFECYCLE] ${JSON.stringify(buildGanttLifecycleReport({
-      origin,
-      originalOutcome: hasPrimaryFailure ? "failed" : (legendOriginalFailureSeen ? "failed-earlier" : "passed"),
-      originalError: renderFailure(result.primaryError),
-      diagnosticError,
-      diagnosticValue,
-    }))}`);
-  } catch (error) {
-    console.error(`[OG-LIFECYCLE] terminal payload serialization failed: ${renderFailure(error)}`);
-  }
+      }),
+  });
+  writeLifecycleEnvelope(envelope);
 }
 
 function reportLegendLifecycleRetrievalFailure(
@@ -555,17 +463,7 @@ function reportLegendLifecycleRetrievalFailure(
   error: unknown,
   primaryError: unknown = null,
 ): void {
-  const hasPrimaryFailure = primaryError !== null && primaryError !== undefined;
-  try {
-    console.error(`[OG-LIFECYCLE] ${JSON.stringify(buildGanttLifecycleReport({
-      origin,
-      originalOutcome: hasPrimaryFailure ? "failed" : (legendOriginalFailureSeen ? "failed-earlier" : "passed"),
-      originalError: renderFailure(primaryError),
-      diagnosticError: renderFailure(error) ?? "Unknown terminal diagnostic failure",
-    }))}`);
-  } catch {
-    // Terminal diagnostics must not change the suite outcome.
-  }
+  writeLifecycleRetrievalFailure(origin, error, primaryError, legendOriginalFailureSeen);
 }
 
 async function reportAfterEachFailure(testTitle: string, error: unknown): Promise<void> {

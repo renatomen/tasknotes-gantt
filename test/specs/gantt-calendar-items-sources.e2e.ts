@@ -4,7 +4,27 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
+import type { GanttLifecycleControl } from "../../src/debugLog";
+import {
+  attemptSourcesFailureDiagnostics,
+  captureSourcesCheckpoint,
+  captureSourcesReadinessPoll,
+  invalidateSourcesReadinessEvidence,
+  retainMatchingSourcesReadinessEvidence,
+  noteSourcesOriginalFailure,
+  reportSourcesLifecycle,
+  sealSourcesReadinessWindow,
+  startSourcesReadinessWindow,
+  startSourcesLifecycleCapture,
+  stopSourcesLifecycleCapture,
+  verifySourcesDiagnosticEnvelope,
+  writeSourcesRetrievalFailure,
+} from "./helpers/calendarItemsSourcesLifecycle";
+import { attemptDiagnosticOperation } from "./helpers/lifecycleTrace";
+import { shouldCaptureCalendarItemsSourcesReadinessBoundary } from "./helpers/calendarItemsSourcesDiagnosis";
 import { waitUntilOrExplain } from "./helpers/waitReady";
+
+const READINESS_DIAGNOSTIC_CAPTURE_INTERVAL_MS = 5_000;
 
 /**
  * Calendar-item sources spec: property-based events, timeblocks, the quick
@@ -57,6 +77,42 @@ const DAILY_NOTE = "2026-03-11.md";
 
 /** Watch settle (500ms) + refresh debounce (500ms) + index/render overhead. */
 const REPAINT_BUDGET_MS = 10000;
+type SourcesRunnerFailureReporter = (testTitle: string, error: unknown) => Promise<void>;
+
+interface SourcesDiagnosticNodeGlobal {
+  __tnGanttLegendRunnerFailureReporter?: SourcesRunnerFailureReporter;
+}
+
+let sourcesBeforeEachSequence = 0;
+let sourcesSuitePrimaryError: unknown = null;
+const sourcesFailureEnvelopeAttempts = new Set<unknown>();
+const sourcesPrimaryErrors = new WeakMap<object, unknown>();
+const MAX_SOURCES_FAILURE_ENVELOPES = 3;
+
+function rememberSourcesPrimaryError(error: unknown): void {
+  if (sourcesSuitePrimaryError === null || sourcesSuitePrimaryError === undefined) {
+    sourcesSuitePrimaryError = error;
+  }
+}
+
+async function captureSourcesDiagnostic(
+  origin: string,
+  operation: () => Promise<unknown>,
+): Promise<void> {
+  const diagnosticFailure = await attemptDiagnosticOperation(operation);
+  if (diagnosticFailure !== null) {
+    writeSourcesRetrievalFailure(origin, diagnosticFailure, null);
+  }
+}
+
+async function captureSourcesFailureOnce(origin: string, primaryError: unknown): Promise<void> {
+  if (sourcesFailureEnvelopeAttempts.has(primaryError)
+      || sourcesFailureEnvelopeAttempts.size >= MAX_SOURCES_FAILURE_ENVELOPES) return;
+  sourcesFailureEnvelopeAttempts.add(primaryError);
+  const diagnosticFailure = await attemptSourcesFailureDiagnostics(origin, primaryError);
+  if (diagnosticFailure === null) return;
+  writeSourcesRetrievalFailure(origin, diagnosticFailure, primaryError);
+}
 
 const CALENDAR_CONFIG_KEYS = [
   "tngantt_showRecurring",
@@ -71,8 +127,8 @@ const CALENDAR_CONFIG_KEYS = [
 ];
 
 /** Force the OG Gantt to be the ACTIVE, visible leaf (starter-note steal heal). */
-async function activateBaseLeaf(): Promise<void> {
-  await browser.executeObsidian(async ({ app }, basePath) => {
+async function activateBaseLeaf(diagnosticCheckpoint?: string): Promise<void> {
+  await browser.executeObsidian(async ({ app }, args) => {
     const ws = app.workspace as unknown as {
       iterateAllLeaves: (cb: (l: { view?: { getViewType?: () => string }; detach?: () => void }) => void) => void;
       getLeavesOfType: (t: string) => unknown[];
@@ -82,7 +138,7 @@ async function activateBaseLeaf(): Promise<void> {
     };
     let baseLeaf = ws.getLeavesOfType("bases")[0];
     if (!baseLeaf) {
-      const file = app.vault.getAbstractFileByPath(basePath);
+      const file = app.vault.getAbstractFileByPath(args.basePath);
       if (!file) return;
       const leaf = ws.getLeaf(false);
       await leaf.openFile(file as never);
@@ -95,7 +151,26 @@ async function activateBaseLeaf(): Promise<void> {
     markdownLeaves.forEach((l) => l.detach?.());
     ws.setActiveLeaf(baseLeaf, { focus: true });
     ws.revealLeaf(baseLeaf);
-  }, DAY_BASE);
+    if (args.diagnosticCheckpoint) {
+      const diagnosticGlobal = globalThis as typeof globalThis & {
+        __tnGanttLifecycle?: GanttLifecycleControl;
+        __tnGanttSourcesPhaseCheckpoint?: string;
+      };
+      if (diagnosticGlobal.__tnGanttSourcesPhaseCheckpoint === args.diagnosticCheckpoint) return;
+      diagnosticGlobal.__tnGanttSourcesPhaseCheckpoint = args.diagnosticCheckpoint;
+      const control = diagnosticGlobal.__tnGanttLifecycle;
+      control?.setPhase("before-each");
+      control?.record({
+        scope: "calendar-items-sources",
+        mountToken: 0,
+        controllerStarted: null,
+        controllerDelivered: null,
+        svarGeneration: null,
+        event: "sources-phase",
+        facts: { checkpoint: args.diagnosticCheckpoint },
+      });
+    }
+  }, { basePath: DAY_BASE, diagnosticCheckpoint });
 }
 
 /** Which of the fixture's three task bars are missing from the rendered chart. */
@@ -109,17 +184,49 @@ async function missingBars(): Promise<string[]> {
 }
 
 /** Wait until the base leaf is front and every fixture task bar is rendered. */
-async function ensureGanttReady(): Promise<void> {
+async function ensureGanttReady(diagnosticCheckpoint?: string): Promise<void> {
   let missing: string[] = ["<never polled>"];
-  await waitUntilOrExplain(
-    async () => {
-      await activateBaseLeaf();
-      missing = await missingBars();
-      return missing.length === 0;
-    },
-    () => `Gantt bars missing: ${JSON.stringify(missing)}`,
-    { timeout: 90000 },
-  );
+  let lastDiagnosticCaptureAt: number | null = null;
+  let readinessCaptureAvailable = true;
+  if (diagnosticCheckpoint) startSourcesReadinessWindow();
+  try {
+    await waitUntilOrExplain(
+      async () => {
+        try {
+          await activateBaseLeaf(diagnosticCheckpoint);
+          missing = await missingBars();
+          if (diagnosticCheckpoint) {
+            retainMatchingSourcesReadinessEvidence(missing);
+            if (missing.length > 0) {
+              const now = Date.now();
+              if (readinessCaptureAvailable && shouldCaptureCalendarItemsSourcesReadinessBoundary(
+                missing,
+                now,
+                lastDiagnosticCaptureAt,
+                READINESS_DIAGNOSTIC_CAPTURE_INTERVAL_MS,
+              )) {
+                readinessCaptureAvailable = await captureSourcesReadinessPoll(
+                  diagnosticCheckpoint,
+                  TASK_NOTES,
+                );
+                lastDiagnosticCaptureAt = Date.now();
+                missing = await missingBars();
+                retainMatchingSourcesReadinessEvidence(missing);
+              }
+            }
+          }
+          return missing.length === 0;
+        } catch (error) {
+          if (diagnosticCheckpoint) invalidateSourcesReadinessEvidence();
+          throw error;
+        }
+      },
+      () => `Gantt bars missing: ${JSON.stringify(missing)}`,
+      { timeout: 90000 },
+    );
+  } finally {
+    if (diagnosticCheckpoint) sealSourcesReadinessWindow();
+  }
 }
 
 /** Set a per-view option the way the live options panel does (proven pattern). */
@@ -129,6 +236,22 @@ async function fireConfigToggle(
 ): Promise<{ set: boolean; configChanged: boolean }> {
   return browser.executeObsidian(
     ({ app }, k, v) => {
+      const diagnosticGlobal = globalThis as typeof globalThis & {
+        __tnGanttLifecycle?: GanttLifecycleControl;
+        __tnGanttSourcesActionHistory?: string[];
+      };
+      const lifecycle = diagnosticGlobal.__tnGanttLifecycle;
+      diagnosticGlobal.__tnGanttSourcesActionHistory?.push(`${k}:start`);
+      lifecycle?.setPhase("config-action-start");
+      lifecycle?.record({
+        scope: "calendar-items-sources",
+        mountToken: 0,
+        controllerStarted: null,
+        controllerDelivered: null,
+        svarGeneration: null,
+        event: "sources-config-action-start",
+        facts: { action: k },
+      });
       const ws = app.workspace as unknown as {
         getLeavesOfType: (t: string) => Array<{ view?: Record<string, unknown> }>;
       };
@@ -165,6 +288,17 @@ async function fireConfigToggle(
         }
       };
       for (const leaf of ws.getLeavesOfType("bases")) if (leaf.view) visit(leaf.view, 0);
+      diagnosticGlobal.__tnGanttSourcesActionHistory?.push(`${k}:observed`);
+      lifecycle?.setPhase("config-action-observed");
+      lifecycle?.record({
+        scope: "calendar-items-sources",
+        mountToken: 0,
+        controllerStarted: null,
+        controllerDelivered: null,
+        svarGeneration: null,
+        event: "sources-config-action-observed",
+        facts: { action: k, set, configChanged },
+      });
       return { set, configChanged };
     },
     key,
@@ -349,6 +483,9 @@ async function searchState(): Promise<{ value: string; count: string }> {
 
 describe("Gantt (OG) calendar items — property events, timeblocks, switcher, search", () => {
   before(async () => {
+    sourcesSuitePrimaryError = null;
+    sourcesFailureEnvelopeAttempts.clear();
+    try {
     // Hermetic: copy the in-repo fixture to a disposable temp dir.
     const tmpVault = path.join(os.tmpdir(), "og-gantt-calendar-sources-e2e");
     fs.rmSync(tmpVault, { recursive: true, force: true });
@@ -358,6 +495,15 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
       vault: tmpVault,
       plugins: ["tasknotes-gantt", "tasknotes"],
     });
+    sourcesBeforeEachSequence = 0;
+    await captureSourcesDiagnostic("collector-start", startSourcesLifecycleCapture);
+    (globalThis as SourcesDiagnosticNodeGlobal).__tnGanttLegendRunnerFailureReporter =
+      async (testTitle, error) => {
+        rememberSourcesPrimaryError(error);
+        noteSourcesOriginalFailure();
+        const origin = `afterTest:${testTitle}`;
+        await captureSourcesFailureOnce(origin, error);
+      };
 
     // Core plugins: `bases` opens the .base files; `daily-notes` makes the
     // fixture's `2026-03-11.md` a daily note (default folder/format).
@@ -394,10 +540,74 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     );
 
     await ensureGanttReady();
+    await captureSourcesDiagnostic("initial-readiness", () =>
+      captureSourcesCheckpoint("initial-readiness", "initial-readiness"));
+    } catch (error) {
+      rememberSourcesPrimaryError(error);
+      noteSourcesOriginalFailure();
+      await captureSourcesFailureOnce("before-hook", error);
+      throw error;
+    }
   });
 
-  beforeEach(async () => {
-    await ensureGanttReady();
+  beforeEach(async function () {
+    const currentTest = this.currentTest as {
+      title?: string;
+      fn?: (this: unknown, ...args: unknown[]) => unknown;
+    } | undefined;
+    const originalTest = currentTest?.fn;
+    if (currentTest && originalTest) {
+      currentTest.fn = async function (this: unknown, ...args: unknown[]): Promise<unknown> {
+        try {
+          return await originalTest.apply(this, args);
+        } catch (error) {
+          rememberSourcesPrimaryError(error);
+          sourcesPrimaryErrors.set(currentTest, error);
+          throw error;
+        }
+      };
+    }
+    sourcesBeforeEachSequence += 1;
+    const checkpoint = `before-each:${sourcesBeforeEachSequence}:${currentTest?.title ?? "unknown"}`;
+    try {
+      await ensureGanttReady(checkpoint);
+      await captureSourcesDiagnostic(checkpoint, () =>
+        captureSourcesCheckpoint("before-each", checkpoint));
+    } catch (error) {
+      rememberSourcesPrimaryError(error);
+      if (currentTest) sourcesPrimaryErrors.set(currentTest, error);
+      noteSourcesOriginalFailure();
+      const origin = `beforeEach:${checkpoint}`;
+      await captureSourcesFailureOnce(origin, error);
+      throw error;
+    }
+  });
+
+  afterEach(async function () {
+    const currentTest = this.currentTest as { title?: string; err?: unknown } | undefined;
+    const primaryError = (currentTest ? sourcesPrimaryErrors.get(currentTest) : undefined) ?? currentTest?.err;
+    if (primaryError === null || primaryError === undefined) return;
+    rememberSourcesPrimaryError(primaryError);
+    noteSourcesOriginalFailure();
+    const origin = `test:${currentTest?.title ?? "unknown"}`;
+    await captureSourcesFailureOnce(origin, primaryError);
+  });
+
+  after(async function () {
+    this.timeout(60000);
+    try {
+      if (sourcesSuitePrimaryError !== null && sourcesSuitePrimaryError !== undefined) {
+        await captureSourcesFailureOnce("suite-after", sourcesSuitePrimaryError);
+      } else {
+        await captureSourcesDiagnostic("suite-after-checkpoint", () =>
+          captureSourcesCheckpoint("suite-after", "suite-after"));
+        await captureSourcesDiagnostic("suite-after-report", () =>
+          reportSourcesLifecycle("suite-after", null));
+      }
+    } finally {
+      await captureSourcesDiagnostic("collector-stop", stopSourcesLifecycleCapture);
+      delete (globalThis as SourcesDiagnosticNodeGlobal).__tnGanttLegendRunnerFailureReporter;
+    }
   });
 
   it("renders property events only when the family is on AND the start picker is set, scoped by the query", async () => {
@@ -518,6 +728,31 @@ describe("Gantt (OG) calendar items — property events, timeblocks, switcher, s
     const repaintMs = Date.now() - editStarted;
     expect(repaintMs).toBeLessThanOrEqual(REPAINT_BUDGET_MS);
     expect(census.timeblockIds).toHaveLength(3);
+  });
+
+  it("captures a complete property-event diagnostic envelope without a causal verdict", async () => {
+    if (sourcesSuitePrimaryError !== null && sourcesSuitePrimaryError !== undefined) return;
+    const verification = await verifySourcesDiagnosticEnvelope("property-events-diagnostic");
+
+    expect(verification.diagnosticOutcome).toBe("captured");
+    expect(verification.originalOutcome).toBe("passed");
+    expect(verification.expectedMarkersPresent).toBe(true);
+    expect(verification.snapshot.completeness.configActions).toBe(true);
+    expect(verification.snapshot.completeness.targetFileAndCache).toBe(true);
+    expect(verification.snapshot.completeness.taskNotesFacts).toBe(true);
+    expect(verification.snapshot.completeness.liveBaseResult).toBe(true);
+    expect(verification.snapshot.completeness.rootCensus).toBe(true);
+    expect(verification.snapshot.completeness.ownerDomMembership).toBe(true);
+    expect(verification.snapshot.completeness.correlationKeys).toBe(true);
+    expect(verification.snapshot.target.liveBaseHostPresent).toBe(true);
+    expect(verification.snapshot.target.liveBaseTargetPresent).toBe(true);
+    expect(verification.snapshot.roots.length).toBeGreaterThan(0);
+    expect(verification.snapshot.roots.some((root) =>
+      root.ownsBase === true
+        && root.ownerLeafId !== null
+        && root.ownerLiveBaseHostPresent === true)).toBe(true);
+    expect(verification.snapshot.disqualifiers.collectorFailure).toBe(false);
+    expect(verification.snapshot.disqualifiers.overflow).toBe(false);
   });
 
   it("hides a source's rows instantly via the quick switcher command, leaving view options untouched", async () => {
