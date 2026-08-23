@@ -86,7 +86,7 @@ What exists today is an incident record (failures only) in `docs/backlogs/backlo
 - No auto-retry, `specFileRetries`, or rerun-masking as mitigation — rerun-masking weakens the gate the pillar exists to earn.
 - No flake fixes inside the diagnosis unit — root-cause and fix work belongs to the ranked list's own units after the report lands.
 - Performance and security pillar re-diagnoses stay uncommissioned.
-- The maintainability ranked list is paused, not abandoned; its trend reporting resumes when its campaign does.
+- The maintainability ranked list is paused, not abandoned; its trend reporting resumes when its campaign does. *(Superseded 2026-08-23: a plan may pause new work on a pillar's ranked list, never that pillar's regression guard or trend measurement — [practices.md § Charter-owned practice items](../engineering/practices.md), per plan `2026-08-23-001` R3.)*
 
 #### Deferred to Follow-Up Work
 
