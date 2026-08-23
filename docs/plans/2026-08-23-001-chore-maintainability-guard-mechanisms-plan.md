@@ -234,7 +234,7 @@ U1 (docs: invariant text, learning, STRATEGY, backlog, CONCEPTS) → U2 (registr
 
 ### From 2026-08-24 pre-push peer review (deferred findings)
 
-Recorded by U1's independent cross-model peer against the committed plan; deferred here because each binds a later unit's implementation, not U1's text. The unit that resolves each states its resolution in its PR.
+Recorded during U1's review rounds — the independent cross-model peer pre-push and the hosted final-gate reviewer on the PR (each entry names its source); deferred here because each binds a later unit's implementation, not U1's text. The unit that resolves each states its resolution in its PR.
 
 - **U2 has no passing registry state as literally specified** — KTD2/KTD3, R5 (P1, cross-model peer). KTD2's registry test asserts "the `boundary` paths exist on disk", but `seamModule` is created only in U4, while KTD3/R5 make a placeholder seam trigger the no-allowance-after-seam failure. U2's implementer must scope the path-existence assertion so `seamModule` existence is asserted only once the seam is due (e.g. exists-on-disk required for `rankedFiles` and `boundary.module`; `seamModule` asserted existent iff any allowance has been removed or the file exists), keeping KTD3's condition intact. Resolution shape for U2 to settle and state in its PR — it narrows KTD2's stated assertion, so the narrowing is argued there, not decided here.
 
