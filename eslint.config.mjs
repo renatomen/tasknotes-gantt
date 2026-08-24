@@ -4,6 +4,7 @@ import tsPlugin from '@typescript-eslint/eslint-plugin';
 import sveltePlugin from 'eslint-plugin-svelte';
 import svelteParser from 'svelte-eslint-parser';
 import sonarjs from 'eslint-plugin-sonarjs';
+import { deriveBoundaryOverrides } from './scripts/maintainability-registry.mjs';
 
 export default [
   // Files/folders to ignore
@@ -132,6 +133,10 @@ export default [
       'sonarjs/cognitive-complexity': ['error', 15]
     }
   },
+  // Placement boundary (maintainability-registry.json): a source-tree closure
+  // entry plus per-junction-file overrides, all derived from the committed
+  // registry so an allowance or rename is always a registry diff line.
+  ...deriveBoundaryOverrides(),
   // A case that only awaits a `waitUntil` looks like a test and is not one: the
   // wait proves something settled, never what it settled TO, so the case passes
   // whenever its predicate is satisfiable at all. Seven cases in this suite were

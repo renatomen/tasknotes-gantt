@@ -54,7 +54,6 @@
  * @module controller/GanttController
  */
 
-/* global clearTimeout */
 import type { App, BasesEntry, BasesSortConfig } from 'obsidian';
 import { TFile } from 'obsidian';
 import {

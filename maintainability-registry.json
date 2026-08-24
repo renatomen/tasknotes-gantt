@@ -1,0 +1,190 @@
+{
+  "baseline": {
+    "sha": "7949fd1135ed32017cb72aafdb92c4f09caf8267",
+    "date": "2026-08-15",
+    "report": "docs/reports/2026-08-15-001-maintainability-rediagnosis.md"
+  },
+  "rankedFiles": [
+    { "path": "src/bases/GanttContainer.svelte", "rank": 1 },
+    { "path": "src/bases/register.ts", "rank": 2 },
+    { "path": "src/controller/GanttController.ts", "rank": 4 },
+    { "path": "src/bases/services/BasesDataAdapter.ts", "rank": 5 },
+    { "path": "test/specs/gantt-calendar-editor.e2e.ts", "rank": 6 },
+    { "path": "scripts/cross-model-peer-review.sh", "rank": 7 },
+    { "path": "scripts/check-review-receipts.mjs", "rank": 7 },
+    { "path": "src/bases/entrySignature.ts", "rank": 8 },
+    { "path": "src/controller/calendar/resolveCalendars.ts", "rank": 9 },
+    { "path": "src/bases/types/gantt-view-data.ts", "rank": 10 }
+  ],
+  "reports": [],
+  "boundary": {
+    "module": "src/debugLog.ts",
+    "seamModule": "src/bases/ganttLifecycleDiagnostics.ts",
+    "seamPublicNames": [
+      "createGanttLifecycleDiagnostics",
+      "createMountLifecycleCapture",
+      "GanttLifecycleFacts",
+      "ViewportObservation"
+    ],
+    "allowedImportNames": ["dlog", "isGanttDebugEnabled"],
+    "lifecycleGlobal": "__tnGanttLifecycle",
+    "files": [
+      {
+        "path": "src/bases/GanttContainer.svelte",
+        "globals": [
+          "HTMLElement",
+          "HTMLButtonElement",
+          "HTMLStyleElement",
+          "Element",
+          "Event",
+          "CustomEvent",
+          "MouseEvent",
+          "MediaQueryListEvent",
+          "KeyboardEvent",
+          "ResizeObserver",
+          "requestAnimationFrame",
+          "cancelAnimationFrame",
+          "setTimeout",
+          "clearTimeout"
+        ]
+      },
+      { "path": "src/bases/register.ts", "globals": ["MouseEvent"] },
+      { "path": "src/controller/GanttController.ts", "globals": ["clearTimeout"] },
+      { "path": "src/bases/services/BasesDataAdapter.ts", "globals": [] }
+    ],
+    "allowances": [
+      {
+        "file": "src/bases/GanttContainer.svelte",
+        "importName": "captureGanttLifecycle",
+        "dated": "2026-08-24",
+        "removedBy": "U4",
+        "record": {
+          "delta": "pre-existing import; lifecycle instrumentation grown through PR #446 before this boundary landed",
+          "whyNotSeam": "the seam module does not exist yet; the extraction unit creates it and deletes this entry",
+          "alternatives": "landing the gate and the extraction as one PR - rejected so the gate proves itself before the largest unit",
+          "approval": "maintainer-approved plan docs/plans/2026-08-23-001-chore-maintainability-guard-mechanisms-plan.md (interim-allowance decision)"
+        }
+      },
+      {
+        "file": "src/bases/GanttContainer.svelte",
+        "importName": "classifyViewportSettlement",
+        "dated": "2026-08-24",
+        "removedBy": "U4",
+        "record": {
+          "delta": "pre-existing import; lifecycle instrumentation grown through PR #446 before this boundary landed",
+          "whyNotSeam": "the seam module does not exist yet; the extraction unit creates it and deletes this entry",
+          "alternatives": "landing the gate and the extraction as one PR - rejected so the gate proves itself before the largest unit",
+          "approval": "maintainer-approved plan docs/plans/2026-08-23-001-chore-maintainability-guard-mechanisms-plan.md (interim-allowance decision)"
+        }
+      },
+      {
+        "file": "src/bases/GanttContainer.svelte",
+        "importName": "currentGanttLifecycleCaptureGeneration",
+        "dated": "2026-08-24",
+        "removedBy": "U4",
+        "record": {
+          "delta": "pre-existing import; lifecycle instrumentation grown through PR #446 before this boundary landed",
+          "whyNotSeam": "the seam module does not exist yet; the extraction unit creates it and deletes this entry",
+          "alternatives": "landing the gate and the extraction as one PR - rejected so the gate proves itself before the largest unit",
+          "approval": "maintainer-approved plan docs/plans/2026-08-23-001-chore-maintainability-guard-mechanisms-plan.md (interim-allowance decision)"
+        }
+      },
+      {
+        "file": "src/bases/GanttContainer.svelte",
+        "importName": "currentGanttLifecyclePhase",
+        "dated": "2026-08-24",
+        "removedBy": "U4",
+        "record": {
+          "delta": "pre-existing import; lifecycle instrumentation grown through PR #446 before this boundary landed",
+          "whyNotSeam": "the seam module does not exist yet; the extraction unit creates it and deletes this entry",
+          "alternatives": "landing the gate and the extraction as one PR - rejected so the gate proves itself before the largest unit",
+          "approval": "maintainer-approved plan docs/plans/2026-08-23-001-chore-maintainability-guard-mechanisms-plan.md (interim-allowance decision)"
+        }
+      },
+      {
+        "file": "src/bases/GanttContainer.svelte",
+        "importName": "isGanttLifecycleCaptureActive",
+        "dated": "2026-08-24",
+        "removedBy": "U4",
+        "record": {
+          "delta": "pre-existing import; lifecycle instrumentation grown through PR #446 before this boundary landed",
+          "whyNotSeam": "the seam module does not exist yet; the extraction unit creates it and deletes this entry",
+          "alternatives": "landing the gate and the extraction as one PR - rejected so the gate proves itself before the largest unit",
+          "approval": "maintainer-approved plan docs/plans/2026-08-23-001-chore-maintainability-guard-mechanisms-plan.md (interim-allowance decision)"
+        }
+      },
+      {
+        "file": "src/bases/GanttContainer.svelte",
+        "importName": "renderedScaleCellIdentity",
+        "dated": "2026-08-24",
+        "removedBy": "U4",
+        "record": {
+          "delta": "pre-existing import; lifecycle instrumentation grown through PR #446 before this boundary landed",
+          "whyNotSeam": "the seam module does not exist yet; the extraction unit creates it and deletes this entry",
+          "alternatives": "landing the gate and the extraction as one PR - rejected so the gate proves itself before the largest unit",
+          "approval": "maintainer-approved plan docs/plans/2026-08-23-001-chore-maintainability-guard-mechanisms-plan.md (interim-allowance decision)"
+        }
+      },
+      {
+        "file": "src/bases/GanttContainer.svelte",
+        "importName": "GanttLifecycleFacts",
+        "dated": "2026-08-24",
+        "removedBy": "U4",
+        "record": {
+          "delta": "pre-existing type import; lifecycle instrumentation grown through PR #446 before this boundary landed",
+          "whyNotSeam": "the seam module does not exist yet; the extraction unit creates it, re-exports this type, and deletes this entry",
+          "alternatives": "landing the gate and the extraction as one PR - rejected so the gate proves itself before the largest unit",
+          "approval": "maintainer-approved plan docs/plans/2026-08-23-001-chore-maintainability-guard-mechanisms-plan.md (interim-allowance decision)"
+        }
+      },
+      {
+        "file": "src/bases/GanttContainer.svelte",
+        "importName": "ViewportObservation",
+        "dated": "2026-08-24",
+        "removedBy": "U4",
+        "record": {
+          "delta": "pre-existing type import; lifecycle instrumentation grown through PR #446 before this boundary landed",
+          "whyNotSeam": "the seam module does not exist yet; the extraction unit creates it, re-exports this type, and deletes this entry",
+          "alternatives": "landing the gate and the extraction as one PR - rejected so the gate proves itself before the largest unit",
+          "approval": "maintainer-approved plan docs/plans/2026-08-23-001-chore-maintainability-guard-mechanisms-plan.md (interim-allowance decision)"
+        }
+      },
+      {
+        "file": "src/bases/register.ts",
+        "importName": "captureGanttLifecycle",
+        "dated": "2026-08-24",
+        "removedBy": "U4",
+        "record": {
+          "delta": "pre-existing import; mount lifecycle capture grown through PR #446 before this boundary landed",
+          "whyNotSeam": "the seam module does not exist yet; the extraction unit creates it and deletes this entry",
+          "alternatives": "landing the gate and the extraction as one PR - rejected so the gate proves itself before the largest unit",
+          "approval": "maintainer-approved plan docs/plans/2026-08-23-001-chore-maintainability-guard-mechanisms-plan.md (interim-allowance decision)"
+        }
+      },
+      {
+        "file": "src/bases/register.ts",
+        "importName": "ganttLifecycleErrorFacts",
+        "dated": "2026-08-24",
+        "removedBy": "U4",
+        "record": {
+          "delta": "pre-existing import; mount lifecycle capture grown through PR #446 before this boundary landed",
+          "whyNotSeam": "the seam module does not exist yet; the extraction unit creates it and deletes this entry",
+          "alternatives": "landing the gate and the extraction as one PR - rejected so the gate proves itself before the largest unit",
+          "approval": "maintainer-approved plan docs/plans/2026-08-23-001-chore-maintainability-guard-mechanisms-plan.md (interim-allowance decision)"
+        }
+      },
+      {
+        "file": "src/bases/register.ts",
+        "importName": "GanttLifecycleFacts",
+        "dated": "2026-08-24",
+        "removedBy": "U4",
+        "record": {
+          "delta": "pre-existing type import; mount lifecycle capture grown through PR #446 before this boundary landed",
+          "whyNotSeam": "the seam module does not exist yet; the extraction unit creates it, re-exports this type, and deletes this entry",
+          "alternatives": "landing the gate and the extraction as one PR - rejected so the gate proves itself before the largest unit",
+          "approval": "maintainer-approved plan docs/plans/2026-08-23-001-chore-maintainability-guard-mechanisms-plan.md (interim-allowance decision)"
+        }
+      }
+    ]
+  }
+}
