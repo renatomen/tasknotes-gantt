@@ -9,7 +9,7 @@
  * itself instead of silently deriving an override that matches nothing.
  */
 import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -208,8 +208,7 @@ export function allowanceStateViolations(registry, seamExists) {
 
 /** @param {string} modulePath @returns {string} */
 function moduleBaseName(modulePath) {
-  const base = modulePath.split('/').pop() ?? modulePath;
-  return base.replace(/\.ts$/, '');
+  return basename(modulePath, '.ts');
 }
 
 const BOUNDARY_MESSAGE =

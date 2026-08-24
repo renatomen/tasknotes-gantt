@@ -27,12 +27,24 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
  * }} Plant
  */
 
+/**
+ * @param {ReturnType<typeof readRegistry>} registry
+ * @param {string} suffix
+ * @returns {string}
+ */
+function boundaryPath(registry, suffix) {
+  const entry = registry.boundary.files.find((file) => file.path.endsWith(suffix));
+  if (!entry) throw new Error(`boundary file matching ${suffix} not found in the registry`);
+  return entry.path;
+}
+
 /** @returns {Plant[]} */
 function buildPlants() {
   const registry = readRegistry();
-  const [container, register, controller, adapter] = registry.boundary.files.map(
-    (file) => file.path,
-  );
+  const container = boundaryPath(registry, 'GanttContainer.svelte');
+  const register = boundaryPath(registry, 'register.ts');
+  const controller = boundaryPath(registry, 'GanttController.ts');
+  const adapter = boundaryPath(registry, 'BasesDataAdapter.ts');
   const globalName = registry.boundary.lifecycleGlobal;
   return [
     {
@@ -170,27 +182,28 @@ function verdictHolds(plant, outcome) {
 
 export async function runBoundaryMutationChecks() {
   const eslint = new ESLint({ cwd: repoRoot });
-  const results = [];
-  for (const plant of buildPlants()) {
-    const [lintResult] = await eslint.lintText(plant.code, {
-      filePath: join(repoRoot, plant.filePath),
-      warnIgnored: true,
-    });
-    const outcome = {
-      errorRuleIds: lintResult.messages
-        .filter((message) => message.severity === 2)
-        .map((message) => message.ruleId ?? 'fatal'),
-      errorCount: lintResult.errorCount,
-      warningCount: lintResult.warningCount,
-    };
-    results.push({
-      id: plant.id,
-      filePath: plant.filePath,
-      expectation: plant.expectClean ? 'clean' : `red:${plant.expectRule}`,
-      ok: verdictHolds(plant, outcome),
-      ...outcome,
-    });
-  }
+  const results = await Promise.all(
+    buildPlants().map(async (plant) => {
+      const [lintResult] = await eslint.lintText(plant.code, {
+        filePath: join(repoRoot, plant.filePath),
+        warnIgnored: true,
+      });
+      const outcome = {
+        errorRuleIds: lintResult.messages
+          .filter((message) => message.severity === 2)
+          .map((message) => message.ruleId ?? 'fatal'),
+        errorCount: lintResult.errorCount,
+        warningCount: lintResult.warningCount,
+      };
+      return {
+        id: plant.id,
+        filePath: plant.filePath,
+        expectation: plant.expectClean ? 'clean' : `red:${plant.expectRule}`,
+        ok: verdictHolds(plant, outcome),
+        ...outcome,
+      };
+    }),
+  );
   return { ok: results.every((result) => result.ok), results };
 }
 

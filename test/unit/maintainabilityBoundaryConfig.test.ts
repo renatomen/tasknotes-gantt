@@ -31,7 +31,7 @@ interface DerivedOverride {
 }
 
 const registry = readRegistry();
-const overrides = deriveBoundaryOverrides() as unknown as DerivedOverride[];
+const overrides = deriveBoundaryOverrides(registry) as unknown as DerivedOverride[];
 const fromRoot = (relativePath: string): string => resolve(process.cwd(), relativePath);
 
 const importPatterns = (override: DerivedOverride): RestrictedImportPattern[] => {

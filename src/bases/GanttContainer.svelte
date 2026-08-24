@@ -1473,7 +1473,7 @@
     facts: GanttLifecycleFacts;
   } {
     try {
-      const state = api?.getState?.() as DiagnosticSvarState | undefined;
+      const state = api?.getState?.();
       const xArea = state?.xArea;
       const scales = state?._scales;
       const chart = rootEl?.querySelector<HTMLElement>('.wx-chart') ?? null;

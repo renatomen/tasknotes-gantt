@@ -23,8 +23,10 @@ const cloneRegistry = (registry: Registry): Registry =>
 
 const fromRoot = (relativePath: string): string => resolve(process.cwd(), relativePath);
 
+const committedRegistry = readRegistry();
+
 describe('maintainability registry — committed data', () => {
-  const registry = readRegistry();
+  const registry = committedRegistry;
 
   it('validates against the schema', () => {
     expect(() => validateRegistry(registry)).not.toThrow();
@@ -62,7 +64,7 @@ describe('maintainability registry — committed data', () => {
 });
 
 describe('validateRegistry — schema guards name the offending entry', () => {
-  const base = (): Registry => cloneRegistry(readRegistry());
+  const base = (): Registry => cloneRegistry(committedRegistry);
 
   it('rejects a ranked file without a rank', () => {
     const registry = base();
@@ -140,12 +142,12 @@ describe('validateRegistry — schema guards name the offending entry', () => {
 
 describe('allowanceStateViolations — the allowance/seam handshake', () => {
   const registryWith = (allowances: Registry['boundary']['allowances']): Registry => {
-    const registry = cloneRegistry(readRegistry());
+    const registry = cloneRegistry(committedRegistry);
     registry.boundary.allowances = allowances;
     return registry;
   };
   const someAllowance = (): Registry['boundary']['allowances'] =>
-    [cloneRegistry(readRegistry()).boundary.allowances[0]];
+    [cloneRegistry(committedRegistry).boundary.allowances[0]];
 
   it('permits interim allowances while the seam module does not exist', () => {
     expect(allowanceStateViolations(registryWith(someAllowance()), false)).toEqual([]);
