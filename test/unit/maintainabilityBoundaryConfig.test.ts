@@ -428,6 +428,8 @@ describe('mutation harness — every plant re-proven against the real config', (
     'helper-seam-default-reexport',
     'junction-side-effect-import',
     'helper-side-effect-import',
+    'registry-live-allowance-permits',
+    'registry-dropped-allowance-refuses',
     'no-undef-control',
     'allowlisted-dlog-import',
     'declared-globals-still-known',
@@ -478,6 +480,9 @@ describe('mutation harness — every plant re-proven against the real config', (
       expectRule('helper-seam-default-reexport', 'no-restricted-imports');
       expectRule('junction-side-effect-import', 'no-restricted-syntax');
       expectRule('helper-side-effect-import', 'no-restricted-syntax');
+      expectRule('registry-dropped-allowance-refuses', 'no-restricted-imports');
+      const liveAllowance = byId.get('registry-live-allowance-permits');
+      expect(liveAllowance?.errorCount).toBe(0);
       expectRule('no-undef-control', 'no-undef');
 
       const disablePlant = byId.get('inline-disable-still-red');

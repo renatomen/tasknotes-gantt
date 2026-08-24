@@ -92,6 +92,19 @@ function validateBoundaryShape(registry) {
   if (!Array.isArray(boundary.allowedImportNames) || boundary.allowedImportNames.length === 0) {
     fail('boundary.allowedImportNames must be a non-empty array');
   }
+  // The base allowlist is the plan-decided pair of gated logging helpers.
+  // Widening it would let a lifecycle-capture name into every junction file
+  // without a dated allowance, so any change must also change this validator.
+  const BASE_ALLOWLIST = ['dlog', 'isGanttDebugEnabled'];
+  if (
+    boundary.allowedImportNames.length !== BASE_ALLOWLIST.length ||
+    BASE_ALLOWLIST.some((name) => !boundary.allowedImportNames.includes(name))
+  ) {
+    fail(
+      'boundary.allowedImportNames must be exactly the base logging allowlist ' +
+        `[${BASE_ALLOWLIST.join(', ')}]; new names need a dated per-file allowance instead`,
+    );
+  }
   if (
     !isNonEmptyString(boundary.lifecycleGlobal) ||
     !/^[A-Za-z_$][\w$]*$/.test(boundary.lifecycleGlobal)

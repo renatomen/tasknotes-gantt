@@ -153,6 +153,12 @@ describe('validateRegistry — schema guards name the offending entry', () => {
     expect(() => validateRegistry(registry)).toThrow(/allowedImportNames/);
   });
 
+  it('rejects a widened base allowlist: lifecycle names need per-file allowances', () => {
+    const registry = base();
+    registry.boundary.allowedImportNames.push('captureGanttLifecycle');
+    expect(() => validateRegistry(registry)).toThrow(/exactly the base logging allowlist/);
+  });
+
   it('rejects a lifecycle global that is not a plain identifier', () => {
     const registry = base();
     registry.boundary.lifecycleGlobal = '__tn[Gantt]Lifecycle';

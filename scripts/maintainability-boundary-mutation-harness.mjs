@@ -12,7 +12,7 @@
 import { ESLint } from 'eslint';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { readRegistry } from './maintainability-registry.mjs';
+import { deriveBoundaryOverrides, readRegistry } from './maintainability-registry.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -246,6 +246,63 @@ function verdictHolds(plant, outcome) {
   return ruleHit && warningHolds;
 }
 
+/**
+ * Proves the derivation is live end-to-end through the real rule engine: the
+ * same junction import lints clean while its registry allowance exists and
+ * red once a mutated registry drops it. Runs against override-only ESLint
+ * instances built from `deriveBoundaryOverrides`, so no committed file and no
+ * on-disk registry edit is needed.
+ */
+async function runRegistryDropProof() {
+  const registry = readRegistry();
+  const register = boundaryPath(registry, 'register.ts');
+  const mutated = JSON.parse(JSON.stringify(registry));
+  mutated.boundary.allowances = mutated.boundary.allowances.filter(
+    (allowance) =>
+      !(allowance.file === register && allowance.importName === 'captureGanttLifecycle'),
+  );
+  const code = "import { captureGanttLifecycle } from '../debugLog';\nvoid captureGanttLifecycle;\n";
+  const lintWithRegistry = async (candidate) => {
+    const eslint = new ESLint({
+      cwd: repoRoot,
+      overrideConfigFile: true,
+      overrideConfig: [
+        { files: ['**/*.ts'], languageOptions: { ecmaVersion: 2022, sourceType: 'module' } },
+        ...deriveBoundaryOverrides(candidate),
+      ],
+    });
+    const [result] = await eslint.lintText(code, {
+      filePath: join(repoRoot, register),
+      warnIgnored: true,
+    });
+    return {
+      errorRuleIds: result.messages
+        .filter((message) => message.severity === 2)
+        .map((message) => message.ruleId ?? 'fatal'),
+      errorCount: result.errorCount,
+      warningCount: result.warningCount,
+    };
+  };
+  const withAllowance = await lintWithRegistry(registry);
+  const withoutAllowance = await lintWithRegistry(mutated);
+  return [
+    {
+      id: 'registry-live-allowance-permits',
+      filePath: register,
+      expectation: 'clean',
+      ok: withAllowance.errorCount === 0,
+      ...withAllowance,
+    },
+    {
+      id: 'registry-dropped-allowance-refuses',
+      filePath: register,
+      expectation: 'red:no-restricted-imports',
+      ok: withoutAllowance.errorRuleIds.includes('no-restricted-imports'),
+      ...withoutAllowance,
+    },
+  ];
+}
+
 export async function runBoundaryMutationChecks() {
   const eslint = new ESLint({ cwd: repoRoot });
   const results = await Promise.all(
@@ -270,6 +327,7 @@ export async function runBoundaryMutationChecks() {
       };
     }),
   );
+  results.push(...(await runRegistryDropProof()));
   return { ok: results.every((result) => result.ok), results };
 }
 
