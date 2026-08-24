@@ -98,6 +98,9 @@ const eslint = new ESLint({
 
 - [layered-pre-push-review-gate](layered-pre-push-review-gate.md) — the review-gate
   mechanism whose acknowledged-findings receipts carry the class-based stop.
+- [bound-work-on-the-review-tool-itself](../workflow-issues/bound-work-on-the-review-tool-itself.md) —
+  the precedent for the stopping rule: reviewing the review tool has no natural end;
+  the acknowledged-findings receipt is the third state that makes stopping possible.
 - [a-test-name-is-a-claim-verify-the-mutation](../best-practices/a-test-name-is-a-claim-verify-the-mutation.md) —
   the mutation-verification bar this harness satisfies continuously instead of once.
 - [plan-is-the-single-point-of-failure-for-plan-reviewing-gates](../workflow-issues/plan-is-the-single-point-of-failure-for-plan-reviewing-gates.md) —
