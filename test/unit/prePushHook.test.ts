@@ -22,20 +22,18 @@ const receiptsIndex = hookLines.findIndex((line) =>
 const trendIndex = hookLines.findIndex((line) => line.includes('maintainability-trend.mjs'));
 
 describe('pre-push hook shape', () => {
-  it('runs the receipts gate unconditionally, as exactly its own command', () => {
-    // Whole-line equality, not a substring: `true || node …check` contains the
-    // command text while disabling the gate, and must fail this claim.
-    expect(hookLines[receiptsIndex]).toBe('node scripts/check-review-receipts.mjs check');
+  it('is exactly the receipts gate then the trend print — no other executable line', () => {
+    // The whole array, not per-line substrings: an inserted `exit 0`, a
+    // `true ||` prefix, or a reordering all leave weaker assertions green
+    // while the gate never runs. Any change to what executes must fail here.
+    expect(hookLines).toEqual([
+      'node scripts/check-review-receipts.mjs check',
+      'node scripts/maintainability-trend.mjs < /dev/null || true',
+    ]);
   });
 
-  it('prints the trend AFTER the receipts check, which must read git’s stdin first', () => {
-    expect(trendIndex).toBeGreaterThan(receiptsIndex);
-  });
-
-  it('prints the trend with stdin redirected and its status ignored, as exactly that line', () => {
-    // One exact line pins all three properties at once: the print cannot
-    // consume the push ref lines, cannot block a push, and cannot grow a
-    // prefix that changes what actually runs.
-    expect(hookLines[trendIndex]).toBe('node scripts/maintainability-trend.mjs < /dev/null || true');
+  it('keeps the receipts gate before the trend print, which must read git’s stdin first', () => {
+    expect(receiptsIndex).toBe(0);
+    expect(trendIndex).toBe(1);
   });
 });

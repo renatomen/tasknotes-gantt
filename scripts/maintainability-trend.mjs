@@ -395,7 +395,7 @@ async function atCeilingSection(opts, changedPaths, runEslint, runGit) {
     `At-ceiling complexity count (functions at exactly ${COMPLEXITY_CEILING}, from a threshold-${SWEEP_THRESHOLD} sweep): ${counts.atCeiling}`,
     `  pressure band ${SWEEP_THRESHOLD + 1}–${COMPLEXITY_CEILING} total findings: ${counts.bandTotal}`,
     ...(counts.aboveCeiling > 0
-      ? [`  above the ceiling (a failing complexity gate elsewhere in this PR): ${counts.aboveCeiling}`]
+      ? [`  above the ceiling (a failing or suppressed complexity gate): ${counts.aboveCeiling}`]
       : []),
     `  swept tree: ${sweptTree}`,
   ];
