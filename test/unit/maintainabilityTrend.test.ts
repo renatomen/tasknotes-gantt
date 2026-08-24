@@ -142,13 +142,24 @@ describe('atCeilingCount', () => {
       { messages: [message(12), message(15)] },
       { messages: [message(15), { ruleId: 'no-unused-vars', message: 'x is unused' }] },
     ];
-    expect(atCeilingCount(results)).toEqual({ bandTotal: 3, atCeiling: 2 });
+    expect(atCeilingCount(results)).toEqual({ bandTotal: 3, atCeiling: 2, aboveCeiling: 0 });
   });
 
   it('counts nothing when the sweep reports only sub-ceiling findings', () => {
     expect(atCeilingCount([{ messages: [message(11), message(14)] }])).toEqual({
       bandTotal: 2,
       atCeiling: 0,
+      aboveCeiling: 0,
+    });
+  });
+
+  it('keeps above-ceiling findings out of the pressure band and counts them apart', () => {
+    // The trend runs on gate-failing PRs too, where complexities above the
+    // ceiling legitimately exist in the sweep.
+    expect(atCeilingCount([{ messages: [message(16), message(22), message(15)] }])).toEqual({
+      bandTotal: 1,
+      atCeiling: 1,
+      aboveCeiling: 2,
     });
   });
 
@@ -202,14 +213,19 @@ describe('countRankedPrsSince', () => {
 
   it('counts main-line commits touching a ranked file and ignores the rest', () => {
     const commits = parseCommitPaths(
-      '@aaa\nsrc/ranked.ts\ndocs/other.md\n\n@bbb\ndocs/only.md\n\n@ccc\nsrc/ranked.ts\n',
+      '@aaa\nM\tsrc/ranked.ts\nM\tdocs/other.md\n\n@bbb\nM\tdocs/only.md\n\n@ccc\nA\tsrc/ranked.ts\n',
     );
     expect(countRankedPrsSince(commits, rankedPaths, reportPaths)).toBe(2);
   });
 
-  it('excludes a report-delivering commit even when it also touches a ranked file', () => {
-    const commits = parseCommitPaths('@ddd\nsrc/ranked.ts\ndocs/reports/2026-08-17-002.md\n');
+  it('excludes a report-DELIVERING commit even when it also touches a ranked file', () => {
+    const commits = parseCommitPaths('@ddd\nM\tsrc/ranked.ts\nA\tdocs/reports/2026-08-17-002.md\n');
     expect(countRankedPrsSince(commits, rankedPaths, reportPaths)).toBe(0);
+  });
+
+  it('still counts a commit that merely EDITS an old registered report beside a ranked touch', () => {
+    const commits = parseCommitPaths('@eee\nM\tsrc/ranked.ts\nM\tdocs/reports/2026-08-17-002.md\n');
+    expect(countRankedPrsSince(commits, rankedPaths, reportPaths)).toBe(1);
   });
 });
 
@@ -354,7 +370,7 @@ describe('runTrend with injected git output and an injected ESLint runner', () =
     // PRs-since runs to the CURRENT main tip (origin/main here), not this
     // branch's merge-base — a stale fork must not hide main-side ranked PRs.
     const git = fakeGit({
-      [`${'b'.repeat(40)}..origin/main`]: '@e1\nsrc/ranked.ts\n\n@e2\ndocs/x.md\n',
+      [`${'b'.repeat(40)}..origin/main`]: '@e1\nM\tsrc/ranked.ts\n\n@e2\nM\tdocs/x.md\n',
     });
     const output = await run(['--registry', registryPath, '--base', BASE, '--head', HEAD], git);
     expect(output).toContain('Latest dated report: 2026-08-17 (docs/reports/2026-08-17-002.md)');

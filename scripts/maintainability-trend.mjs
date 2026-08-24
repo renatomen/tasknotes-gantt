@@ -162,34 +162,44 @@ export function shouldRunAtCeiling(changedPaths) {
  *
  * @param {{ messages?: { ruleId?: string | null, message?: string }[] }[]} eslintResults
  */
+/**
+ * The reported complexity of one sweep message, or null for other rules.
+ * Crash-only-red applies to the parser too: a fatal (parse-failure) message
+ * means part of the tree was never swept, and a reworded plugin message means
+ * the value cannot be read — both must crash, never shade a count.
+ */
+function reportedComplexity(message, filePath) {
+  if (message.fatal) {
+    throw new Error(`the sweep could not lint ${filePath ?? 'a file'}: ${message.message}`);
+  }
+  if (message.ruleId !== COMPLEXITY_RULE) return null;
+  const reported = /from (\d+) to the \d+ allowed/.exec(message.message ?? '');
+  if (reported === null) {
+    throw new Error(
+      `cannot read the reported complexity from a ${COMPLEXITY_RULE} message ` +
+        `("${message.message}") — the plugin's message format changed; update the parser`,
+    );
+  }
+  return Number.parseInt(reported[1], 10);
+}
+
 export function atCeilingCount(eslintResults, ceiling = COMPLEXITY_CEILING) {
-  let bandTotal = 0;
-  let atCeiling = 0;
+  const counts = { bandTotal: 0, atCeiling: 0, aboveCeiling: 0 };
   for (const result of eslintResults) {
     for (const message of result.messages ?? []) {
-      if (message.fatal) {
-        // A parse failure means part of the tree was never swept; publishing a
-        // count from a partial sweep is the silent-wrong-value this
-        // measurement must never produce — crash instead.
-        throw new Error(
-          `the sweep could not lint ${result.filePath ?? 'a file'}: ${message.message}`,
-        );
+      const value = reportedComplexity(message, result.filePath);
+      if (value === null) continue;
+      // A gate-failing PR can hold complexities above the ceiling (the trend
+      // runs after failed gates); those are not the 11–15 pressure band.
+      if (value > ceiling) {
+        counts.aboveCeiling += 1;
+      } else {
+        counts.bandTotal += 1;
+        if (value === ceiling) counts.atCeiling += 1;
       }
-      if (message.ruleId !== COMPLEXITY_RULE) continue;
-      bandTotal += 1;
-      const reported = /from (\d+) to the \d+ allowed/.exec(message.message ?? '');
-      if (reported === null) {
-        // Crash-only-red applies to the parser too: a plugin upgrade that
-        // rewords the message must not print a confident wrong count.
-        throw new Error(
-          `cannot read the reported complexity from a ${COMPLEXITY_RULE} message ` +
-            `("${message.message}") — the plugin's message format changed; update the parser`,
-        );
-      }
-      if (Number.parseInt(reported[1], 10) === ceiling) atCeiling += 1;
     }
   }
-  return { bandTotal, atCeiling };
+  return counts;
 }
 
 /**
@@ -210,26 +220,35 @@ export function latestReport(reports) {
   );
 }
 
-/** `git log --first-parent --no-renames --format=@%H --name-only` into per-commit path sets. */
+/** `git log --first-parent --no-renames --format=@%H --name-status` into per-commit path facts. */
 export function parseCommitPaths(logOutput) {
   const commits = [];
   for (const line of logOutput.split('\n')) {
     const trimmed = line.trim();
     if (trimmed.length === 0) continue;
-    if (trimmed.startsWith('@')) commits.push({ sha: trimmed.slice(1), paths: [] });
-    else commits.at(-1)?.paths.push(trimmed);
+    if (trimmed.startsWith('@')) {
+      commits.push({ sha: trimmed.slice(1), paths: [], addedPaths: [] });
+      continue;
+    }
+    const statusMatch = /^([A-Z])\S*\t(.+)$/.exec(trimmed);
+    const current = commits.at(-1);
+    if (statusMatch === null || current === undefined) continue;
+    current.paths.push(statusMatch[2]);
+    if (statusMatch[1] === 'A') current.addedPaths.push(statusMatch[2]);
   }
   return commits;
 }
 
 /**
  * "PRs since the latest report" = main-line commits after the report's anchor
- * that touch a ranked file — excluding any commit that delivers a registered
- * dated report, so the report-landing PR itself is never counted as unmeasured
- * work (a report's own squash sha cannot be known while the report is being
- * written, so its recorded anchor may be its parent).
+ * that touch a ranked file — excluding any commit that ADDS a registered
+ * dated report, so the report-landing PR itself is never counted as
+ * unmeasured work (a report's own squash sha cannot be known while the report
+ * is being written, so its recorded anchor may be its parent). Keyed on the
+ * add, not any touch: a later PR that edits an old report while touching a
+ * ranked file is still ranked work the count must show.
  *
- * @param {{ sha: string, paths: string[] }[]} commits
+ * @param {{ sha: string, paths: string[], addedPaths: string[] }[]} commits
  * @param {Set<string>} rankedPaths
  * @param {Set<string>} reportPaths
  */
@@ -237,7 +256,7 @@ export function countRankedPrsSince(commits, rankedPaths, reportPaths) {
   return commits.filter(
     (commit) =>
       commit.paths.some((path) => rankedPaths.has(path)) &&
-      !commit.paths.some((path) => reportPaths.has(path)),
+      !commit.addedPaths.some((path) => reportPaths.has(path)),
   ).length;
 }
 
@@ -372,6 +391,9 @@ async function atCeilingSection(opts, changedPaths, runEslint, runGit) {
   return [
     `At-ceiling complexity count (functions at exactly ${COMPLEXITY_CEILING}, from a threshold-${SWEEP_THRESHOLD} sweep): ${counts.atCeiling}`,
     `  pressure band ${SWEEP_THRESHOLD + 1}–${COMPLEXITY_CEILING} total findings: ${counts.bandTotal}`,
+    ...(counts.aboveCeiling > 0
+      ? [`  above the ceiling (a failing complexity gate elsewhere in this PR): ${counts.aboveCeiling}`]
+      : []),
     `  swept tree: ${sweptTree}`,
   ];
 }
@@ -392,7 +414,7 @@ function reportSection(runGit, registry, base) {
   // hide ranked-file PRs main merged after the fork.
   const end = resolveMainTip(runGit) ?? base;
   const log = runGit([
-    'log', '--first-parent', '--no-renames', '--format=@%H', '--name-only',
+    'log', '--first-parent', '--no-renames', '--format=@%H', '--name-status',
     `${latest.anchorSha}..${end}`,
   ]);
   const since = countRankedPrsSince(parseCommitPaths(log), rankedPaths, reportPaths);
