@@ -212,6 +212,24 @@ describe('validateRegistry — schema guards name the offending entry', () => {
     expect(() => validateRegistry(registry)).toThrow(/YYYY-MM-DD/);
   });
 
+  it('rejects a reports entry whose date is not a real calendar date', () => {
+    const registry = base();
+    (registry.reports[0] as { date: string }).date = '2026-99-99';
+    expect(() => validateRegistry(registry)).toThrow(/real, zero-padded/);
+  });
+
+  it('rejects a reports entry whose measurement values are not non-negative integers', () => {
+    const withBadAtCeiling = base();
+    (withBadAtCeiling.reports[5] as { atCeiling: unknown }).atCeiling = 'sixteen';
+    expect(() => validateRegistry(withBadAtCeiling)).toThrow(/atCeiling must be a non-negative integer/);
+
+    const withBadCount = base();
+    (withBadCount.reports[5] as { concernCounts: Record<string, unknown> }).concernCounts[
+      'src/bases/register.ts'
+    ] = -1;
+    expect(() => validateRegistry(withBadCount)).toThrow(/non-negative integer/);
+  });
+
   it('rejects a reports entry without a full-length anchor sha', () => {
     const registry = base();
     (registry.reports[0] as { anchorSha: string }).anchorSha = 'abc123';

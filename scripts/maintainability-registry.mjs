@@ -89,16 +89,34 @@ function validateReports(registry) {
   const { reports } = registry;
   if (!Array.isArray(reports)) fail('reports must be an array');
   for (const report of reports) {
-    // Full ISO date, zero-padded: latest-report selection orders these
-    // lexicographically, and a '2026-8-16'-style entry would silently mis-sort.
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(report.date ?? '')) {
-      fail('reports entry date must be a zero-padded YYYY-MM-DD string');
+    // Full ISO date, zero-padded and calendar-real: latest-report selection
+    // orders these lexicographically, and the trend output prints them as
+    // authoritative — '2026-8-16' would mis-sort, '2026-99-99' would print.
+    const dateParts = /^\d{4}-(\d{2})-(\d{2})$/.exec(report.date ?? '');
+    if (
+      dateParts === null ||
+      Number(dateParts[1]) < 1 ||
+      Number(dateParts[1]) > 12 ||
+      Number(dateParts[2]) < 1 ||
+      Number(dateParts[2]) > 31
+    ) {
+      fail('reports entry date must be a real, zero-padded YYYY-MM-DD string');
     }
     if (!FULL_SHA_PATTERN.test(report.anchorSha ?? '')) {
       fail(`reports entry ${report.date} needs a 40-character lowercase hex anchorSha`);
     }
     if (!isNonEmptyString(report.report)) {
       fail(`reports entry ${report.date} must name its dated report file`);
+    }
+    const measured = Object.entries(report.concernCounts ?? {}).map(([key, value]) => [
+      `concernCounts.${key}`,
+      value,
+    ]);
+    if (report.atCeiling !== undefined) measured.push(['atCeiling', report.atCeiling]);
+    for (const [label, value] of measured) {
+      if (!Number.isInteger(value) || value < 0) {
+        fail(`reports entry ${report.date} ${label} must be a non-negative integer`);
+      }
     }
   }
 }
