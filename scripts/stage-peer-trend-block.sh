@@ -19,8 +19,16 @@ if git_nr show "$BASE_COMMIT:scripts/maintainability-trend.mjs" > "$src_dir/main
    git_nr show "$BASE_COMMIT:scripts/maintainability-registry.mjs" > "$src_dir/maintainability-registry.mjs" 2>/dev/null &&
    git_nr show "$BASE_COMMIT:maintainability-registry.json" > "$src_dir/registry.json" 2>/dev/null; then
   node "$src_dir/maintainability-trend.mjs" --registry "$src_dir/registry.json" \
-    --base "$BASE_COMMIT" --head "$HEAD_COMMIT" < /dev/null 2>/dev/null
+    --base "$BASE_COMMIT" --head "$HEAD_COMMIT" < /dev/null 2>/dev/null || exit 1
 else
   node "$REPO_ROOT/scripts/maintainability-trend.mjs" \
-    --base "$BASE_COMMIT" --head "$HEAD_COMMIT" < /dev/null 2>/dev/null
+    --base "$BASE_COMMIT" --head "$HEAD_COMMIT" < /dev/null 2>/dev/null || exit 1
+fi
+
+# The measurement above deliberately uses MAIN's registry — a branch under
+# review does not curate its own measurement inputs. That leaves one blind
+# spot: registry changes the branch itself makes. Make it loud instead of
+# silent, so the reviewer knows to read the registry diff directly.
+if ! git_nr diff --quiet "$BASE_COMMIT" "$HEAD_COMMIT" -- maintainability-registry.json 2>/dev/null; then
+  printf '\nnote: this branch MODIFIES maintainability-registry.json; the measurement above uses the main-side registry by design, so added or removed ranked entries do not appear in it - review the registry diff in the change itself.\n'
 fi

@@ -516,6 +516,26 @@ describe('cross-model peer review wrapper', () => {
     expect(trend).toContain('TREND-MARKER-FIRST');
     expect(trend).toContain('TREND-MARKER-LAST');
     expect(trend).not.toContain('trend measurement unavailable');
+    // No registry change on this branch — the modification note must not fire.
+    expect(trend).not.toContain('MODIFIES maintainability-registry.json');
+  });
+
+  it('flags a branch-side registry modification inside the staged block', () => {
+    // The measurement deliberately uses the main-side registry; when the
+    // branch edits the registry, that blind spot must be loud, not silent.
+    writeFileSync(
+      join(repo, 'scripts', 'stage-peer-trend-block.sh'),
+      readFileSync(resolve('scripts/stage-peer-trend-block.sh'), 'utf8'),
+    );
+    writeFileSync(
+      join(repo, 'scripts', 'maintainability-trend.mjs'),
+      'process.stdout.write("TREND-MARKER-FIRST\\nTREND-MARKER-LAST\\n");\n',
+    );
+    commitFile('maintainability-registry.json', '{"scratch": true}\n', 'branch registry change');
+    runWrapper(CLEAN);
+    const trend = readFileSync(`${promptFile}.trend`, 'utf8');
+    expect(trend).toContain('TREND-MARKER-LAST');
+    expect(trend).toContain('MODIFIES maintainability-registry.json');
   });
 
   it('refreshes a stale tracking ref even when the branch has no configured remote', () => {
