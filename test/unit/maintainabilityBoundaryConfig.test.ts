@@ -50,7 +50,7 @@ const syntaxSelectors = (override: DerivedOverride): string[] => {
 describe('deriveBoundaryOverrides — derived override objects', () => {
   it('returns the source-tree closure entry first, then one entry per junction file', () => {
     expect(overrides).toHaveLength(1 + registry.boundary.files.length);
-    expect(overrides[0].files).toEqual(['src/**/*.{ts,mts,svelte}']);
+    expect(overrides[0].files).toEqual(['src/**/*.{ts,tsx,mts,cts,svelte,js,mjs,cjs}']);
     expect(overrides[0].ignores).toEqual([
       registry.boundary.module,
       registry.boundary.seamModule,
@@ -60,14 +60,21 @@ describe('deriveBoundaryOverrides — derived override objects', () => {
     });
   });
 
-  it('closure entry restricts the whole source tree to the base allowlist', () => {
+  it('closure entry restricts the whole source tree to the base allowlist and seam surface', () => {
     const patterns = importPatterns(overrides[0]);
-    expect(patterns).toHaveLength(1);
+    expect(patterns).toHaveLength(2);
     expect(patterns[0].allowImportNames).toEqual(registry.boundary.allowedImportNames);
+    expect(patterns[1].allowImportNames).toEqual(registry.boundary.seamPublicNames);
   });
 
-  it('closure entry carries the same syntax rules as the junction entries', () => {
-    expect(syntaxSelectors(overrides[0])).toEqual(syntaxSelectors(overrides[1]));
+  it('junction syntax rules are the closure rules plus the blanket dynamic-import ban', () => {
+    const closureSelectors = syntaxSelectors(overrides[0]);
+    for (const [index] of registry.boundary.files.entries()) {
+      expect(syntaxSelectors(overrides[index + 1])).toEqual([
+        ...closureSelectors,
+        'ImportExpression',
+      ]);
+    }
   });
 
   it('closure and junction entries derive one identical debug-log matcher', () => {
@@ -177,25 +184,35 @@ const EXPORT_LIST = /^[ \t]*export\s+(?:type\s+)?\{([^}]*)\}/gm;
 const EXPORT_FROM =
   /^[ \t]*export\s+(?:type\s+)?(?:\*(?:\s+as\s+[A-Za-z_$][\w$]*)?|\{[^}]*\})\s*from\s*['"]([^'"]+)['"]/gm;
 
+// Records BOTH sides of an alias: `captureGanttLifecycle as default` must
+// surface the restricted original, not just the innocuous exported name.
 const namesFromExportList = (listBody: string): string[] =>
   listBody
     .split(',')
-    .map((piece) => piece.trim())
+    .map((piece) => piece.trim().replace(/^type\s+/, ''))
     .filter((piece) => piece.length > 0)
-    .map((piece) => {
-      const asMatch = /\bas\s+([A-Za-z_$][\w$]*)$/.exec(piece);
-      return asMatch ? asMatch[1] : piece.replace(/^type\s+/, '');
+    .flatMap((piece) => {
+      const asMatch = /^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/.exec(piece);
+      return asMatch ? [asMatch[1], asMatch[2]] : [piece];
     });
 
-const collectExportedNames = (source: string): string[] => {
+// Comments inside export syntax (`export { /* bridge */ name }`) must not
+// blind the census; specifiers never contain strings, so stripping is safe
+// for the export patterns these scans match (worst case it over-matches,
+// which fails loud).
+const stripComments = (source: string): string =>
+  source.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/\/\/[^\n]*/g, ' ');
+
+const collectExportedNames = (rawSource: string): string[] => {
+  const source = stripComments(rawSource);
   const names: string[] = [];
   for (const match of source.matchAll(EXPORT_DECLARATION)) names.push(match[1]);
   for (const match of source.matchAll(EXPORT_LIST)) names.push(...namesFromExportList(match[1]));
   return names;
 };
 
-const exportFromSpecifiers = (source: string): string[] =>
-  [...source.matchAll(EXPORT_FROM)].map((match) => match[1]);
+const exportFromSpecifiers = (rawSource: string): string[] =>
+  [...stripComments(rawSource).matchAll(EXPORT_FROM)].map((match) => match[1]);
 
 const collectSourceFiles = (dir: string): string[] => {
   const out: string[] = [];
@@ -203,7 +220,7 @@ const collectSourceFiles = (dir: string): string[] => {
     const full = join(dir, entry);
     if (statSync(full).isDirectory()) {
       out.push(...collectSourceFiles(full));
-    } else if (/\.(ts|mts|svelte)$/.test(entry)) {
+    } else if (/\.(ts|tsx|mts|cts|svelte|js|mjs|cjs)$/.test(entry)) {
       out.push(full);
     }
   }
@@ -244,6 +261,8 @@ describe('restricted-name census — what lint rules cannot see', () => {
       .toContain('captureGanttLifecycle');
     expect(exportFromSpecifiers("export * as diagnostics from '../debugLog';"))
       .toEqual(['../debugLog']);
+    expect(collectExportedNames('export { /* bridge */ captureGanttLifecycle };'))
+      .toContain('captureGanttLifecycle');
   });
 
   it('no source module besides the debug-log module and the seam exports a restricted name', () => {
@@ -269,21 +288,66 @@ describe('restricted-name census — what lint rules cannot see', () => {
   });
 
   it('seam export surface stays inside its declared public names', () => {
-    const violationsIn = (source: string): string[] =>
-      collectExportedNames(source)
+    const STAR_EXPORT = /^[ \t]*export\s+\*(?:\s+as\s+[A-Za-z_$][\w$]*)?\s*from\s*['"]([^'"]+)['"]/gm;
+    const violationsIn = (source: string): string[] => [
+      ...collectExportedNames(source)
         .filter((name) => restrictedNames.includes(name))
         .filter((name) => !registry.boundary.seamPublicNames.includes(name))
-        .map((name) => `seam exports restricted non-public name ${name}`);
+        .map((name) => `seam exports restricted non-public name ${name}`),
+      ...[...source.matchAll(STAR_EXPORT)]
+        .map((match) => match[1])
+        .filter((specifier) => debugLogMatcher.test(specifier))
+        .map((specifier) => `seam star-exports the debug-log module (${specifier}); re-export named public types only`),
+    ];
 
     expect(violationsIn("export { GanttLifecycleFacts } from '../debugLog';")).toEqual([]);
     expect(
       violationsIn("export { captureGanttLifecycle } from '../debugLog';"),
     ).toEqual(['seam exports restricted non-public name captureGanttLifecycle']);
+    expect(violationsIn("export * from '../debugLog';")).toEqual([
+      "seam star-exports the debug-log module (../debugLog); re-export named public types only",
+    ]);
+    expect(violationsIn("export * as diagnostics from '../debugLog.js';")).toEqual([
+      "seam star-exports the debug-log module (../debugLog.js); re-export named public types only",
+    ]);
+    expect(violationsIn("export * from './legendLayout';")).toEqual([]);
+    expect(violationsIn("export { captureGanttLifecycle as default } from '../debugLog';")).toEqual(
+      ['seam exports restricted non-public name captureGanttLifecycle'],
+    );
 
     const seamPath = fromRoot(registry.boundary.seamModule);
     if (existsSync(seamPath)) {
       expect(violationsIn(readFileSync(seamPath, 'utf8'))).toEqual([]);
     }
+  });
+
+  it('no source module suppresses the boundary rules with a disable directive', () => {
+    // The four junction files refuse all directives via noInlineConfig; the
+    // rest of the source tree may keep rule-named directives for other rules,
+    // but a directive naming a boundary rule - or a bare disable-everything -
+    // would suppress the closure entry, so both are refused here.
+    const BOUNDARY_RULE_DISABLE = /eslint[^\n]*no-restricted-(?:imports|syntax)/;
+    const BARE_DISABLE = /(?:\/\/|\/\*)\s*eslint-disable(?:-next-line|-line)?\s*(?:\*\/\s*)?$/;
+
+    expect(BOUNDARY_RULE_DISABLE.test('// eslint-disable-next-line no-restricted-imports')).toBe(true);
+    expect(BOUNDARY_RULE_DISABLE.test('/* eslint-disable no-restricted-syntax */')).toBe(true);
+    expect(BOUNDARY_RULE_DISABLE.test('/* eslint no-restricted-imports: "off" */')).toBe(true);
+    expect(BOUNDARY_RULE_DISABLE.test('/* eslint no-restricted-syntax: 0 */')).toBe(true);
+    expect(BOUNDARY_RULE_DISABLE.test('// eslint-disable-next-line @typescript-eslint/no-explicit-any')).toBe(false);
+    expect(BARE_DISABLE.test('/* eslint-disable */')).toBe(true);
+    expect(BARE_DISABLE.test('// eslint-disable-next-line')).toBe(true);
+    expect(BARE_DISABLE.test('// eslint-disable-next-line @typescript-eslint/no-explicit-any')).toBe(false);
+
+    const violations: string[] = [];
+    for (const file of collectSourceFiles(fromRoot('src'))) {
+      const lines = readFileSync(file, 'utf8').split(/\r?\n/);
+      lines.forEach((line, index) => {
+        if (BOUNDARY_RULE_DISABLE.test(line) || BARE_DISABLE.test(line)) {
+          violations.push(`${file}:${index + 1}: ${line.trim()}`);
+        }
+      });
+    }
+    expect(violations).toEqual([]);
   });
 });
 
@@ -358,6 +422,12 @@ describe('mutation harness — every plant re-proven against the real config', (
     'seam-js-extension-import',
     'helper-dynamic-import',
     'helper-lifecycle-global-access',
+    'junction-computed-dynamic-import',
+    'helper-computed-dynamic-import',
+    'tsx-reexport-launders',
+    'helper-seam-default-reexport',
+    'junction-side-effect-import',
+    'helper-side-effect-import',
     'no-undef-control',
     'allowlisted-dlog-import',
     'declared-globals-still-known',
@@ -402,6 +472,12 @@ describe('mutation harness — every plant re-proven against the real config', (
       expectRule('seam-js-extension-import', 'no-restricted-imports');
       expectRule('helper-dynamic-import', 'no-restricted-syntax');
       expectRule('helper-lifecycle-global-access', 'no-restricted-syntax');
+      expectRule('junction-computed-dynamic-import', 'no-restricted-syntax');
+      expectRule('helper-computed-dynamic-import', 'no-restricted-syntax');
+      expectRule('tsx-reexport-launders', 'no-restricted-imports');
+      expectRule('helper-seam-default-reexport', 'no-restricted-imports');
+      expectRule('junction-side-effect-import', 'no-restricted-syntax');
+      expectRule('helper-side-effect-import', 'no-restricted-syntax');
       expectRule('no-undef-control', 'no-undef');
 
       const disablePlant = byId.get('inline-disable-still-red');

@@ -160,6 +160,42 @@ function buildPlants() {
       expectRule: 'no-restricted-syntax',
     },
     {
+      id: 'junction-computed-dynamic-import',
+      filePath: register,
+      code: "export async function loadComputed(): Promise<unknown> {\n  return import('../' + 'debugLog');\n}\n",
+      expectRule: 'no-restricted-syntax',
+    },
+    {
+      id: 'helper-computed-dynamic-import',
+      filePath: 'src/bases/lifecycleRelay.ts',
+      code: "export async function relayComputed(): Promise<unknown> {\n  return import('../' + 'debugLog');\n}\n",
+      expectRule: 'no-restricted-syntax',
+    },
+    {
+      id: 'tsx-reexport-launders',
+      filePath: 'src/bases/lifecycleRelay.tsx',
+      code: "export { captureGanttLifecycle } from '../debugLog';\n",
+      expectRule: 'no-restricted-imports',
+    },
+    {
+      id: 'helper-seam-default-reexport',
+      filePath: 'src/bases/lifecycleRelay.ts',
+      code: "export { default } from './ganttLifecycleDiagnostics';\n",
+      expectRule: 'no-restricted-imports',
+    },
+    {
+      id: 'junction-side-effect-import',
+      filePath: register,
+      code: "import '../debugLog';\n",
+      expectRule: 'no-restricted-syntax',
+    },
+    {
+      id: 'helper-side-effect-import',
+      filePath: 'src/bases/lifecycleRelay.ts',
+      code: "import '../debugLog';\nexport const relayArmed = true;\n",
+      expectRule: 'no-restricted-syntax',
+    },
+    {
       id: 'helper-lifecycle-global-access',
       filePath: 'src/bases/lifecycleRelay.ts',
       code: `export function relaySink(): unknown {\n  return (globalThis as unknown as Record<string, unknown>)['${globalName}'];\n}\n`,

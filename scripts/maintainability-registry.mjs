@@ -221,7 +221,7 @@ function moduleBaseName(modulePath) {
 // TypeScript bundler resolution and Vite map extension-carrying specifiers
 // ('../debugLog.js') onto the same .ts module, so the boundary must match
 // every resolvable extension, not just the literal one.
-const SPECIFIER_EXTENSIONS = '(ts|js|mts|mjs)';
+const SPECIFIER_EXTENSIONS = '(ts|js|mts|mjs|cts|cjs)';
 
 /** @param {string} modulePath @returns {string} */
 function moduleSpecifierRegex(modulePath) {
@@ -254,8 +254,22 @@ function boundarySyntaxRules(boundary) {
   return [
     'error',
     {
+      // A bare side-effect import has no named specifiers for the allowlist
+      // rule to check, yet executing the module arms the diagnostics sink.
+      selector: `ImportDeclaration[specifiers.length=0] > Literal[value=/${esqueryModuleRegex}/]`,
+      message: BOUNDARY_MESSAGE,
+    },
+    {
       selector: `ImportExpression > Literal[value=/${esqueryModuleRegex}/]`,
       message: BOUNDARY_MESSAGE,
+    },
+    {
+      // A computed specifier cannot be statically resolved, bundled, or
+      // boundary-checked; a literal one is checked by the selector above.
+      selector: 'ImportExpression[source.type!="Literal"]',
+      message:
+        'Dynamic imports need a literal specifier: a computed one cannot be ' +
+        'statically bundled or boundary-checked.',
     },
     {
       selector: `TSImportType Literal[value=/${esqueryModuleRegex}/]`,
@@ -306,7 +320,16 @@ function junctionOverride(boundary, file) {
           ],
         },
       ],
-      'no-restricted-syntax': boundarySyntaxRules(boundary),
+      'no-restricted-syntax': [
+        ...boundarySyntaxRules(boundary),
+        {
+          // Junction files have no dynamic imports at all (their inline
+          // `import('x').T` annotations are type positions, not this node),
+          // so any runtime dynamic import here is a boundary evasion.
+          selector: 'ImportExpression',
+          message: 'Junction files never use runtime dynamic imports.',
+        },
+      ],
     },
   };
 }
@@ -329,7 +352,7 @@ function junctionOverride(boundary, file) {
 export function deriveBoundaryOverrides(registry = readRegistry()) {
   const { boundary } = registry;
   const closure = {
-    files: ['src/**/*.{ts,mts,svelte}'],
+    files: ['src/**/*.{ts,tsx,mts,cts,svelte,js,mjs,cjs}'],
     ignores: [boundary.module, boundary.seamModule],
     rules: {
       'no-restricted-imports': [
@@ -340,6 +363,12 @@ export function deriveBoundaryOverrides(registry = readRegistry()) {
               regex: moduleSpecifierRegex(boundary.module),
               allowImportNames: [...boundary.allowedImportNames],
               message: BOUNDARY_MESSAGE,
+            },
+            {
+              regex: moduleSpecifierRegex(boundary.seamModule),
+              allowImportNames: boundary.seamPublicNames,
+              message:
+                'Only the seam module’s declared public names may be imported from it.',
             },
           ],
         },

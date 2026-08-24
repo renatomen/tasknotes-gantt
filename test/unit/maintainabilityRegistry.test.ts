@@ -45,15 +45,35 @@ describe('maintainability registry — committed data', () => {
     expect(missing).toEqual([]);
   });
 
-  it('names the lifecycle global the debug-log module actually writes', () => {
+  it('names the lifecycle global the debug-log module actually assigns on globalThis', () => {
     const source = readFileSync(fromRoot(registry.boundary.module), 'utf8');
-    expect(source).toContain(registry.boundary.lifecycleGlobal);
+    // Assignment only, bound to the globalThis receiver: no dot may intervene
+    // (so another object's member cannot satisfy it) and `=(?!=)` excludes
+    // comparison reads like `=== undefined`.
+    const sinkAssignment = (globalName: string): RegExp =>
+      new RegExp(
+        String.raw`globalThis[^.;]{0,200}\.` +
+          globalName.replace(/\$/g, String.raw`\$`) +
+          String.raw`\s*=(?!=)`,
+      );
+    expect(source).toMatch(sinkAssignment(registry.boundary.lifecycleGlobal));
+    // Wrong-but-present control: an exported name that occurs in the module
+    // but is never assigned on globalThis must not satisfy the matcher.
+    expect(source).toContain('ganttLifecycleControl');
+    expect(source).not.toMatch(sinkAssignment('ganttLifecycleControl'));
   });
 
-  it('carries no stale allowance: each allowed name is referenced by its file today', () => {
+  it('carries no stale allowance: each allowed name is imported from the debug-log module today', () => {
+    // The name must appear inside an actual import-from-debug-log statement -
+    // a mention in a comment or a local declaration is not a live use.
     for (const allowance of registry.boundary.allowances) {
       const source = readFileSync(fromRoot(allowance.file), 'utf8');
-      expect(source).toContain(allowance.importName);
+      const liveImport = new RegExp(
+        String.raw`import\s+(?:type\s+)?\{[^}]*\b` +
+          allowance.importName +
+          String.raw`\b[^}]*\}\s*from\s*['"][^'"]*debugLog(?:\.\w+)?['"]`,
+      );
+      expect(source).toMatch(liveImport);
     }
   });
 
