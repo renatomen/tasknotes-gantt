@@ -49,10 +49,12 @@ function isNonEmptyString(value) {
   return typeof value === 'string' && value.length > 0;
 }
 
+const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/;
+
 /** @param {MaintainabilityRegistry} registry */
 function validateBaseline(registry) {
   const { baseline } = registry;
-  if (!baseline || !/^[0-9a-f]{40}$/.test(baseline.sha ?? '')) {
+  if (!baseline || !FULL_SHA_PATTERN.test(baseline.sha ?? '')) {
     fail('baseline.sha must be a 40-character lowercase hex sha');
   }
   if (!isNonEmptyString(baseline.date)) fail('baseline.date must be a date string');
@@ -88,7 +90,7 @@ function validateReports(registry) {
   if (!Array.isArray(reports)) fail('reports must be an array');
   for (const report of reports) {
     if (!isNonEmptyString(report.date)) fail('reports entry is missing its date');
-    if (!/^[0-9a-f]{40}$/.test(report.anchorSha ?? '')) {
+    if (!FULL_SHA_PATTERN.test(report.anchorSha ?? '')) {
       fail(`reports entry ${report.date} needs a 40-character lowercase hex anchorSha`);
     }
     if (!isNonEmptyString(report.report)) {

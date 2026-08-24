@@ -16,6 +16,7 @@ import {
   countWindowTouches,
   latestReport,
   parseArgs,
+  parseCatFileBatchLineCounts,
   parseCommitPaths,
   parseNumstat,
   perPrLines,
@@ -191,6 +192,33 @@ describe('countRankedPrsSince', () => {
   });
 });
 
+describe('parseCatFileBatchLineCounts', () => {
+  const object = (body: Buffer): Buffer =>
+    Buffer.concat([Buffer.from(`abcd blob ${body.length}\n`), body, Buffer.from('\n')]);
+
+  it('counts lines per object in input order, byte-accurate through multibyte content', () => {
+    const output = Buffer.concat([
+      object(Buffer.from('line1\nline2\n')),
+      // Multibyte é is two bytes; a char-based slice would misread the stream.
+      object(Buffer.from('é\n')),
+      object(Buffer.from('no trailing newline')),
+    ]);
+    expect(parseCatFileBatchLineCounts(output)).toEqual([2, 1, 1]);
+  });
+
+  it('marks a missing object null without losing its position', () => {
+    const output = Buffer.concat([
+      Buffer.from('deadbeef:src/gone.ts missing\n'),
+      object(Buffer.from('a\n')),
+    ]);
+    expect(parseCatFileBatchLineCounts(output)).toEqual([null, 1]);
+  });
+
+  it('counts an empty blob as one line, matching split-on-newline semantics', () => {
+    expect(parseCatFileBatchLineCounts(object(Buffer.from('')))).toEqual([1]);
+  });
+});
+
 describe('runTrend with injected git output and an injected ESLint runner', () => {
   let dir: string;
 
@@ -247,11 +275,20 @@ describe('runTrend with injected git output and an injected ESLint runner', () =
         return 'src/ranked.ts\nsrc/other.ts\nsrc/ranked.ts\n';
       }
       if (args[0] === 'log') return '';
-      if (args[0] === 'show') return 'line1\nline2\n';
       if (args[0] === 'diff') return '';
       if (args[0] === 'merge-base') return `${BASE}\n`;
       throw new Error(`unexpected git call: ${key}`);
     };
+
+  /** One two-line blob per requested spec, in `git cat-file --batch` framing. */
+  const fakeGitBuffer = (_args: string[], input: string): Buffer => {
+    const body = Buffer.from('line1\nline2\n');
+    const parts = input
+      .trim()
+      .split('\n')
+      .flatMap(() => [Buffer.from(`abcd blob ${body.length}\n`), body, Buffer.from('\n')]);
+    return Buffer.concat(parts);
+  };
 
   const writeRegistry = (registry: unknown): string => {
     const path = join(dir, 'registry.json');
@@ -268,7 +305,7 @@ describe('runTrend with injected git output and an injected ESLint runner', () =
   });
 
   const run = (argv: string[], git = fakeGit(), runner: () => unknown[] = () => []) =>
-    runTrend({ argv, runGit: git, makeEslintRunner: () => runner });
+    runTrend({ argv, runGit: git, runGitBuffer: fakeGitBuffer, makeEslintRunner: () => runner });
 
   it('records the window semantics in the header — baseline, merge-base end, head', async () => {
     const registryPath = writeRegistry(registryFixture(BASELINE));

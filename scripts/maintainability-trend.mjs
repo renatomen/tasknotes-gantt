@@ -36,8 +36,8 @@ export const AT_CEILING_INPUT_FILES = [
 ];
 
 const AT_CEILING_NOT_TRIGGERED =
-  'not run — no change to src/, test/, scripts/, or the lint pass’s own inputs ' +
-  '(eslint.config.mjs, maintainability-registry.json, package manifest/lockfile)';
+  `not run — no change to ${CHURN_PATHSPEC.map((dir) => dir + '/').join(', ')}, ` +
+  `or the lint pass’s own inputs (${AT_CEILING_INPUT_FILES.join(', ')})`;
 
 /** @param {string} message @returns {never} */
 function fail(message) {
@@ -83,12 +83,17 @@ export function countWindowTouches(nameOnlyOutput) {
  * @param {number} windowCommits
  * @param {{ path: string, rank: number }[]} rankedFiles
  */
+/** @param {{ path: string, rank: number }[]} rankedFiles */
+function rankByPath(rankedFiles) {
+  return new Map(rankedFiles.map((entry) => [entry.path, entry.rank]));
+}
+
 export function churnShareLines(touches, windowCommits, rankedFiles, topN = 10) {
-  const rankByPath = new Map(rankedFiles.map((entry) => [entry.path, entry.rank]));
+  const ranks = rankByPath(rankedFiles);
   const share = (count) =>
     windowCommits > 0 ? `${((count * 100) / windowCommits).toFixed(1)}%` : 'n/a';
   const row = (count, path) => {
-    const rank = rankByPath.get(path);
+    const rank = ranks.get(path);
     const rankSuffix = rank === undefined ? '' : ` (rank ${rank})`;
     return `  ${count} ${share(count)} ${path}${rankSuffix}`;
   };
@@ -125,10 +130,10 @@ export function parseNumstat(numstatOutput) {
  * @param {{ path: string, rank: number }[]} rankedFiles
  */
 export function perPrLines(numstatRows, rankedFiles) {
-  const rankByPath = new Map(rankedFiles.map((entry) => [entry.path, entry.rank]));
+  const ranks = rankByPath(rankedFiles);
   const lines = [];
   for (const row of numstatRows) {
-    const rank = rankByPath.get(row.path);
+    const rank = ranks.get(row.path);
     if (rank === undefined) continue;
     lines.push(
       `  +${row.added}/-${row.removed} ${row.path}`,
@@ -262,14 +267,53 @@ function assertBaselineReachable(runGit, baselineSha) {
   }
 }
 
-/** Line count of a ranked file at the head commit, or 'absent'. */
-function sizeAt(runGit, head, path) {
-  try {
-    const content = runGit(['show', `${head}:${path}`]);
-    return String(content.split('\n').length - (content.endsWith('\n') ? 1 : 0));
-  } catch {
-    return 'absent';
+/** Line count matching split-on-newline semantics: an empty blob is one line. */
+function countLines(body) {
+  if (body.length === 0) return 1;
+  let newlines = 0;
+  for (const byte of body) {
+    if (byte === 0x0a) newlines += 1;
   }
+  return newlines + (body[body.length - 1] === 0x0a ? 0 : 1);
+}
+
+/**
+ * Line counts from one `git cat-file --batch` output, in input order; null
+ * marks a missing object. One spawn per ranked file was the hot cost of every
+ * pre-push print, so all sizes ride a single batch call. Parsing is byte
+ * based: the header's size field counts bytes, and slicing a decoded string
+ * would break on multibyte content.
+ *
+ * @param {Buffer} output
+ * @returns {(number | null)[]}
+ */
+export function parseCatFileBatchLineCounts(output) {
+  const counts = [];
+  let offset = 0;
+  while (offset < output.length) {
+    const headerEnd = output.indexOf(0x0a, offset);
+    if (headerEnd === -1) break;
+    const header = output.toString('utf8', offset, headerEnd);
+    offset = headerEnd + 1;
+    if (header.endsWith(' missing')) {
+      counts.push(null);
+      continue;
+    }
+    const size = Number.parseInt(header.split(' ')[2], 10);
+    counts.push(countLines(output.subarray(offset, offset + size)));
+    offset += size + 1;
+  }
+  return counts;
+}
+
+/** @param {(args: string[], input: string) => Buffer} runGitBuffer */
+function rankedSizeLines(runGitBuffer, registry, head) {
+  const specs = registry.rankedFiles.map((entry) => `${head}:${entry.path}`);
+  const output = runGitBuffer(['cat-file', '--batch'], `${specs.join('\n')}\n`);
+  const counts = parseCatFileBatchLineCounts(output);
+  return registry.rankedFiles.map(
+    (entry, index) => `  ${counts[index] ?? 'absent'} ${entry.path} (rank ${entry.rank})`,
+  );
 }
 
 function windowSection(runGit, registry, base) {
@@ -328,10 +372,11 @@ function reportSection(runGit, registry, base) {
 
 /**
  * @param {{ argv: string[], runGit: (args: string[]) => string,
+ *   runGitBuffer: (args: string[], input: string) => Buffer,
  *   makeEslintRunner: (opts: ReturnType<typeof parseArgs>) => () => unknown[] | Promise<unknown[]> }} deps
  * @returns {Promise<string>} the full report text
  */
-export async function runTrend({ argv, runGit, makeEslintRunner }) {
+export async function runTrend({ argv, runGit, runGitBuffer, makeEslintRunner }) {
   const opts = parseArgs(argv);
   let registry;
   if (opts.registry !== null) {
@@ -364,9 +409,7 @@ export async function runTrend({ argv, runGit, makeEslintRunner }) {
     ...windowSection(runGit, registry, base),
     '',
     'Ranked-file sizes at head (lines; informational — file length is not a gate, PR #355 ruling):',
-    ...registry.rankedFiles.map(
-      (entry) => `  ${sizeAt(runGit, head, entry.path)} ${entry.path} (rank ${entry.rank})`,
-    ),
+    ...rankedSizeLines(runGitBuffer, registry, head),
     '',
     `Per-PR ranked-file touches (${base === head ? 'empty range' : `${base.slice(0, 9)}..${head.slice(0, 9)}`}):`,
     ...perPrLines(numstat, registry.rankedFiles),
@@ -411,6 +454,12 @@ if (isDirectRun) {
         // refs) fail by design, and their `fatal:` lines are not this
         // measurement's output.
         stdio: ['ignore', 'pipe', 'pipe'],
+      }),
+    runGitBuffer: (args, input) =>
+      execFileSync('git', args, {
+        input,
+        maxBuffer: 64 * 1024 * 1024,
+        stdio: ['pipe', 'pipe', 'pipe'],
       }),
     makeEslintRunner: defaultEslintRunner,
   })
