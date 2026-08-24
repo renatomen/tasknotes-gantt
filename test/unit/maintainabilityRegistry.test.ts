@@ -225,6 +225,9 @@ describe('validateRegistry — schema guards name the offending entry', () => {
     const registry = base();
     (registry.reports[5] as { concernCounts: unknown }).concernCounts = 7;
     expect(() => validateRegistry(registry)).toThrow(/must be an object of path -> count/);
+    // An explicit null is malformed data, not an omitted field.
+    (registry.reports[5] as { concernCounts: unknown }).concernCounts = null;
+    expect(() => validateRegistry(registry)).toThrow(/must be an object of path -> count/);
   });
 
   it('rejects a reports entry whose measurement values are not non-negative integers', () => {

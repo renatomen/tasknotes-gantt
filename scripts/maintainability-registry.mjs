@@ -108,8 +108,11 @@ function validateReportDate(report) {
 
 /** The measured values the trend output prints as authoritative. @param {TrendReport} report */
 function validateReportMeasurements(report) {
-  const counts = report.concernCounts ?? {};
-  if (typeof counts !== 'object' || Array.isArray(counts)) {
+  // Only an ABSENT field means "no counts recorded": an explicit null is a
+  // malformed entry, and coalescing it away would print a clean-looking
+  // "no concern counts recorded" from bad data.
+  const counts = report.concernCounts === undefined ? {} : report.concernCounts;
+  if (counts === null || typeof counts !== 'object' || Array.isArray(counts)) {
     fail(`reports entry ${report.date} concernCounts must be an object of path -> count`);
   }
   const measured = Object.entries(counts).map(([key, value]) => [
