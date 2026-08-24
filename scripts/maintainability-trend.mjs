@@ -251,7 +251,10 @@ function resolveRange(runGit, opts) {
   try {
     return { base: runGit(['merge-base', mainRef, head]).trim(), head };
   } catch {
-    fail(`cannot compute the merge-base of ${mainRef} and ${opts.head ?? 'HEAD'}`);
+    fail(
+      `cannot compute the merge-base of ${mainRef} and ${opts.head ?? 'HEAD'} — ` +
+        'a shallow clone cannot walk to it; fetch full history (CI: fetch-depth: 0)',
+    );
   }
 }
 
