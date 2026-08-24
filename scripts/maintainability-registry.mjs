@@ -89,7 +89,11 @@ function validateReports(registry) {
   const { reports } = registry;
   if (!Array.isArray(reports)) fail('reports must be an array');
   for (const report of reports) {
-    if (!isNonEmptyString(report.date)) fail('reports entry is missing its date');
+    // Full ISO date, zero-padded: latest-report selection orders these
+    // lexicographically, and a '2026-8-16'-style entry would silently mis-sort.
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(report.date ?? '')) {
+      fail('reports entry date must be a zero-padded YYYY-MM-DD string');
+    }
     if (!FULL_SHA_PATTERN.test(report.anchorSha ?? '')) {
       fail(`reports entry ${report.date} needs a 40-character lowercase hex anchorSha`);
     }

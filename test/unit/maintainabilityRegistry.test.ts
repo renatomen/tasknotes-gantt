@@ -206,6 +206,12 @@ describe('validateRegistry — schema guards name the offending entry', () => {
     expect(() => validateRegistry(registry)).toThrow(/plain path/);
   });
 
+  it('rejects a reports entry whose date is not zero-padded YYYY-MM-DD', () => {
+    const registry = base();
+    (registry.reports[0] as { date: string }).date = '2026-8-16';
+    expect(() => validateRegistry(registry)).toThrow(/YYYY-MM-DD/);
+  });
+
   it('rejects a reports entry without a full-length anchor sha', () => {
     const registry = base();
     (registry.reports[0] as { anchorSha: string }).anchorSha = 'abc123';

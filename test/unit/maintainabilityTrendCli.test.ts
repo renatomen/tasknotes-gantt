@@ -2,7 +2,7 @@
  * The trend script's contract exercised through the real entry point against a
  * throwaway repository with a planted registry (`--registry`) — never against
  * this checkout, and never linting anything real (the sweep is injected via
- * `--eslint-cmd`).
+ * `--eslint-json`).
  *
  * The repository graph is deliberately forked-behind-main: after the feature
  * branch forks, main gains a ranked-file commit the window must EXCLUDE

@@ -151,6 +151,17 @@ describe('atCeilingCount', () => {
       atCeiling: 0,
     });
   });
+
+  it('crashes rather than reporting a confident zero when the message format changed', () => {
+    const reworded = [
+      {
+        messages: [
+          { ruleId: 'sonarjs/cognitive-complexity', message: 'Complexity is 15; the limit is 10.' },
+        ],
+      },
+    ];
+    expect(() => atCeilingCount(reworded)).toThrow(/message format changed/);
+  });
 });
 
 describe('latestReport', () => {
@@ -377,6 +388,7 @@ describe('runTrend with injected git output and an injected ESLint runner', () =
     const output = await run(['--registry', registryPath, '--base', BASE, '--head', HEAD, '--at-ceiling'], git, runner);
     expect(output).toContain('At-ceiling complexity count (functions at exactly 15, from a threshold-10 sweep): 1');
     expect(output).toContain('pressure band 11–15 total findings: 2');
+    expect(output).toContain('swept tree: HEAD');
   });
 
   it('crashes with the fetch-depth hint when the baseline commit is unreachable', async () => {

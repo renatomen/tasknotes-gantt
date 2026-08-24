@@ -75,6 +75,11 @@ export function countWindowTouches(nameOnlyOutput) {
   return touches;
 }
 
+/** @param {{ path: string, rank: number }[]} rankedFiles */
+function rankByPath(rankedFiles) {
+  return new Map(rankedFiles.map((entry) => [entry.path, entry.rank]));
+}
+
 /**
  * The baseline report's churn-share table: every ranked file always shown,
  * plus the highest-churn unranked paths for context.
@@ -82,12 +87,8 @@ export function countWindowTouches(nameOnlyOutput) {
  * @param {Map<string, number>} touches
  * @param {number} windowCommits
  * @param {{ path: string, rank: number }[]} rankedFiles
+ * @param {number} [topN]
  */
-/** @param {{ path: string, rank: number }[]} rankedFiles */
-function rankByPath(rankedFiles) {
-  return new Map(rankedFiles.map((entry) => [entry.path, entry.rank]));
-}
-
 export function churnShareLines(touches, windowCommits, rankedFiles, topN = 10) {
   const ranks = rankByPath(rankedFiles);
   const share = (count) =>
@@ -169,7 +170,15 @@ export function atCeilingCount(eslintResults, ceiling = COMPLEXITY_CEILING) {
       if (message.ruleId !== COMPLEXITY_RULE) continue;
       bandTotal += 1;
       const reported = /from (\d+) to the \d+ allowed/.exec(message.message ?? '');
-      if (reported !== null && Number.parseInt(reported[1], 10) === ceiling) atCeiling += 1;
+      if (reported === null) {
+        // Crash-only-red applies to the parser too: a plugin upgrade that
+        // rewords the message must not print a confident wrong count.
+        throw new Error(
+          `cannot read the reported complexity from a ${COMPLEXITY_RULE} message ` +
+            `("${message.message}") — the plugin's message format changed; update the parser`,
+        );
+      }
+      if (Number.parseInt(reported[1], 10) === ceiling) atCeiling += 1;
     }
   }
   return { bandTotal, atCeiling };
@@ -333,21 +342,25 @@ function windowSection(runGit, registry, base) {
   ];
 }
 
-async function atCeilingSection(opts, changedPaths, runEslint) {
+async function atCeilingSection(opts, changedPaths, runEslint, runGit) {
   if (!opts.atCeiling) return ['At-ceiling complexity count: not run — CI-only (--at-ceiling not passed)'];
   if (!shouldRunAtCeiling(changedPaths)) {
     return [`At-ceiling complexity count: ${AT_CEILING_NOT_TRIGGERED}`];
   }
-  let results;
+  let counts;
   try {
-    results = await runEslint();
+    counts = atCeilingCount(await runEslint());
   } catch (error) {
     fail(`at-ceiling ESLint sweep failed: ${error instanceof Error ? error.message : String(error)}`);
   }
-  const { bandTotal, atCeiling } = atCeilingCount(results);
+  // The sweep lints the checked-out tree, which on a CI pull_request run is
+  // the synthetic merge ref, not head — name it so a reviewer can explain a
+  // mismatch against a locally measured number instead of distrusting both.
+  const sweptTree = runGit(['rev-parse', 'HEAD']).trim();
   return [
-    `At-ceiling complexity count (functions at exactly ${COMPLEXITY_CEILING}, from a threshold-${SWEEP_THRESHOLD} sweep): ${atCeiling}`,
-    `  pressure band ${SWEEP_THRESHOLD + 1}–${COMPLEXITY_CEILING} total findings: ${bandTotal}`,
+    `At-ceiling complexity count (functions at exactly ${COMPLEXITY_CEILING}, from a threshold-${SWEEP_THRESHOLD} sweep): ${counts.atCeiling}`,
+    `  pressure band ${SWEEP_THRESHOLD + 1}–${COMPLEXITY_CEILING} total findings: ${counts.bandTotal}`,
+    `  swept tree: ${sweptTree}`,
   ];
 }
 
@@ -396,10 +409,12 @@ export async function runTrend({ argv, runGit, runGitBuffer, makeEslintRunner })
   const { base, head } = resolveRange(runGit, opts);
   assertBaselineReachable(runGit, registry.baseline.sha);
   const numstat = base === head ? [] : parseNumstat(runGit(['diff', '--numstat', '--no-renames', `${base}..${head}`]));
+  const rangeLabel = `${base.slice(0, 9)}..${head.slice(0, 9)}`;
   const atCeilingLines = await atCeilingSection(
     opts,
     numstat.map((row) => row.path),
     makeEslintRunner(opts),
+    runGit,
   );
   const lines = [
     'Maintainability trend',
@@ -414,7 +429,7 @@ export async function runTrend({ argv, runGit, runGitBuffer, makeEslintRunner })
     'Ranked-file sizes at head (lines; informational — file length is not a gate, PR #355 ruling):',
     ...rankedSizeLines(runGitBuffer, registry, head),
     '',
-    `Per-PR ranked-file touches (${base === head ? 'empty range' : `${base.slice(0, 9)}..${head.slice(0, 9)}`}):`,
+    `Per-PR ranked-file touches (${base === head ? 'empty range' : rangeLabel}):`,
     ...perPrLines(numstat, registry.rankedFiles),
     '',
     ...atCeilingLines,

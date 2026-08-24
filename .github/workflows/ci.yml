@@ -57,7 +57,11 @@ jobs:
         shell: bash
         run: |
           MERGE_BASE=$(git merge-base "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
-          node scripts/maintainability-trend.mjs --base "$MERGE_BASE" --head "${{ github.event.pull_request.head.sha }}" --at-ceiling > maintainability-trend.txt
+          # Write to a scratch name and move on success: a `>` redirect straight
+          # to the artifact name creates an empty file before node runs, and the
+          # upload's missing-file guard could then never fire on a crash.
+          node scripts/maintainability-trend.mjs --base "$MERGE_BASE" --head "${{ github.event.pull_request.head.sha }}" --at-ceiling > trend-out.txt
+          mv trend-out.txt maintainability-trend.txt
           cat maintainability-trend.txt >> "$GITHUB_STEP_SUMMARY"
       - name: Upload maintainability trend
         if: always()
