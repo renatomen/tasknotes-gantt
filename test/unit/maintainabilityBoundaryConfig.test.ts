@@ -467,6 +467,7 @@ describe('mutation harness — every plant re-proven against the real config', (
     'helper-side-effect-import',
     'registry-live-allowance-permits',
     'registry-dropped-allowance-refuses',
+    'cross-file-allowance-does-not-leak',
     'no-undef-control',
     'allowlisted-dlog-import',
     'declared-globals-still-known',
@@ -518,6 +519,7 @@ describe('mutation harness — every plant re-proven against the real config', (
       expectRule('junction-side-effect-import', 'no-restricted-syntax');
       expectRule('helper-side-effect-import', 'no-restricted-syntax');
       expectRule('registry-dropped-allowance-refuses', 'no-restricted-imports');
+      expectRule('cross-file-allowance-does-not-leak', 'no-restricted-imports');
       const liveAllowance = byId.get('registry-live-allowance-permits');
       expect(liveAllowance?.errorCount).toBe(0);
       expect(liveAllowance?.warningCount).toBe(0);

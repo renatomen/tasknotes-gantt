@@ -309,6 +309,90 @@ describe('createGanttLifecycleDiagnostics', () => {
     });
   });
 
+  describe('scroll delivery through the attachRoot listener', () => {
+    interface ScrollWorld {
+      dispatchScroll(target: unknown): void;
+      chart: { scrollLeft: number; matches(selector: string): boolean };
+    }
+
+    /**
+     * The seam's scroll listener narrows targets with `instanceof HTMLElement`,
+     * which node-env jest does not define — a stand-in class registered on
+     * globalThis lets the listener's own narrowing run unmodified.
+     */
+    function attachScrollWorld(): ScrollWorld {
+      class StubHtmlElement {
+        scrollLeft = 5;
+        matches(selector: string): boolean {
+          return selector === '.wx-chart';
+        }
+      }
+      (globalThis as { HTMLElement?: unknown }).HTMLElement = StubHtmlElement;
+      const listeners = new Map<string, (event: Event) => void>();
+      const root = {
+        addEventListener: (name: string, listener: (event: Event) => void) => {
+          listeners.set(name, listener);
+        },
+        removeEventListener: () => undefined,
+        querySelector: () => null,
+      } as unknown as HTMLElement;
+      diagnostics.attachRoot(root);
+      return {
+        dispatchScroll: (target) => {
+          listeners.get('scroll')?.(
+            { target, eventPhase: 3, isTrusted: true } as unknown as Event,
+          );
+        },
+        chart: new StubHtmlElement(),
+      };
+    }
+
+    afterEach(() => {
+      delete (globalThis as { HTMLElement?: unknown }).HTMLElement;
+    });
+
+    it('records the delivery with its pending source without consuming it', () => {
+      const world = attachScrollWorld();
+      diagnostics.captureViewportSource('scroll-chart', {});
+      world.dispatchScroll(world.chart);
+      world.dispatchScroll(world.chart);
+      const delivered = capturedRecords().filter((r) => r.event === 'viewport-event-delivered');
+      expect(delivered).toHaveLength(2);
+      expect(delivered[0].facts).toMatchObject({
+        action: 'scroll-chart',
+        mechanism: 'dom-scroll',
+        deliveredScrollLeft: 5,
+        deliveredTrusted: true,
+        sourceObserved: true,
+        viewportGeneration: 1,
+      });
+    });
+
+    it('ignores a scroll whose target is not the chart element', () => {
+      const world = attachScrollWorld();
+      diagnostics.captureViewportSource('scroll-chart', {});
+      world.dispatchScroll({ scrollLeft: 9, matches: () => true });
+      expect(eventNames()).toEqual(['viewport-source-invoked']);
+    });
+
+    it('drops the delivery when the pending source belongs to a stale host generation', () => {
+      const world = attachScrollWorld();
+      diagnostics.captureViewportSource('scroll-chart', {});
+      access.hostGeneration = 1;
+      world.dispatchScroll(world.chart);
+      expect(eventNames()).toEqual(['viewport-source-invoked']);
+    });
+
+    it('records nothing after disposal', () => {
+      const world = attachScrollWorld();
+      diagnostics.dispose();
+      world.dispatchScroll(world.chart);
+      expect(
+        capturedRecords().filter((r) => r.event === 'viewport-event-delivered'),
+      ).toHaveLength(0);
+    });
+  });
+
   describe('viewport settlement observation', () => {
     it('classifies terminal only after two identical, complete frames', async () => {
       const world = makeSettledViewportWorld();
@@ -329,6 +413,38 @@ describe('createGanttLifecycleDiagnostics', () => {
       const names = eventNames();
       expect(names.at(-1)).toBe('viewport-pending');
       expect(names).not.toContain('viewport-terminal');
+    });
+
+    it('a delivery landing mid-observation re-enters once and observes the newer generation too', async () => {
+      diagnostics.captureViewportDelivery('zoom-scale', 0);
+      diagnostics.captureViewportDelivery('scroll-chart', 0);
+      await settle(frames, 128);
+      const observedGenerations = capturedRecords()
+        .filter((r) => r.event === 'viewport-svelte-update')
+        .map((r) => r.facts?.viewportGeneration);
+      expect(observedGenerations).toEqual([1, 2]);
+      const outcomes = capturedRecords().filter(
+        (r) => r.event === 'viewport-pending' || r.event === 'viewport-terminal',
+      );
+      expect(outcomes.map((r) => r.facts?.viewportGeneration)).toEqual([1, 2]);
+    });
+
+    it('disposal while an observation is suspended aborts it and reports the pending generation', async () => {
+      diagnostics.captureViewportDelivery('zoom-scale', 0);
+      // Drain microtasks only — no frame flush — so the observation loop is
+      // genuinely suspended awaiting its first frame at disposal time.
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(frames.pendingCount()).toBe(1);
+      diagnostics.dispose();
+      const aborted = capturedRecords().filter(
+        (r) => r.event === 'viewport-pending' && r.facts?.observationAborted === true,
+      );
+      expect(aborted).toHaveLength(1);
+      expect(aborted[0].facts).toMatchObject({ action: 'zoom-scale', viewportGeneration: 1 });
+      expect(eventNames().at(-1)).toBe('component-cleanup');
+      await settle(frames, 32);
+      expect(eventNames().at(-1)).toBe('component-cleanup');
     });
   });
 

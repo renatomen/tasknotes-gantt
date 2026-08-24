@@ -295,8 +295,15 @@ async function runRegistryDropProof() {
       warningCount: result.warningCount,
     };
   };
+  // An allowance is keyed to one file: the same name allowed for the container
+  // must still be refused in register.ts, or deleting the per-file filter in
+  // the derivation would silently pool allowances across junction files.
+  const container = boundaryPath(registry, 'GanttContainer.svelte');
+  const withCrossFileAllowance = JSON.parse(JSON.stringify(withSyntheticAllowance));
+  withCrossFileAllowance.boundary.allowances[0].file = container;
   const withAllowance = await lintWithRegistry(withSyntheticAllowance);
   const withoutAllowance = await lintWithRegistry(registry);
+  const crossFile = await lintWithRegistry(withCrossFileAllowance);
   return [
     {
       id: 'registry-live-allowance-permits',
@@ -311,6 +318,13 @@ async function runRegistryDropProof() {
       expectation: 'red:no-restricted-imports',
       ok: withoutAllowance.errorRuleIds.includes('no-restricted-imports'),
       ...withoutAllowance,
+    },
+    {
+      id: 'cross-file-allowance-does-not-leak',
+      filePath: register,
+      expectation: 'red:no-restricted-imports',
+      ok: crossFile.errorRuleIds.includes('no-restricted-imports'),
+      ...crossFile,
     },
   ];
 }
