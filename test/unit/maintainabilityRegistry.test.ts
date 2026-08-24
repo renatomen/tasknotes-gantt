@@ -108,6 +108,14 @@ describe('maintainability registry — committed data', () => {
     const seamExists = existsSync(fromRoot(registry.boundary.seamModule));
     expect(allowanceStateViolations(registry, seamExists)).toEqual([]);
   });
+
+  it('lists every dated report at a location that exists on disk', () => {
+    expect(registry.reports.length).toBeGreaterThan(0);
+    const missing = registry.reports
+      .map((entry) => entry.report)
+      .filter((path) => !existsSync(fromRoot(path)));
+    expect(missing).toEqual([]);
+  });
 });
 
 describe('validateRegistry — schema guards name the offending entry', () => {
@@ -196,6 +204,18 @@ describe('validateRegistry — schema guards name the offending entry', () => {
     const registry = base();
     registry.boundary.module = 'src/debug(Log).ts';
     expect(() => validateRegistry(registry)).toThrow(/plain path/);
+  });
+
+  it('rejects a reports entry without a full-length anchor sha', () => {
+    const registry = base();
+    (registry.reports[0] as { anchorSha: string }).anchorSha = 'abc123';
+    expect(() => validateRegistry(registry)).toThrow(/anchorSha/);
+  });
+
+  it('rejects a reports entry that does not name its dated report file', () => {
+    const registry = base();
+    delete (registry.reports[0] as { report?: string }).report;
+    expect(() => validateRegistry(registry)).toThrow(/dated report file/);
   });
 
   it('rejects a baseline without a full-length sha', () => {

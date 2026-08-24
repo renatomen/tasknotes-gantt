@@ -30,7 +30,7 @@ export const REGISTRY_PATH = join(repoRoot, 'maintainability-registry.json');
  *   files: BoundaryFile[],
  *   allowances: Allowance[],
  * }} Boundary
- * @typedef {{ date: string, anchorSha: string, concernCounts?: Record<string, number> }} TrendReport
+ * @typedef {{ date: string, anchorSha: string, report: string, concernCounts?: Record<string, number>, atCeiling?: number }} TrendReport
  * @typedef {{
  *   baseline: { sha: string, date: string, report: string },
  *   rankedFiles: RankedFile[],
@@ -73,6 +73,27 @@ function validateRankedFiles(registry) {
     }
     if (seen.has(entry.path)) fail(`duplicate rankedFiles path ${entry.path}`);
     seen.add(entry.path);
+  }
+}
+
+/**
+ * The trend script prints "latest report" facts straight from these entries,
+ * so a malformed one must fail here — at the same read every consumer shares —
+ * rather than mislabel the measurement.
+ *
+ * @param {MaintainabilityRegistry} registry
+ */
+function validateReports(registry) {
+  const { reports } = registry;
+  if (!Array.isArray(reports)) fail('reports must be an array');
+  for (const report of reports) {
+    if (!isNonEmptyString(report.date)) fail('reports entry is missing its date');
+    if (!/^[0-9a-f]{40}$/.test(report.anchorSha ?? '')) {
+      fail(`reports entry ${report.date} needs a 40-character lowercase hex anchorSha`);
+    }
+    if (!isNonEmptyString(report.report)) {
+      fail(`reports entry ${report.date} must name its dated report file`);
+    }
   }
 }
 
@@ -180,7 +201,7 @@ export function validateRegistry(registry) {
   if (!registry || typeof registry !== 'object') fail('registry must be a JSON object');
   validateBaseline(registry);
   validateRankedFiles(registry);
-  if (!Array.isArray(registry.reports)) fail('reports must be an array');
+  validateReports(registry);
   validateBoundaryShape(registry);
   validateBoundaryFiles(registry);
   validateAllowances(registry);
