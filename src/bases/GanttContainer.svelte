@@ -1,5 +1,4 @@
 <script lang="ts">
-  /* global HTMLElement, HTMLButtonElement, HTMLStyleElement, Element, Event, CustomEvent, MouseEvent, MediaQueryListEvent, KeyboardEvent, ResizeObserver, requestAnimationFrame, cancelAnimationFrame, setTimeout, clearTimeout */
   // Willow / WillowDark are SVAR's real theme components: each renders the full
   // nested core → grid → gantt theme layers, sets the load-bearing `wx-theme`
   // context, and guarantees its CSS. We render the one chosen by the effective
@@ -1143,6 +1142,7 @@
   }
 
   function applyIncrementalSync(plan: GanttSyncPlan): void {
+    if (!api) return;
     const { taskPlan, linkPlan } = plan;
     dlog(
       `[OGDBG] sync DIFF moves=${taskPlan.moves.length} updates=${taskPlan.updates.length}` +
@@ -1330,11 +1330,38 @@
   // The slice of SVAR's `update-task` event payload the drag/resize persistence
   // path reads. `inProgress` marks mid-gesture frames; `eventSource` carries our
   // own echo tag on programmatic writes.
-  // SVAR Gantt API - using unknown with type assertions for third-party API
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  type GanttAPI = any;
+  // The slice of the SVAR task record this component reads back from the api.
+  // `custom` is our own payload shape (we authored it when seeding the store);
+  // start/end stay unknown because reads narrow them with `instanceof Date`.
+  interface GanttTaskSlice {
+    open?: boolean;
+    start?: unknown;
+    end?: unknown;
+    custom?: SvarTask['custom'];
+  }
 
-  let api: GanttAPI = $state();
+  interface GanttStateSlice extends DiagnosticSvarState {
+    tasks: { length?: number; byId(id: string): GanttTaskSlice | undefined };
+    selected?: ReadonlyArray<string | number>;
+  }
+
+  // The slice of SVAR's api this component actually uses. Structural rather
+  // than the vendor `IApi` because the runtime surface the view relies on
+  // (`custom` task payloads, the tree's `byId`, the data store's `setState`)
+  // is wider than the published declarations; members are methods so the
+  // vendor api stays assignable where the declarations do overlap.
+  type GanttAPI = Pick<IApi, 'exec' | 'on' | 'intercept' | 'getTable'> & {
+    getTask(id: string): GanttTaskSlice | undefined;
+    getState(): GanttStateSlice;
+    getReactiveState(): {
+      _tasks?: { subscribe?(follow: (value: unknown) => void): unknown };
+      cellHeight?: { subscribe?(follow: (value: unknown) => void): unknown };
+      _scales?: { subscribe?(follow: (value: unknown) => void): unknown };
+    };
+    getStores?(): { data?: { setState?(state: object): void } };
+  };
+
+  let api: GanttAPI | undefined = $state();
 
   // SVAR suppresses every tooltip on hardware reporting any touch points —
   // which includes a touchscreen laptop whose reader is hovering with a mouse.
@@ -1446,7 +1473,7 @@
     facts: GanttLifecycleFacts;
   } {
     try {
-      const state = api?.getState?.() as DiagnosticSvarState | undefined;
+      const state = api?.getState?.();
       const xArea = state?.xArea;
       const scales = state?._scales;
       const chart = rootEl?.querySelector<HTMLElement>('.wx-chart') ?? null;
@@ -2370,7 +2397,7 @@
     try {
       const result = ganttApi.getTable(true);
       void Promise.resolve(result)
-        .then((tableApi: GanttAPI) => {
+        .then((tableApi: { on?(action: string, handler: (ev: { id?: string | number; width?: number; inProgress?: boolean }) => void): unknown } | undefined) => {
           tableApi?.on?.(
             'resize-column',
             (ev: { id?: string | number; width?: number; inProgress?: boolean }) => {
@@ -2653,7 +2680,7 @@
    *  revert drag into a no-op plan); dateStatus/estimate from the snapshot, rebased over
    *  the executor's settled-facts ledger (self-writes skip recompute). */
   function captureBarBefore(id: string, before: (typeof instances)[number] | undefined) {
-    const grabbed = api.getTask?.(id);
+    const grabbed = api?.getTask?.(id);
     return dragExecutor.rebaseSettledFacts(before?.sourcePath ?? id, {
       start: grabbed?.start instanceof Date ? grabbed.start : (before?.start ?? null),
       end: grabbed?.end instanceof Date ? grabbed.end : (before?.end ?? null),
@@ -3122,7 +3149,7 @@
            every incoming edge on the dependent task, and the single edge a
            reader points at on that edge itself. Falls back to the task name for
            tasks with no dependencies. -->
-      <Tooltip {api} content={DependencyTooltip} touch={tooltipHoverCapable}>
+      <Tooltip api={api as unknown as IApi | undefined} content={DependencyTooltip} touch={tooltipHoverCapable}>
         <!-- taskTemplate renders the bar's content (text + optional icon chip via
              BarContent). Passed as a STABLE prop set once at mount — SVAR's
              reinitStore does not read taskTemplate, so this never re-inits the

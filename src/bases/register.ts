@@ -7,7 +7,6 @@
  * @module bases/register
  */
 
-/* global MouseEvent */
 import {
   BasesView,
   TFile,
