@@ -504,14 +504,17 @@ describe('cross-model peer review wrapper', () => {
       join(repo, 'scripts', 'stage-peer-trend-block.sh'),
       readFileSync(resolve('scripts/stage-peer-trend-block.sh'), 'utf8'),
     );
+    // Multi-line on purpose: a first-line-only fake could not tell full
+    // delivery from truncated delivery.
     writeFileSync(
       join(repo, 'scripts', 'maintainability-trend.mjs'),
-      'process.stdout.write("TREND-MARKER-OUTPUT\\n");\n',
+      'process.stdout.write("TREND-MARKER-FIRST\\nmiddle of the measurement\\nTREND-MARKER-LAST\\n");\n',
     );
     runWrapper(CLEAN);
     const trend = readFileSync(`${promptFile}.trend`, 'utf8');
     expect(trend).toContain('MAINTAINABILITY TREND (DATA');
-    expect(trend).toContain('TREND-MARKER-OUTPUT');
+    expect(trend).toContain('TREND-MARKER-FIRST');
+    expect(trend).toContain('TREND-MARKER-LAST');
     expect(trend).not.toContain('trend measurement unavailable');
   });
 

@@ -186,7 +186,10 @@ function reportedComplexity(message, filePath) {
 export function atCeilingCount(eslintResults, ceiling = COMPLEXITY_CEILING) {
   const counts = { bandTotal: 0, atCeiling: 0, aboveCeiling: 0 };
   for (const result of eslintResults) {
-    for (const message of result.messages ?? []) {
+    // Suppressed findings count too: an inline disable must not be able to
+    // lower the published pressure numbers while the function is unchanged.
+    const messages = [...(result.messages ?? []), ...(result.suppressedMessages ?? [])];
+    for (const message of messages) {
       const value = reportedComplexity(message, result.filePath);
       if (value === null) continue;
       // A gate-failing PR can hold complexities above the ceiling (the trend

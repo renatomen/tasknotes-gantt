@@ -153,6 +153,11 @@ describe('atCeilingCount', () => {
     });
   });
 
+  it('counts suppressed findings too, so an inline disable cannot lower the numbers', () => {
+    const results = [{ messages: [message(12)], suppressedMessages: [message(15)] }];
+    expect(atCeilingCount(results)).toEqual({ bandTotal: 2, atCeiling: 1, aboveCeiling: 0 });
+  });
+
   it('keeps above-ceiling findings out of the pressure band and counts them apart', () => {
     // The trend runs on gate-failing PRs too, where complexities above the
     // ceiling legitimately exist in the sweep.

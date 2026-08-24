@@ -216,6 +216,15 @@ describe('validateRegistry — schema guards name the offending entry', () => {
     const registry = base();
     (registry.reports[0] as { date: string }).date = '2026-99-99';
     expect(() => validateRegistry(registry)).toThrow(/real, zero-padded/);
+    // Digit-shaped but rolled over: only a calendar round-trip catches it.
+    (registry.reports[0] as { date: string }).date = '2026-02-31';
+    expect(() => validateRegistry(registry)).toThrow(/real, zero-padded/);
+  });
+
+  it('rejects a concernCounts that is not an object of path -> count', () => {
+    const registry = base();
+    (registry.reports[5] as { concernCounts: unknown }).concernCounts = 7;
+    expect(() => validateRegistry(registry)).toThrow(/must be an object of path -> count/);
   });
 
   it('rejects a reports entry whose measurement values are not non-negative integers', () => {
