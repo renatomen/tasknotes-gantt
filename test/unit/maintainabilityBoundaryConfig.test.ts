@@ -327,7 +327,8 @@ describe('restricted-name census — what lint rules cannot see', () => {
     // but a directive naming a boundary rule - or a bare disable-everything -
     // would suppress the closure entry, so both are refused here.
     const BOUNDARY_RULE_DISABLE = /eslint[^\n]*no-restricted-(?:imports|syntax)/;
-    const BARE_DISABLE = /(?:\/\/|\/\*)\s*eslint-disable(?:-next-line|-line)?\s*(?:\*\/\s*)?$/;
+    const BARE_DISABLE =
+      /(?:\/\/|\/\*)\s*eslint-disable(?:-next-line|-line)?(?:\s*--[^*\n]*?)?\s*(?:\*\/\s*)?$/;
 
     expect(BOUNDARY_RULE_DISABLE.test('// eslint-disable-next-line no-restricted-imports')).toBe(true);
     expect(BOUNDARY_RULE_DISABLE.test('/* eslint-disable no-restricted-syntax */')).toBe(true);
@@ -336,7 +337,12 @@ describe('restricted-name census — what lint rules cannot see', () => {
     expect(BOUNDARY_RULE_DISABLE.test('// eslint-disable-next-line @typescript-eslint/no-explicit-any')).toBe(false);
     expect(BARE_DISABLE.test('/* eslint-disable */')).toBe(true);
     expect(BARE_DISABLE.test('// eslint-disable-next-line')).toBe(true);
+    expect(BARE_DISABLE.test('/* eslint-disable -- temporary bridge */')).toBe(true);
+    expect(BARE_DISABLE.test('// eslint-disable-next-line -- reason')).toBe(true);
     expect(BARE_DISABLE.test('// eslint-disable-next-line @typescript-eslint/no-explicit-any')).toBe(false);
+    expect(
+      BARE_DISABLE.test('// eslint-disable-next-line @typescript-eslint/no-explicit-any -- reason'),
+    ).toBe(false);
 
     // Block comments are directives as a whole, however many lines they span,
     // so each is tested whitespace-normalized in addition to the line scan.

@@ -64,16 +64,43 @@ describe('maintainability registry — committed data', () => {
   });
 
   it('carries no stale allowance: each allowed name is imported from the debug-log module today', () => {
-    // The name must appear inside an actual import-from-debug-log statement -
-    // a mention in a comment or a local declaration is not a live use.
-    for (const allowance of registry.boundary.allowances) {
-      const source = readFileSync(fromRoot(allowance.file), 'utf8');
+    // The name must appear inside an actual import-from-debug-log statement.
+    // Comments are stripped first and the statement must start a line, so a
+    // commented-out import or a mention in prose is not a live use.
+    const hasLiveDebugLogImport = (rawSource: string, importName: string): boolean => {
+      const source = rawSource
+        .replace(/\/\*[\s\S]*?\*\//g, ' ')
+        .replace(/\/\/[^\n]*/g, ' ');
       const liveImport = new RegExp(
-        String.raw`import\s+(?:type\s+)?\{[^}]*\b` +
-          allowance.importName +
+        String.raw`(?:^|\n)[ \t]*import\s+(?:type\s+)?\{[^}]*\b` +
+          importName +
           String.raw`\b[^}]*\}\s*from\s*['"][^'"]*debugLog(?:\.\w+)?['"]`,
       );
-      expect(source).toMatch(liveImport);
+      return liveImport.test(source);
+    };
+
+    expect(
+      hasLiveDebugLogImport(
+        "import { captureGanttLifecycle } from '../debugLog';",
+        'captureGanttLifecycle',
+      ),
+    ).toBe(true);
+    expect(
+      hasLiveDebugLogImport(
+        "// import { captureGanttLifecycle } from '../debugLog';",
+        'captureGanttLifecycle',
+      ),
+    ).toBe(false);
+    expect(
+      hasLiveDebugLogImport(
+        "/* import { captureGanttLifecycle } from '../debugLog'; */",
+        'captureGanttLifecycle',
+      ),
+    ).toBe(false);
+
+    for (const allowance of registry.boundary.allowances) {
+      const source = readFileSync(fromRoot(allowance.file), 'utf8');
+      expect(hasLiveDebugLogImport(source, allowance.importName)).toBe(true);
     }
   });
 
