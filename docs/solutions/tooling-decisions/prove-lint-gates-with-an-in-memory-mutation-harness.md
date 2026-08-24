@@ -32,12 +32,17 @@ uses ESLint's `lintText` API to lint planted source text at the real guarded fil
 paths against the real `eslint.config.mjs` — so `new ESLint({ cwd: repoRoot })` applies
 the true per-file overrides without any red file existing on disk. A jest test spawns
 the harness and asserts every verdict (red plants report the expected rule id; clean
-plants report zero problems), so the whole plant set re-proves on every local suite run
-and every CI run. For derivation liveness, build a second instance with
-`overrideConfigFile: true` and `overrideConfig: deriveBoundaryOverrides(mutatedRegistry)`:
-the same import lints clean with the committed registry and red once the mutated
-registry drops its allowance — proving the config is derived, not hardcoded, again
-without touching the committed registry.
+plants report zero errors and zero warnings — the allowance-liveness check alone gates
+on errors only), so the whole plant set re-proves on every local suite run and every CI
+run. For derivation liveness, build a second instance with `overrideConfigFile: true`
+and `overrideConfig: deriveBoundaryOverrides(mutatedRegistry)`: the same import lints
+clean with the committed registry and red once the mutated registry drops its allowance
+— proving the derivation is live (the overrides respond to registry edits) without
+touching the committed registry. That instance deliberately bypasses
+`eslint.config.mjs`, so it says nothing about the real config on its own: the binding
+is carried by the real-config plants above plus a source-reading assertion that the
+config spreads `deriveBoundaryOverrides()`; a hand-written extra override slipped in
+beside the spread remains the review-guarded residual.
 
 **Bound the adversarial review by class, not round count.** Sort each round's findings:
 
