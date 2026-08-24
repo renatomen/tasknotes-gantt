@@ -313,6 +313,27 @@ function assertBaselineReachable(runGit, baselineSha) {
   }
 }
 
+/**
+ * A registry anchor that is present but not an ancestor of its measurement
+ * endpoint would make the windowed `git log`/`diff` ranges silently empty, so
+ * the values would read as zero instead of crashing. Ancestry is therefore a
+ * crash-side check, not a value.
+ *
+ * @param {(args: string[]) => string} runGit
+ * @param {string} ancestorSha @param {string} descendantSha @param {string} label
+ */
+function assertAncestorOf(runGit, ancestorSha, descendantSha, label) {
+  try {
+    runGit(['merge-base', '--is-ancestor', ancestorSha, descendantSha]);
+  } catch {
+    fail(
+      `${label} ${ancestorSha.slice(0, 9)} is not an ancestor of measurement endpoint ` +
+        `${descendantSha.slice(0, 9)} — the registry entry does not lie on this history; ` +
+        'fetch full history (CI: fetch-depth: 0) or fix the registry entry',
+    );
+  }
+}
+
 /** Line count matching split-on-newline semantics: an empty blob is one line. */
 function countLines(body) {
   if (body.length === 0) return 1;
@@ -416,6 +437,7 @@ function reportSection(runGit, registry, base) {
   // tip where one resolves, because ending at this branch's merge-base would
   // hide ranked-file PRs main merged after the fork.
   const end = resolveMainTip(runGit) ?? base;
+  assertAncestorOf(runGit, latest.anchorSha, end, "latest report's anchor");
   const log = runGit([
     'log', '--first-parent', '--no-renames', '--format=@%H', '--name-status',
     `${latest.anchorSha}..${end}`,
@@ -449,6 +471,7 @@ export async function runTrend({ argv, runGit, runGitBuffer, makeEslintRunner })
   }
   const { base, head } = resolveRange(runGit, opts);
   assertBaselineReachable(runGit, registry.baseline.sha);
+  assertAncestorOf(runGit, registry.baseline.sha, base, 'baseline commit');
   const numstat = base === head ? [] : parseNumstat(runGit(['diff', '--numstat', '--no-renames', `${base}..${head}`]));
   const rangeLabel = `${base.slice(0, 9)}..${head.slice(0, 9)}`;
   const atCeilingLines = await atCeilingSection(
