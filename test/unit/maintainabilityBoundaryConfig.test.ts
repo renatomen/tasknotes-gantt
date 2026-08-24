@@ -338,14 +338,34 @@ describe('restricted-name census — what lint rules cannot see', () => {
     expect(BARE_DISABLE.test('// eslint-disable-next-line')).toBe(true);
     expect(BARE_DISABLE.test('// eslint-disable-next-line @typescript-eslint/no-explicit-any')).toBe(false);
 
+    // Block comments are directives as a whole, however many lines they span,
+    // so each is tested whitespace-normalized in addition to the line scan.
+    const wholeBlockComments = (source: string): string[] =>
+      [...source.matchAll(/\/\*[\s\S]*?\*\//g)].map((match) =>
+        match[0].replace(/\s+/g, ' '),
+      );
+    expect(
+      wholeBlockComments('/* eslint\n   no-restricted-imports: "off" */').some((comment) =>
+        BOUNDARY_RULE_DISABLE.test(comment),
+      ),
+    ).toBe(true);
+    expect(
+      wholeBlockComments('/* eslint-disable\n*/').some((comment) => BARE_DISABLE.test(comment)),
+    ).toBe(true);
+
     const violations: string[] = [];
     for (const file of collectSourceFiles(fromRoot('src'))) {
-      const lines = readFileSync(file, 'utf8').split(/\r?\n/);
-      lines.forEach((line, index) => {
+      const source = readFileSync(file, 'utf8');
+      source.split(/\r?\n/).forEach((line, index) => {
         if (BOUNDARY_RULE_DISABLE.test(line) || BARE_DISABLE.test(line)) {
           violations.push(`${file}:${index + 1}: ${line.trim()}`);
         }
       });
+      for (const comment of wholeBlockComments(source)) {
+        if (BOUNDARY_RULE_DISABLE.test(comment) || BARE_DISABLE.test(comment)) {
+          violations.push(`${file}: block comment ${comment.slice(0, 80)}`);
+        }
+      }
     }
     expect(violations).toEqual([]);
   });
