@@ -133,6 +133,18 @@ describe('validateRegistry — schema guards name the offending entry', () => {
     expect(() => validateRegistry(registry)).toThrow(/allowedImportNames/);
   });
 
+  it('rejects a lifecycle global that is not a plain identifier', () => {
+    const registry = base();
+    registry.boundary.lifecycleGlobal = '__tn[Gantt]Lifecycle';
+    expect(() => validateRegistry(registry)).toThrow(/identifier/);
+  });
+
+  it('rejects a boundary module path carrying regex metacharacters', () => {
+    const registry = base();
+    registry.boundary.module = 'src/debug(Log).ts';
+    expect(() => validateRegistry(registry)).toThrow(/plain path/);
+  });
+
   it('rejects a baseline without a full-length sha', () => {
     const registry = base();
     registry.baseline.sha = 'abc123';

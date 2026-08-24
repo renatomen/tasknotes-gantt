@@ -66,18 +66,37 @@ describe('deriveBoundaryOverrides — derived override objects', () => {
     expect(patterns[0].allowImportNames).toEqual(registry.boundary.allowedImportNames);
   });
 
-  it('matches the debug-log module at any relative depth, with and without extension', () => {
+  it('closure entry carries the same syntax rules as the junction entries', () => {
+    expect(syntaxSelectors(overrides[0])).toEqual(syntaxSelectors(overrides[1]));
+  });
+
+  it('closure and junction entries derive one identical debug-log matcher', () => {
+    const closureRegex = importPatterns(overrides[0])[0].regex;
+    for (const [index] of registry.boundary.files.entries()) {
+      expect(importPatterns(overrides[index + 1])[0].regex).toEqual(closureRegex);
+    }
+  });
+
+  it('matches the debug-log module at any relative depth, with every resolvable extension', () => {
     const matcher = new RegExp(importPatterns(overrides[0])[0].regex);
     for (const specifier of [
       '../debugLog',
       '../../debugLog',
       '../debugLog.ts',
+      '../debugLog.js',
+      '../debugLog.mjs',
+      '../debugLog.mts',
       '../../../debugLog.ts',
       'src/debugLog',
     ]) {
       expect(specifier).toMatch(matcher);
     }
-    for (const specifier of ['../debugLogUtils', './svarContract', '../render/debugLogger']) {
+    for (const specifier of [
+      '../debugLogUtils',
+      '../debugLogUtils.js',
+      './svarContract',
+      '../render/debugLogger',
+    ]) {
       expect(specifier).not.toMatch(matcher);
     }
   });
@@ -102,6 +121,7 @@ describe('deriveBoundaryOverrides — derived override objects', () => {
       const matcher = new RegExp(patterns[1].regex);
       expect('../bases/ganttLifecycleDiagnostics').toMatch(matcher);
       expect('./ganttLifecycleDiagnostics.ts').toMatch(matcher);
+      expect('./ganttLifecycleDiagnostics.js').toMatch(matcher);
       expect('./ganttSyncCoordinator').not.toMatch(matcher);
     }
   });
@@ -146,10 +166,16 @@ describe('deriveBoundaryOverrides — derived override objects', () => {
   });
 });
 
-/** Exported-name census helpers (shared by the re-export and seam-bound guards). */
-const EXPORT_DECLARATION = /^\s*export\s+(?:async\s+)?(?:function|const|let|var|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/;
-const EXPORT_LIST = /^\s*export\s+(?:type\s+)?\{([^}]*)\}/;
-const EXPORT_FROM = /^\s*export\s+(?:type\s+)?(?:\*|\{[^}]*\})\s*from\s*['"]([^'"]+)['"]/;
+/**
+ * Exported-name census helpers (shared by the re-export and seam-bound
+ * guards). Whole-source multiline scans, not per-line: an export list that
+ * spans lines (the repo's barrel style) must not evade the census.
+ */
+const EXPORT_DECLARATION =
+  /^[ \t]*export\s+(?:default\s+)?(?:async\s+)?(?:function|const|let|var|class|interface|type|enum)\s+([A-Za-z_$][\w$]*)/gm;
+const EXPORT_LIST = /^[ \t]*export\s+(?:type\s+)?\{([^}]*)\}/gm;
+const EXPORT_FROM =
+  /^[ \t]*export\s+(?:type\s+)?(?:\*(?:\s+as\s+[A-Za-z_$][\w$]*)?|\{[^}]*\})\s*from\s*['"]([^'"]+)['"]/gm;
 
 const namesFromExportList = (listBody: string): string[] =>
   listBody
@@ -163,23 +189,13 @@ const namesFromExportList = (listBody: string): string[] =>
 
 const collectExportedNames = (source: string): string[] => {
   const names: string[] = [];
-  for (const line of source.split(/\r?\n/)) {
-    const declaration = EXPORT_DECLARATION.exec(line);
-    if (declaration) names.push(declaration[1]);
-    const list = EXPORT_LIST.exec(line);
-    if (list) names.push(...namesFromExportList(list[1]));
-  }
+  for (const match of source.matchAll(EXPORT_DECLARATION)) names.push(match[1]);
+  for (const match of source.matchAll(EXPORT_LIST)) names.push(...namesFromExportList(match[1]));
   return names;
 };
 
-const exportFromSpecifiers = (source: string): string[] => {
-  const specifiers: string[] = [];
-  for (const line of source.split(/\r?\n/)) {
-    const match = EXPORT_FROM.exec(line);
-    if (match) specifiers.push(match[1]);
-  }
-  return specifiers;
-};
+const exportFromSpecifiers = (source: string): string[] =>
+  [...source.matchAll(EXPORT_FROM)].map((match) => match[1]);
 
 const collectSourceFiles = (dir: string): string[] => {
   const out: string[] = [];
@@ -220,6 +236,14 @@ describe('restricted-name census — what lint rules cannot see', () => {
     expect(exportFromSpecifiers("export * from '../debugLog';")).toEqual(['../debugLog']);
     expect(collectExportedNames('export function buildLegendCatalog(): void {}'))
       .toEqual(['buildLegendCatalog']);
+
+    const multiLine = "export {\n  internal as captureGanttLifecycle,\n} from '../debugLog';\n";
+    expect(collectExportedNames(multiLine)).toContain('captureGanttLifecycle');
+    expect(exportFromSpecifiers(multiLine)).toEqual(['../debugLog']);
+    expect(collectExportedNames('export default function captureGanttLifecycle(): void {}'))
+      .toContain('captureGanttLifecycle');
+    expect(exportFromSpecifiers("export * as diagnostics from '../debugLog';"))
+      .toEqual(['../debugLog']);
   });
 
   it('no source module besides the debug-log module and the seam exports a restricted name', () => {
@@ -329,6 +353,11 @@ describe('mutation harness — every plant re-proven against the real config', (
     'lifecycle-global-template-literal',
     'helper-reexport-launders',
     'seam-restricted-import',
+    'junction-js-extension-import',
+    'junction-ts-extension-import',
+    'seam-js-extension-import',
+    'helper-dynamic-import',
+    'helper-lifecycle-global-access',
     'no-undef-control',
     'allowlisted-dlog-import',
     'declared-globals-still-known',
@@ -368,6 +397,11 @@ describe('mutation harness — every plant re-proven against the real config', (
       expectRule('lifecycle-global-template-literal', 'no-restricted-syntax');
       expectRule('helper-reexport-launders', 'no-restricted-imports');
       expectRule('seam-restricted-import', 'no-restricted-imports');
+      expectRule('junction-js-extension-import', 'no-restricted-imports');
+      expectRule('junction-ts-extension-import', 'no-restricted-imports');
+      expectRule('seam-js-extension-import', 'no-restricted-imports');
+      expectRule('helper-dynamic-import', 'no-restricted-syntax');
+      expectRule('helper-lifecycle-global-access', 'no-restricted-syntax');
       expectRule('no-undef-control', 'no-undef');
 
       const disablePlant = byId.get('inline-disable-still-red');

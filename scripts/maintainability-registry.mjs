@@ -80,16 +80,23 @@ function validateRankedFiles(registry) {
 function validateBoundaryShape(registry) {
   const { boundary } = registry;
   if (!boundary) fail('boundary section is missing');
-  if (!isNonEmptyString(boundary.module)) fail('boundary.module must be a path');
-  if (!isNonEmptyString(boundary.seamModule)) fail('boundary.seamModule must be a path');
+  if (!isNonEmptyString(boundary.module) || !/^[\w./-]+$/.test(boundary.module)) {
+    fail('boundary.module must be a plain path (word characters, dots, slashes)');
+  }
+  if (!isNonEmptyString(boundary.seamModule) || !/^[\w./-]+$/.test(boundary.seamModule)) {
+    fail('boundary.seamModule must be a plain path (word characters, dots, slashes)');
+  }
   if (!Array.isArray(boundary.seamPublicNames) || boundary.seamPublicNames.length === 0) {
     fail('boundary.seamPublicNames must be a non-empty array');
   }
   if (!Array.isArray(boundary.allowedImportNames) || boundary.allowedImportNames.length === 0) {
     fail('boundary.allowedImportNames must be a non-empty array');
   }
-  if (!isNonEmptyString(boundary.lifecycleGlobal)) {
-    fail('boundary.lifecycleGlobal must name the sink global');
+  if (
+    !isNonEmptyString(boundary.lifecycleGlobal) ||
+    !/^[A-Za-z_$][\w$]*$/.test(boundary.lifecycleGlobal)
+  ) {
+    fail('boundary.lifecycleGlobal must be a plain identifier naming the sink global');
   }
 }
 
@@ -211,19 +218,63 @@ function moduleBaseName(modulePath) {
   return basename(modulePath, '.ts');
 }
 
+// TypeScript bundler resolution and Vite map extension-carrying specifiers
+// ('../debugLog.js') onto the same .ts module, so the boundary must match
+// every resolvable extension, not just the literal one.
+const SPECIFIER_EXTENSIONS = '(ts|js|mts|mjs)';
+
+/** @param {string} modulePath @returns {string} */
+function moduleSpecifierRegex(modulePath) {
+  return `(^|[\\/])${moduleBaseName(modulePath)}(\\.${SPECIFIER_EXTENSIONS})?$`;
+}
+
+/** Same match, escaped for an esquery attribute regex. @param {string} modulePath */
+function esquerySpecifierRegex(modulePath) {
+  return `(^|\\u002F)${moduleBaseName(modulePath)}(\\.${SPECIFIER_EXTENSIONS})?$`;
+}
+
 const BOUNDARY_MESSAGE =
   'Lifecycle diagnostics live behind the seam module; junction files import only allowlisted ' +
   'names. A new import needs a dated allowance entry with its record in ' +
   'maintainability-registry.json (AGENTS.md, Review guidelines).';
 
 /**
+ * The syntax half of the boundary — dynamic imports and inline import types of
+ * the debug-log module, and any static mention of the lifecycle sink global.
+ * Shared verbatim by the junction overrides and the source-tree closure, so a
+ * helper module cannot reach diagnostics through a form the junctions forbid.
+ *
+ * @param {Boundary} boundary
+ */
+function boundarySyntaxRules(boundary) {
+  const esqueryModuleRegex = esquerySpecifierRegex(boundary.module);
+  const sinkMessage =
+    `The ${boundary.lifecycleGlobal} sink is owned by the debug-log module; ` +
+    'no other source module touches it.';
+  return [
+    'error',
+    {
+      selector: `ImportExpression > Literal[value=/${esqueryModuleRegex}/]`,
+      message: BOUNDARY_MESSAGE,
+    },
+    {
+      selector: `TSImportType Literal[value=/${esqueryModuleRegex}/]`,
+      message: BOUNDARY_MESSAGE,
+    },
+    { selector: `Identifier[name="${boundary.lifecycleGlobal}"]`, message: sinkMessage },
+    { selector: `Literal[value=/${boundary.lifecycleGlobal}/]`, message: sinkMessage },
+    {
+      selector: `TemplateElement[value.cooked=/${boundary.lifecycleGlobal}/]`,
+      message: sinkMessage,
+    },
+  ];
+}
+
+/**
  * @param {Boundary} boundary
  * @param {BoundaryFile} file
  */
 function junctionOverride(boundary, file) {
-  const moduleRegex = `(^|[\\/])${moduleBaseName(boundary.module)}(\\.ts)?$`;
-  const seamRegex = `(^|[\\/])${moduleBaseName(boundary.seamModule)}(\\.ts)?$`;
-  const esqueryModuleRegex = `(^|\\u002F)${moduleBaseName(boundary.module)}(\\.ts)?$`;
   const allowedForFile = [
     ...boundary.allowedImportNames,
     ...boundary.allowances
@@ -241,9 +292,13 @@ function junctionOverride(boundary, file) {
         'error',
         {
           patterns: [
-            { regex: moduleRegex, allowImportNames: allowedForFile, message: BOUNDARY_MESSAGE },
             {
-              regex: seamRegex,
+              regex: moduleSpecifierRegex(boundary.module),
+              allowImportNames: allowedForFile,
+              message: BOUNDARY_MESSAGE,
+            },
+            {
+              regex: moduleSpecifierRegex(boundary.seamModule),
               allowImportNames: boundary.seamPublicNames,
               message:
                 'Only the seam module’s declared public names may be imported from it.',
@@ -251,29 +306,7 @@ function junctionOverride(boundary, file) {
           ],
         },
       ],
-      'no-restricted-syntax': [
-        'error',
-        {
-          selector: `ImportExpression > Literal[value=/${esqueryModuleRegex}/]`,
-          message: BOUNDARY_MESSAGE,
-        },
-        {
-          selector: `TSImportType Literal[value=/${esqueryModuleRegex}/]`,
-          message: BOUNDARY_MESSAGE,
-        },
-        {
-          selector: `Identifier[name="${boundary.lifecycleGlobal}"]`,
-          message: `The ${boundary.lifecycleGlobal} sink is owned by the debug-log module; junction files never touch it.`,
-        },
-        {
-          selector: `Literal[value=/${boundary.lifecycleGlobal}/]`,
-          message: `The ${boundary.lifecycleGlobal} sink is owned by the debug-log module; junction files never touch it.`,
-        },
-        {
-          selector: `TemplateElement[value.cooked=/${boundary.lifecycleGlobal}/]`,
-          message: `The ${boundary.lifecycleGlobal} sink is owned by the debug-log module; junction files never touch it.`,
-        },
-      ],
+      'no-restricted-syntax': boundarySyntaxRules(boundary),
     },
   };
 }
@@ -284,7 +317,9 @@ function junctionOverride(boundary, file) {
  *
  * 1. A source-tree closure entry: every `src/` module except the debug-log
  *    module and the seam may import only the base allowlist from the debug-log
- *    module — a helper cannot launder a restricted name to a junction file.
+ *    module, and carries the same dynamic-import and lifecycle-global syntax
+ *    rules as the junctions — a helper cannot launder a restricted name or
+ *    reach the diagnostics sink dynamically on a junction file's behalf.
  * 2. One entry per junction file: the allowlist plus that file's dated
  *    allowances, the seam's public-name bound, the dynamic-import and
  *    lifecycle-global syntax rules, `noInlineConfig`, and its declared globals.
@@ -293,7 +328,6 @@ function junctionOverride(boundary, file) {
  */
 export function deriveBoundaryOverrides(registry = readRegistry()) {
   const { boundary } = registry;
-  const moduleRegex = `(^|[\\/])${moduleBaseName(boundary.module)}(\\.ts)?$`;
   const closure = {
     files: ['src/**/*.{ts,mts,svelte}'],
     ignores: [boundary.module, boundary.seamModule],
@@ -303,13 +337,14 @@ export function deriveBoundaryOverrides(registry = readRegistry()) {
         {
           patterns: [
             {
-              regex: moduleRegex,
+              regex: moduleSpecifierRegex(boundary.module),
               allowImportNames: [...boundary.allowedImportNames],
               message: BOUNDARY_MESSAGE,
             },
           ],
         },
       ],
+      'no-restricted-syntax': boundarySyntaxRules(boundary),
     },
   };
   return [closure, ...boundary.files.map((file) => junctionOverride(boundary, file))];

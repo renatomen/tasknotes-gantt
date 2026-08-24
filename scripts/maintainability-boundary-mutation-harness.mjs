@@ -136,6 +136,36 @@ function buildPlants() {
       expectRule: 'no-restricted-imports',
     },
     {
+      id: 'junction-js-extension-import',
+      filePath: register,
+      code: "import { classifyViewportSettlement } from '../debugLog.js';\nvoid classifyViewportSettlement;\n",
+      expectRule: 'no-restricted-imports',
+    },
+    {
+      id: 'junction-ts-extension-import',
+      filePath: register,
+      code: "import { classifyViewportSettlement } from '../debugLog.ts';\nvoid classifyViewportSettlement;\n",
+      expectRule: 'no-restricted-imports',
+    },
+    {
+      id: 'seam-js-extension-import',
+      filePath: controller,
+      code: "import { internalLifecycleState } from '../bases/ganttLifecycleDiagnostics.js';\nvoid internalLifecycleState;\n",
+      expectRule: 'no-restricted-imports',
+    },
+    {
+      id: 'helper-dynamic-import',
+      filePath: 'src/bases/lifecycleRelay.ts',
+      code: "export async function relayDiagnostics(): Promise<unknown> {\n  return import('../debugLog');\n}\n",
+      expectRule: 'no-restricted-syntax',
+    },
+    {
+      id: 'helper-lifecycle-global-access',
+      filePath: 'src/bases/lifecycleRelay.ts',
+      code: `export function relaySink(): unknown {\n  return (globalThis as unknown as Record<string, unknown>)['${globalName}'];\n}\n`,
+      expectRule: 'no-restricted-syntax',
+    },
+    {
       id: 'no-undef-control',
       filePath: register,
       code: 'export function probeUndeclared(): unknown {\n  return new SomeUndeclaredGlobalCtor();\n}\n',
