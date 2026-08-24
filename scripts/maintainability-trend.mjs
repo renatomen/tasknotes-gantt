@@ -167,6 +167,14 @@ export function atCeilingCount(eslintResults, ceiling = COMPLEXITY_CEILING) {
   let atCeiling = 0;
   for (const result of eslintResults) {
     for (const message of result.messages ?? []) {
+      if (message.fatal) {
+        // A parse failure means part of the tree was never swept; publishing a
+        // count from a partial sweep is the silent-wrong-value this
+        // measurement must never produce — crash instead.
+        throw new Error(
+          `the sweep could not lint ${result.filePath ?? 'a file'}: ${message.message}`,
+        );
+      }
       if (message.ruleId !== COMPLEXITY_RULE) continue;
       bandTotal += 1;
       const reported = /from (\d+) to the \d+ allowed/.exec(message.message ?? '');
@@ -242,26 +250,30 @@ function resolveCommit(runGit, ref, label) {
   }
 }
 
-/** @param {(args: string[]) => string} runGit */
-function resolveRange(runGit, opts) {
-  const head = resolveCommit(runGit, opts.head ?? 'HEAD', 'head');
-  if (opts.base !== null) return { base: resolveCommit(runGit, opts.base, 'base'), head };
-  let mainRef = null;
+/** The current main tip — origin/main preferred — or null when neither resolves.
+ * @param {(args: string[]) => string} runGit @returns {string | null} */
+function resolveMainTip(runGit) {
   for (const candidate of ['origin/main', 'main']) {
     try {
-      runGit(['rev-parse', '--verify', `${candidate}^{commit}`]);
-      mainRef = candidate;
-      break;
+      return runGit(['rev-parse', '--verify', `${candidate}^{commit}`]).trim();
     } catch {
       /* try the next candidate */
     }
   }
-  if (mainRef === null) fail('no --base given and neither origin/main nor main resolves');
+  return null;
+}
+
+/** @param {(args: string[]) => string} runGit */
+function resolveRange(runGit, opts) {
+  const head = resolveCommit(runGit, opts.head ?? 'HEAD', 'head');
+  if (opts.base !== null) return { base: resolveCommit(runGit, opts.base, 'base'), head };
+  const mainTip = resolveMainTip(runGit);
+  if (mainTip === null) fail('no --base given and neither origin/main nor main resolves');
   try {
-    return { base: runGit(['merge-base', mainRef, head]).trim(), head };
+    return { base: runGit(['merge-base', mainTip, head]).trim(), head };
   } catch {
     fail(
-      `cannot compute the merge-base of ${mainRef} and ${opts.head ?? 'HEAD'} — ` +
+      `cannot compute the merge-base of ${mainTip.slice(0, 9)} (main) and ${opts.head ?? 'HEAD'} — ` +
         'a shallow clone cannot walk to it; fetch full history (CI: fetch-depth: 0)',
     );
   }
@@ -375,9 +387,13 @@ function reportSection(runGit, registry, base) {
   const atCeilingSuffix = latest.atCeiling === undefined ? '' : `; at-ceiling ${latest.atCeiling}`;
   const rankedPaths = new Set(registry.rankedFiles.map((entry) => entry.path));
   const reportPaths = new Set(registry.reports.map((report) => report.report));
+  // A repo-state fact, not a per-PR one: the count runs to the CURRENT main
+  // tip where one resolves, because ending at this branch's merge-base would
+  // hide ranked-file PRs main merged after the fork.
+  const end = resolveMainTip(runGit) ?? base;
   const log = runGit([
     'log', '--first-parent', '--no-renames', '--format=@%H', '--name-only',
-    `${latest.anchorSha}..${base}`,
+    `${latest.anchorSha}..${end}`,
   ]);
   const since = countRankedPrsSince(parseCommitPaths(log), rankedPaths, reportPaths);
   return [

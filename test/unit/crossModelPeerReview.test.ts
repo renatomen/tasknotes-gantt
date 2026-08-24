@@ -498,6 +498,12 @@ describe('cross-model peer review wrapper', () => {
   });
 
   it('delivers the trend measurement to the reviewer when the branch carries the script', () => {
+    // The wrapper keeps only the call hook; the staging lives in its own
+    // script, planted here beside the fake measurement it will fall back to.
+    writeFileSync(
+      join(repo, 'scripts', 'stage-peer-trend-block.sh'),
+      readFileSync(resolve('scripts/stage-peer-trend-block.sh'), 'utf8'),
+    );
     writeFileSync(
       join(repo, 'scripts', 'maintainability-trend.mjs'),
       'process.stdout.write("TREND-MARKER-OUTPUT\\n");\n',

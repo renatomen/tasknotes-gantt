@@ -152,6 +152,16 @@ describe('atCeilingCount', () => {
     });
   });
 
+  it('crashes on a fatal (parse-failure) message rather than counting a partial sweep', () => {
+    const results = [
+      {
+        filePath: 'src/broken.ts',
+        messages: [{ fatal: true, ruleId: null, message: 'Parsing error: Unexpected token' }],
+      },
+    ];
+    expect(() => atCeilingCount(results)).toThrow(/could not lint src\/broken\.ts/);
+  });
+
   it('crashes rather than reporting a confident zero when the message format changed', () => {
     const reworded = [
       {
@@ -341,8 +351,10 @@ describe('runTrend with injected git output and an injected ESLint runner', () =
 
   it('prints the latest report facts and the PRs-since count from the registry', async () => {
     const registryPath = writeRegistry(registryFixture(BASELINE));
+    // PRs-since runs to the CURRENT main tip (origin/main here), not this
+    // branch's merge-base — a stale fork must not hide main-side ranked PRs.
     const git = fakeGit({
-      [`${'b'.repeat(40)}..${BASE}`]: '@e1\nsrc/ranked.ts\n\n@e2\ndocs/x.md\n',
+      [`${'b'.repeat(40)}..origin/main`]: '@e1\nsrc/ranked.ts\n\n@e2\ndocs/x.md\n',
     });
     const output = await run(['--registry', registryPath, '--base', BASE, '--head', HEAD], git);
     expect(output).toContain('Latest dated report: 2026-08-17 (docs/reports/2026-08-17-002.md)');
