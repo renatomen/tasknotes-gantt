@@ -1385,7 +1385,7 @@
     cancelFrame: (handle) => cancelAnimationFrame(handle),
   });
 
-  (() => {
+  $effect(() => {
     const root = rootEl;
     if (!root) return;
     return lifecycleDiagnostics.attachRoot(root);

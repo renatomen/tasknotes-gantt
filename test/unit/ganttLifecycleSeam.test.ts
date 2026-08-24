@@ -98,7 +98,11 @@ describe('lifecycle-diagnostics seam structure', () => {
 
   it('the view keeps exactly the budgeted hook sites, the attachRoot effect included', () => {
     expect(countMatches(viewSource, /\blifecycleDiagnostics\.\w+\(/g)).toBe(VIEW_HOOK_SITE_COUNT);
-    expect(viewSource).toMatch(/return lifecycleDiagnostics\.attachRoot\(root\)/);
+    // The attach call must live inside a $effect rune: a bare arrow expression
+    // holding the same call parses, lints, and typechecks — and never runs.
+    expect(viewSource).toMatch(
+      /\$effect\(\(\) => \{\s*const root = rootEl;\s*if \(!root\) return;\s*return lifecycleDiagnostics\.attachRoot\(root\);\s*\}\);/,
+    );
   });
 
   it('the registration keeps exactly the budgeted mount-capture call sites', () => {
