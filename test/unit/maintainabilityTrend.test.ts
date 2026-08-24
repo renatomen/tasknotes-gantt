@@ -1,8 +1,8 @@
 /**
- * Pure-function coverage for the trend measurement (plan `2026-08-23-001` U3):
- * window math, table assembly, touched-line detection, at-ceiling counting,
- * report facts. Git output and the ESLint sweep are injected fixtures — the
- * real repo is never measured here (the CLI test owns end-to-end behavior in a
+ * Pure-function coverage for the maintainability trend measurement: window
+ * math, table assembly, touched-line detection, at-ceiling counting, report
+ * facts. Git output and the ESLint sweep are injected fixtures — the real
+ * repo is never measured here (the CLI test owns end-to-end behavior in a
  * throwaway repository).
  */
 import { afterEach, beforeEach, describe, expect, it } from '@jest/globals';

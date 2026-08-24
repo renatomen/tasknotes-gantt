@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
  * Per-PR maintainability trend measurement — the pillar's instrument that no
- * plan can pause (plan `2026-08-23-001` R8/R9). Mirrors the baseline report's
- * published commands (`docs/reports/2026-08-15-001-maintainability-rediagnosis.md`
- * § Baseline): windowed per-path churn with `--no-renames`, ranked-file sizes,
- * and the at-ceiling complexity count, plus the per-PR ranked-file touch table
- * and the registry's dated-report facts.
+ * plan can pause. Mirrors the baseline maintainability report's published
+ * commands (the registry's `baseline.report` names it): windowed per-path
+ * churn with `--no-renames`, ranked-file sizes, and the at-ceiling complexity
+ * count, plus the per-PR ranked-file touch table and the registry's
+ * dated-report facts.
  *
  * Measured values NEVER affect the exit code — the step is red only when the
  * measurement itself cannot run (shallow clone, malformed registry, failed
@@ -26,8 +26,7 @@ export const COMPLEXITY_RULE = 'sonarjs/cognitive-complexity';
 /**
  * The at-ceiling sweep runs when the PR touches code — or any input of the
  * sweep itself (lint config, registry, ESLint/parser dependency set), so the
- * mechanism-changing PRs reviewers most need measured are never skipped
- * (pre-push peer review deferred finding, 2026-08-24).
+ * mechanism-changing PRs reviewers most need measured are never skipped.
  */
 export const AT_CEILING_INPUT_FILES = [
   'eslint.config.mjs',
@@ -152,8 +151,8 @@ export function shouldRunAtCeiling(changedPaths) {
 /**
  * Counts ONLY functions at the ceiling. A threshold-10 sweep fires the same
  * rule id for the whole 11–15 pressure band, so a rule-id count would report
- * the band as the at-ceiling number (hosted final-gate deferred finding,
- * 2026-08-24); the reported complexity in each message is what discriminates.
+ * the band as the at-ceiling number; the reported complexity in each message
+ * is what discriminates.
  *
  * @param {{ messages?: { ruleId?: string | null, message?: string }[] }[]} eslintResults
  */
@@ -205,8 +204,8 @@ export function parseCommitPaths(logOutput) {
  * "PRs since the latest report" = main-line commits after the report's anchor
  * that touch a ranked file — excluding any commit that delivers a registered
  * dated report, so the report-landing PR itself is never counted as unmeasured
- * work (deferred finding: the report's own squash sha cannot be known when the
- * report is written, so the anchor may be its parent).
+ * work (a report's own squash sha cannot be known while the report is being
+ * written, so its recorded anchor may be its parent).
  *
  * @param {{ sha: string, paths: string[] }[]} commits
  * @param {Set<string>} rankedPaths
