@@ -137,6 +137,15 @@ describe('maintainability-trend CLI', () => {
     expect(run.stdout).toContain('ranked file touched — cite rank 1 in the PR description');
   });
 
+  it('lists the diagnostics seam module beside the ranked sizes, absent-tolerant', () => {
+    plantRegistry(registryFixture(baselineSha));
+    const run = runScript(['--registry', registryPath]);
+    expect(run.status).toBe(0);
+    // The fixture repo never creates the seam path, so the size column reads
+    // `absent` while the line itself is always present.
+    expect(run.stdout).toMatch(/absent src\/bases\/ganttLifecycleDiagnostics\.ts \(diagnostics seam, unranked\)/);
+  });
+
   it('defaults the range to merge-base(HEAD, main)..HEAD when no flags are given', () => {
     plantRegistry(registryFixture(baselineSha));
     // The planted registry lives outside the repo, so the default-registry read

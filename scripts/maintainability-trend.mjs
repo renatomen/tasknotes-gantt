@@ -373,13 +373,25 @@ export function parseCatFileBatchLineCounts(output) {
   return counts;
 }
 
-/** @param {(args: string[], input: string) => Buffer} runGitBuffer */
+/**
+ * Ranked-file sizes plus the diagnostics seam module: the seam is where the
+ * junction files' extracted implementation lives, so its growth is part of
+ * the same trend picture even though it carries no defect rank.
+ *
+ * @param {(args: string[], input: string) => Buffer} runGitBuffer
+ */
 function rankedSizeLines(runGitBuffer, registry, head) {
-  const specs = registry.rankedFiles.map((entry) => `${head}:${entry.path}`);
-  const output = runGitBuffer(['cat-file', '--batch'], `${specs.join('\n')}\n`);
+  const paths = [
+    ...registry.rankedFiles.map((entry) => ({ path: entry.path, label: `rank ${entry.rank}` })),
+    { path: registry.boundary.seamModule, label: 'diagnostics seam, unranked' },
+  ];
+  const output = runGitBuffer(
+    ['cat-file', '--batch'],
+    `${paths.map((entry) => `${head}:${entry.path}`).join('\n')}\n`,
+  );
   const counts = parseCatFileBatchLineCounts(output);
-  return registry.rankedFiles.map(
-    (entry, index) => `  ${counts[index] ?? 'absent'} ${entry.path} (rank ${entry.rank})`,
+  return paths.map(
+    (entry, index) => `  ${counts[index] ?? 'absent'} ${entry.path} (${entry.label})`,
   );
 }
 
