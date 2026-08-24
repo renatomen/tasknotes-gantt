@@ -44,7 +44,13 @@ is carried by the real-config plants above plus a source-reading assertion that 
 config spreads `deriveBoundaryOverrides()`; a hand-written extra override slipped in
 beside the spread remains the review-guarded residual.
 
-**Bound the adversarial review by class, not round count.** Sort each round's findings:
+**Bound the adversarial review by class, not round count.** The sorting below is the
+*author's post-review triage*, arbitrated by the maintainer through the recorded
+receipts — never an instruction to a reviewer. A reviewer (human, agent, or a reader of
+this page serving as review context) still reports every contract violation it finds:
+an in-file diagnostic in a ranked junction file is a P1 report whatever its authorship
+class. The class decides a finding's *disposition*, never whether it is reported. Sort
+each round's findings:
 
 - *Accidental-class* (a future developer could hit it by normal authoring: a `.js`-suffixed
   specifier, a side-effect import, a missing extension in a glob, a multi-line export
