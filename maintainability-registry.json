@@ -52,6 +52,18 @@
         "src/controller/GanttController.ts": 14
       },
       "atCeiling": 16
+    },
+    {
+      "date": "2026-08-25",
+      "anchorSha": "2dc852063cfabb28cf65544967da96a2304728a4",
+      "report": "docs/reports/2026-08-23-001-guard-mechanisms-u4-trend-report.md",
+      "concernCounts": {
+        "src/bases/GanttContainer.svelte": 28,
+        "src/bases/register.ts": 14,
+        "src/controller/GanttController.ts": 14,
+        "scripts/cross-model-peer-review.sh": 10
+      },
+      "atCeiling": 16
     }
   ],
   "boundary": {
