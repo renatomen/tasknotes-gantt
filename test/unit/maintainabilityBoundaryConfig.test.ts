@@ -154,20 +154,31 @@ describe('deriveBoundaryOverrides — derived override objects', () => {
     }
   });
 
-  it('derives live from the registry: dropping an allowance drops the allowed name', () => {
+  it('derives live from the registry: an allowance entry adds the allowed name, its absence drops it', () => {
+    // The committed registry carries no allowances (the seam exists), so
+    // liveness is proven by planting one and watching the derived name appear.
     const mutated = JSON.parse(JSON.stringify(registry)) as Registry;
-    mutated.boundary.allowances = mutated.boundary.allowances.filter(
-      (allowance) =>
-        !(allowance.file === 'src/bases/register.ts' &&
-          allowance.importName === 'captureGanttLifecycle'),
-    );
+    mutated.boundary.allowances = [
+      {
+        file: 'src/bases/register.ts',
+        importName: 'captureGanttLifecycle',
+        dated: '2026-08-25',
+        removedBy: 'synthetic-test-fixture',
+        record: {
+          delta: 'synthetic test fixture',
+          whyNotSeam: 'proves the allowance derivation stays live',
+          alternatives: 'none',
+          approval: 'not applicable: in-memory fixture',
+        },
+      },
+    ];
     const derived = deriveBoundaryOverrides(mutated) as unknown as DerivedOverride[];
     const registerIndex =
       1 + registry.boundary.files.findIndex((file) => file.path === 'src/bases/register.ts');
-    expect(importPatterns(derived[registerIndex])[0].allowImportNames).not.toContain(
+    expect(importPatterns(derived[registerIndex])[0].allowImportNames).toContain(
       'captureGanttLifecycle',
     );
-    expect(importPatterns(overrides[registerIndex])[0].allowImportNames).toContain(
+    expect(importPatterns(overrides[registerIndex])[0].allowImportNames).not.toContain(
       'captureGanttLifecycle',
     );
   });
@@ -509,6 +520,7 @@ describe('mutation harness — every plant re-proven against the real config', (
       expectRule('registry-dropped-allowance-refuses', 'no-restricted-imports');
       const liveAllowance = byId.get('registry-live-allowance-permits');
       expect(liveAllowance?.errorCount).toBe(0);
+      expect(liveAllowance?.warningCount).toBe(0);
       expectRule('no-undef-control', 'no-undef');
 
       const disablePlant = byId.get('inline-disable-still-red');
