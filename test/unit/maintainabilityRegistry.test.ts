@@ -108,6 +108,14 @@ describe('maintainability registry — committed data', () => {
     const seamExists = existsSync(fromRoot(registry.boundary.seamModule));
     expect(allowanceStateViolations(registry, seamExists)).toEqual([]);
   });
+
+  it('lists every dated report at a location that exists on disk', () => {
+    expect(registry.reports.length).toBeGreaterThan(0);
+    const missing = registry.reports
+      .map((entry) => entry.report)
+      .filter((path) => !existsSync(fromRoot(path)));
+    expect(missing).toEqual([]);
+  });
 });
 
 describe('validateRegistry — schema guards name the offending entry', () => {
@@ -196,6 +204,54 @@ describe('validateRegistry — schema guards name the offending entry', () => {
     const registry = base();
     registry.boundary.module = 'src/debug(Log).ts';
     expect(() => validateRegistry(registry)).toThrow(/plain path/);
+  });
+
+  it('rejects a reports entry whose date is not zero-padded YYYY-MM-DD', () => {
+    const registry = base();
+    (registry.reports[0] as { date: string }).date = '2026-8-16';
+    expect(() => validateRegistry(registry)).toThrow(/YYYY-MM-DD/);
+  });
+
+  it('rejects a reports entry whose date is not a real calendar date', () => {
+    const registry = base();
+    (registry.reports[0] as { date: string }).date = '2026-99-99';
+    expect(() => validateRegistry(registry)).toThrow(/real, zero-padded/);
+    // Digit-shaped but rolled over: only a calendar round-trip catches it.
+    (registry.reports[0] as { date: string }).date = '2026-02-31';
+    expect(() => validateRegistry(registry)).toThrow(/real, zero-padded/);
+  });
+
+  it('rejects a concernCounts that is not an object of path -> count', () => {
+    const registry = base();
+    (registry.reports[5] as { concernCounts: unknown }).concernCounts = 7;
+    expect(() => validateRegistry(registry)).toThrow(/must be an object of path -> count/);
+    // An explicit null is malformed data, not an omitted field.
+    (registry.reports[5] as { concernCounts: unknown }).concernCounts = null;
+    expect(() => validateRegistry(registry)).toThrow(/must be an object of path -> count/);
+  });
+
+  it('rejects a reports entry whose measurement values are not non-negative integers', () => {
+    const withBadAtCeiling = base();
+    (withBadAtCeiling.reports[5] as { atCeiling: unknown }).atCeiling = 'sixteen';
+    expect(() => validateRegistry(withBadAtCeiling)).toThrow(/atCeiling must be a non-negative integer/);
+
+    const withBadCount = base();
+    (withBadCount.reports[5] as { concernCounts: Record<string, unknown> }).concernCounts[
+      'src/bases/register.ts'
+    ] = -1;
+    expect(() => validateRegistry(withBadCount)).toThrow(/non-negative integer/);
+  });
+
+  it('rejects a reports entry without a full-length anchor sha', () => {
+    const registry = base();
+    (registry.reports[0] as { anchorSha: string }).anchorSha = 'abc123';
+    expect(() => validateRegistry(registry)).toThrow(/anchorSha/);
+  });
+
+  it('rejects a reports entry that does not name its dated report file', () => {
+    const registry = base();
+    delete (registry.reports[0] as { report?: string }).report;
+    expect(() => validateRegistry(registry)).toThrow(/dated report file/);
   });
 
   it('rejects a baseline without a full-length sha', () => {

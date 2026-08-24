@@ -16,7 +16,44 @@
     { "path": "src/controller/calendar/resolveCalendars.ts", "rank": 9 },
     { "path": "src/bases/types/gantt-view-data.ts", "rank": 10 }
   ],
-  "reports": [],
+  "reports": [
+    {
+      "date": "2026-08-16",
+      "anchorSha": "354e0af3f4a38216b42a0a401dd0cddd03aac625",
+      "report": "docs/reports/2026-08-16-001-slice2-u1-trend-report.md"
+    },
+    {
+      "date": "2026-08-16",
+      "anchorSha": "d74d0cc09113e47c0aea132824b466ba192c699d",
+      "report": "docs/reports/2026-08-16-002-slice2-u2-trend-report.md"
+    },
+    {
+      "date": "2026-08-16",
+      "anchorSha": "70cf1b2d37ff83eb0e64cdb338831594695a86ed",
+      "report": "docs/reports/2026-08-16-003-rank3-u1-trend-report.md"
+    },
+    {
+      "date": "2026-08-16",
+      "anchorSha": "eeb696dcd9d56f241bfbb3992b750d90c21096e2",
+      "report": "docs/reports/2026-08-16-004-rank3-u2-trend-report.md"
+    },
+    {
+      "date": "2026-08-17",
+      "anchorSha": "a71450a2de51fd885460ecf2eb0458906ce0d14a",
+      "report": "docs/reports/2026-08-17-001-rank3-u3-trend-report.md"
+    },
+    {
+      "date": "2026-08-17",
+      "anchorSha": "6b1532a41a39973a72540ef58682ea5ec1fa7e09",
+      "report": "docs/reports/2026-08-17-002-rank3-u4-trend-report.md",
+      "concernCounts": {
+        "src/bases/GanttContainer.svelte": 29,
+        "src/bases/register.ts": 14,
+        "src/controller/GanttController.ts": 14
+      },
+      "atCeiling": 16
+    }
+  ],
   "boundary": {
     "module": "src/debugLog.ts",
     "seamModule": "src/bases/ganttLifecycleDiagnostics.ts",

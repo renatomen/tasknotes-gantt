@@ -12,6 +12,10 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Full history: the maintainability trend measures a churn window from
+          # a fixed baseline commit, which a shallow clone cannot reach.
+          fetch-depth: 0
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: '22'
@@ -44,6 +48,30 @@ jobs:
         run: npm run typecheck --if-present
       - name: Unit tests
         run: npm test --if-present
+      - name: Maintainability trend
+        # Runs on every PR, failing ones included (if: always(), deliberately
+        # not continue-on-error): the measured values never fail the step, only
+        # a crash does. The merge-base comes from the PR event's own base/head
+        # shas — never github.sha, which is the synthetic merge ref.
+        if: always()
+        shell: bash
+        run: |
+          MERGE_BASE=$(git merge-base "${{ github.event.pull_request.base.sha }}" "${{ github.event.pull_request.head.sha }}")
+          # Write to a scratch name and move on success: a `>` redirect straight
+          # to the artifact name creates an empty file before node runs, and the
+          # upload's missing-file guard could then never fire on a crash.
+          node scripts/maintainability-trend.mjs --base "$MERGE_BASE" --head "${{ github.event.pull_request.head.sha }}" --at-ceiling > trend-out.txt
+          mv trend-out.txt maintainability-trend.txt
+          cat maintainability-trend.txt >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload maintainability trend
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: maintainability-trend
+          path: maintainability-trend.txt
+          # error: a missing file means the measurement step silently wrote
+          # nothing, and the trend must be present on every PR.
+          if-no-files-found: error
       - name: Install Chromium for the isolated browser gate
         # Vitest browser mode renders the real component in headless Chromium;
         # install just that browser rather than every Playwright browser.

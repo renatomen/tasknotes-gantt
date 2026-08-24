@@ -1,1 +1,2 @@
 node scripts/check-review-receipts.mjs check
+node scripts/maintainability-trend.mjs < /dev/null || true

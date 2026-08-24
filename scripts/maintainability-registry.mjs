@@ -30,7 +30,7 @@ export const REGISTRY_PATH = join(repoRoot, 'maintainability-registry.json');
  *   files: BoundaryFile[],
  *   allowances: Allowance[],
  * }} Boundary
- * @typedef {{ date: string, anchorSha: string, concernCounts?: Record<string, number> }} TrendReport
+ * @typedef {{ date: string, anchorSha: string, report: string, concernCounts?: Record<string, number>, atCeiling?: number }} TrendReport
  * @typedef {{
  *   baseline: { sha: string, date: string, report: string },
  *   rankedFiles: RankedFile[],
@@ -49,10 +49,12 @@ function isNonEmptyString(value) {
   return typeof value === 'string' && value.length > 0;
 }
 
+const FULL_SHA_PATTERN = /^[0-9a-f]{40}$/;
+
 /** @param {MaintainabilityRegistry} registry */
 function validateBaseline(registry) {
   const { baseline } = registry;
-  if (!baseline || !/^[0-9a-f]{40}$/.test(baseline.sha ?? '')) {
+  if (!baseline || !FULL_SHA_PATTERN.test(baseline.sha ?? '')) {
     fail('baseline.sha must be a 40-character lowercase hex sha');
   }
   if (!isNonEmptyString(baseline.date)) fail('baseline.date must be a date string');
@@ -73,6 +75,70 @@ function validateRankedFiles(registry) {
     }
     if (seen.has(entry.path)) fail(`duplicate rankedFiles path ${entry.path}`);
     seen.add(entry.path);
+  }
+}
+
+/**
+ * The trend script prints "latest report" facts straight from these entries,
+ * so a malformed one must fail here — at the same read every consumer shares —
+ * rather than mislabel the measurement.
+ *
+ * @param {MaintainabilityRegistry} registry
+ */
+/**
+ * Full ISO date, zero-padded and calendar-real: latest-report selection
+ * orders these lexicographically, and the trend output prints them as
+ * authoritative — '2026-8-16' would mis-sort, '2026-99-99' would print. The
+ * UTC round-trip rejects rolled-over dates like 2026-02-31, which the digit
+ * shape alone accepts.
+ *
+ * @param {TrendReport} report
+ */
+function validateReportDate(report) {
+  const wellFormed = /^\d{4}-\d{2}-\d{2}$/.test(report.date ?? '');
+  const parsed = wellFormed ? new Date(`${report.date}T00:00:00Z`) : null;
+  if (
+    parsed === null ||
+    Number.isNaN(parsed.getTime()) ||
+    parsed.toISOString().slice(0, 10) !== report.date
+  ) {
+    fail('reports entry date must be a real, zero-padded YYYY-MM-DD string');
+  }
+}
+
+/** The measured values the trend output prints as authoritative. @param {TrendReport} report */
+function validateReportMeasurements(report) {
+  // Only an ABSENT field means "no counts recorded": an explicit null is a
+  // malformed entry, and coalescing it away would print a clean-looking
+  // "no concern counts recorded" from bad data.
+  const counts = report.concernCounts === undefined ? {} : report.concernCounts;
+  if (counts === null || typeof counts !== 'object' || Array.isArray(counts)) {
+    fail(`reports entry ${report.date} concernCounts must be an object of path -> count`);
+  }
+  const measured = Object.entries(counts).map(([key, value]) => [
+    `concernCounts.${key}`,
+    value,
+  ]);
+  if (report.atCeiling !== undefined) measured.push(['atCeiling', report.atCeiling]);
+  for (const [label, value] of measured) {
+    if (!Number.isInteger(value) || value < 0) {
+      fail(`reports entry ${report.date} ${label} must be a non-negative integer`);
+    }
+  }
+}
+
+function validateReports(registry) {
+  const { reports } = registry;
+  if (!Array.isArray(reports)) fail('reports must be an array');
+  for (const report of reports) {
+    validateReportDate(report);
+    if (!FULL_SHA_PATTERN.test(report.anchorSha ?? '')) {
+      fail(`reports entry ${report.date} needs a 40-character lowercase hex anchorSha`);
+    }
+    if (!isNonEmptyString(report.report)) {
+      fail(`reports entry ${report.date} must name its dated report file`);
+    }
+    validateReportMeasurements(report);
   }
 }
 
@@ -180,7 +246,7 @@ export function validateRegistry(registry) {
   if (!registry || typeof registry !== 'object') fail('registry must be a JSON object');
   validateBaseline(registry);
   validateRankedFiles(registry);
-  if (!Array.isArray(registry.reports)) fail('reports must be an array');
+  validateReports(registry);
   validateBoundaryShape(registry);
   validateBoundaryFiles(registry);
   validateAllowances(registry);
