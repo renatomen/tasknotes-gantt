@@ -289,6 +289,21 @@ describe('classifyColumnSortDiagnosis', () => {
     expect(verdict.reason).toContain('owner presence unknown');
   });
 
+  it('accepts a later sorted order-tick as sort-delivery proof when click-time aria is unchanged', () => {
+    const verdict = classifyColumnSortDiagnosis(
+      baseInput({
+        clickAttempts: [attempt({ ariaSortBefore: 'none', ariaSortAfter: 'none' })],
+        sortStateObservedAfterClicks: true,
+        rowContradiction: {
+          rowAbsentFromSampledRoot: true,
+          rowPresentInOwningRoot: false,
+          productTransitionRecorded: true,
+        },
+      }),
+    );
+    expect(verdict.verdict).toBe('class-d-row-loss');
+  });
+
   it('refuses row loss when no landed click shows an observed aria-sort change', () => {
     const verdict = classifyColumnSortDiagnosis(
       baseInput({
@@ -502,6 +517,15 @@ describe('areColumnSortControlsEquivalent', () => {
   it('rejects a pair when either side ran unarmed or with a collector failure', () => {
     expect(areColumnSortControlsEquivalent(digest(), digest({ armed: false }))).toBe(false);
     expect(areColumnSortControlsEquivalent(digest(), digest({ collectorFailure: true }))).toBe(false);
+  });
+
+  it('rejects a pair when either side overflowed', () => {
+    expect(areColumnSortControlsEquivalent(digest(), digest({ overflow: true }))).toBe(false);
+  });
+
+  it('rejects a pair whose per-site click summaries diverge', () => {
+    const retried = digest({ attempts: [attempt(), attempt({ landed: false })] });
+    expect(areColumnSortControlsEquivalent(digest(), retried)).toBe(false);
   });
 });
 

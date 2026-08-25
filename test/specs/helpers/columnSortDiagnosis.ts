@@ -68,6 +68,13 @@ export interface ColumnSortTraceInput {
   rowContradiction: ColumnSortRowContradiction | null;
   /** null while the seam observes no header/row DOM add/remove lifecycle. */
   domRemovalObserved: boolean | null;
+  /**
+   * Whether any order-tick recorded after the click sequence observed an
+   * active sort. Aria facts on the click itself are same-tick reads taken
+   * before the framework renders the transition, so delivery is provable from
+   * either signal. null when no post-click tick exists in the slice.
+   */
+  sortStateObservedAfterClicks?: boolean | null;
   matchedControl: boolean;
   comparableTraceDisagrees?: boolean;
 }
@@ -151,7 +158,7 @@ function localizeAbsentClick(
 
 function localizeRowContradiction(
   row: ColumnSortRowContradiction,
-  clickAttempts: readonly ColumnSortClickAttempt[],
+  input: ColumnSortTraceInput,
 ): CandidateVerdict | ColumnSortVerdict {
   if (!row.rowAbsentFromSampledRoot) {
     return open('row contradiction reported without a sampled-root absence');
@@ -164,16 +171,19 @@ function localizeRowContradiction(
     };
   }
   // Class (d) requires ALL mandatory facts: ownership proven absent (null is
-  // unknown, not absent), a recorded product transition, and a landed click
-  // whose sort delivery is proven by an observed aria-sort change.
+  // unknown, not absent), a recorded product transition, and proven sort
+  // delivery — an aria change on a landed click, or an active sort observed
+  // by a later order tick (the click-time aria read is same-tick and can
+  // legitimately precede the rendered transition).
   if (row.rowPresentInOwningRoot === null) {
     return open('row-loss owner presence unknown: ownership resolution incomplete');
   }
-  const sortDelivered = clickAttempts.some(
+  const ariaChanged = input.clickAttempts.some(
     (attempt) => attempt.landed && attempt.ariaSortBefore !== attempt.ariaSortAfter,
   );
+  const sortDelivered = ariaChanged || input.sortStateObservedAfterClicks === true;
   if (!sortDelivered) {
-    return open('row-loss sort delivery unproven: no landed click with an observed aria-sort change');
+    return open('row-loss sort delivery unproven: no aria change and no post-click sorted tick');
   }
   if (row.productTransitionRecorded === true) {
     return {
@@ -195,7 +205,7 @@ function localize(input: ColumnSortTraceInput): CandidateVerdict | ColumnSortVer
     .sort((a, b) => a.sequence - b.sequence)
     .find((attempt) => !attempt.landed);
   if (absentAttempt) return localizeAbsentClick(absentAttempt, input.domRemovalObserved);
-  if (input.rowContradiction) return localizeRowContradiction(input.rowContradiction, input.clickAttempts);
+  if (input.rowContradiction) return localizeRowContradiction(input.rowContradiction, input);
   return open('no contradiction located in the trace');
 }
 
@@ -391,16 +401,25 @@ export function areColumnSortControlsEquivalent(
   const identityEqual = (Object.keys(a.identity) as (keyof ColumnSortControlIdentity)[]).every(
     (key) => a.identity[key] === b.identity[key],
   );
+  const perSiteEqual =
+    a.perSite.length === b.perSite.length &&
+    a.perSite.every((site) => {
+      const twin = b.perSite.find((candidate) => candidate.callSite === site.callSite);
+      return twin !== undefined && twin.attempts === site.attempts && twin.allLanded === site.allLanded;
+    });
   return (
     isColumnSortControlIdentityComplete(a.identity) &&
     isColumnSortControlIdentityComplete(b.identity) &&
     identityEqual &&
+    perSiteEqual &&
     a.schema === b.schema &&
     a.basePath === b.basePath &&
     a.journey === b.journey &&
     a.readinessGates === b.readinessGates &&
     a.armed &&
     b.armed &&
+    !a.overflow &&
+    !b.overflow &&
     !a.collectorFailure &&
     !b.collectorFailure
   );

@@ -52,7 +52,9 @@ export async function startColumnSortLifecycleCapture(): Promise<void> {
   envelopeGate = createColumnSortEnvelopeGate();
   attempts.length = 0;
   cachedIdentity = null;
-  const started = await browser.execute(
+  let started: boolean | undefined = false;
+  try {
+    started = await browser.execute(
     (capacity: number, schema: string, scope: string) => {
       const control = (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle;
       if (!control) return false;
@@ -72,7 +74,11 @@ export async function startColumnSortLifecycleCapture(): Promise<void> {
     COLUMN_SORT_LIFECYCLE_CAPACITY,
     COLUMN_SORT_TRACE_SCHEMA,
     SORT_SCOPE,
-  );
+    );
+  } catch (error) {
+    writeLifecycleRetrievalFailure('column-sort:arm', error, null, false);
+    started = false;
+  }
   armed = started === true;
   if (!armed) {
     writeLifecycleRetrievalFailure(
@@ -86,9 +92,11 @@ export async function startColumnSortLifecycleCapture(): Promise<void> {
 
 export async function setColumnSortPhase(phase: string): Promise<void> {
   if (!armed) return;
-  await browser.execute((nextPhase: string) => {
-    (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle?.setPhase(nextPhase);
-  }, phase);
+  await runDiagnosticCommand('column-sort:set-phase', () =>
+    browser.execute((nextPhase: string) => {
+      (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle?.setPhase(nextPhase);
+    }, phase),
+  );
 }
 
 export async function recordColumnSortEvent(
@@ -96,21 +104,23 @@ export async function recordColumnSortEvent(
   facts: Record<string, boolean | number | string | null>,
 ): Promise<void> {
   if (!armed) return;
-  await browser.execute(
-    (scope: string, eventName: string, eventFacts: Record<string, boolean | number | string | null>) => {
-      (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle?.record({
-        scope,
-        mountToken: 0,
-        controllerStarted: null,
-        controllerDelivered: null,
-        svarGeneration: null,
-        event: eventName,
-        facts: eventFacts,
-      });
-    },
-    SORT_SCOPE,
-    event,
-    facts,
+  await runDiagnosticCommand(`column-sort:record:${event}`, () =>
+    browser.execute(
+      (scope: string, eventName: string, eventFacts: Record<string, boolean | number | string | null>) => {
+        (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle?.record({
+          scope,
+          mountToken: 0,
+          controllerStarted: null,
+          controllerDelivered: null,
+          svarGeneration: null,
+          event: eventName,
+          facts: eventFacts,
+        });
+      },
+      SORT_SCOPE,
+      event,
+      facts,
+    ),
   );
 }
 
@@ -136,7 +146,8 @@ export async function recordColumnSortReadinessPassed(): Promise<void> {
  */
 export async function recordColumnSortResetCensus(checkpoint: 'before' | 'after'): Promise<void> {
   if (!armed) return;
-  await browser.execute(
+  await runDiagnosticCommand('column-sort:reset-census', () =>
+    browser.execute(
     (scope: string, checkpointArg: string, factLimit: number) => {
       const recordSafely = (event: string, facts: Record<string, boolean | number | string | null>): void => {
         try {
@@ -176,6 +187,7 @@ export async function recordColumnSortResetCensus(checkpoint: 'before' | 'after'
     SORT_SCOPE,
     checkpoint,
     COLUMN_SORT_BOUNDED_FACT_LIMIT,
+    ),
   );
 }
 
@@ -501,6 +513,20 @@ async function readColumnSortLifecycleAfterFailure(columnId: string): Promise<Ga
 
 let cachedIdentity: ColumnSortControlIdentity | null = null;
 
+/**
+ * Run a diagnostic-only browser command so a transport failure (wedged
+ * session, dead worker) surfaces as probe evidence, never as a suite result.
+ * Primary observation reads (clicks, sort-state) stay unwrapped: their
+ * transport failures are the spec's own failures, exactly as uninstrumented.
+ */
+async function runDiagnosticCommand(origin: string, command: () => Promise<unknown>): Promise<void> {
+  try {
+    await command();
+  } catch (error) {
+    writeLifecycleRetrievalFailure(origin, error, null, originalFailureSeen);
+  }
+}
+
 async function readControlIdentity(): Promise<ColumnSortControlIdentity> {
   if (cachedIdentity) return cachedIdentity;
   let taskNotesVersion: string | null = null;
@@ -638,11 +664,16 @@ export function deregisterColumnSortRunnerReporter(): void {
 
 export async function stopColumnSortLifecycleCapture(): Promise<void> {
   if (!armed) return;
-  await setColumnSortPhase('teardown');
-  await recordColumnSortEvent('colsort-teardown', { readinessGates: readinessOrdinal });
-  await browser.execute(() => {
-    (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle?.stop();
-  });
-  armed = false;
+  try {
+    await setColumnSortPhase('teardown');
+    await recordColumnSortEvent('colsort-teardown', { readinessGates: readinessOrdinal });
+    await runDiagnosticCommand('column-sort:stop', () =>
+      browser.execute(() => {
+        (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle?.stop();
+      }),
+    );
+  } finally {
+    armed = false;
+  }
 }
 
