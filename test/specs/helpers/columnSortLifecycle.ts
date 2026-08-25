@@ -612,6 +612,8 @@ export async function emitColumnSortControlDigest(): Promise<void> {
       armed,
       overflow: snapshot?.incomplete.overflow ?? true,
       collectorFailure: snapshot?.incomplete.collectorFailure ?? true,
+      basePath: BASE_PATH,
+      readinessGates: readinessOrdinal,
     });
     const payload = { origin: 'column-sort:control-digest', digest };
     console.error(`[OG-LIFECYCLE] ${JSON.stringify(payload)}`);

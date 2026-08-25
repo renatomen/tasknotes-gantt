@@ -1,5 +1,6 @@
 import { createGanttLifecycleCollector } from '../../src/debugLog';
 import {
+  areColumnSortControlsEquivalent,
   boundedFact,
   buildColumnSortControlDigest,
   classifyColumnSortDiagnosis,
@@ -274,6 +275,47 @@ describe('classifyColumnSortDiagnosis', () => {
     expect(verdict.verdict).toBe('class-d-row-loss');
   });
 
+  it('refuses row loss when owning-root presence is unknown, even with a recorded transition', () => {
+    const verdict = classifyColumnSortDiagnosis(
+      baseInput({
+        rowContradiction: {
+          rowAbsentFromSampledRoot: true,
+          rowPresentInOwningRoot: null,
+          productTransitionRecorded: true,
+        },
+      }),
+    );
+    expect(verdict.verdict).toBe('open');
+    expect(verdict.reason).toContain('owner presence unknown');
+  });
+
+  it('refuses row loss when no landed click shows an observed aria-sort change', () => {
+    const verdict = classifyColumnSortDiagnosis(
+      baseInput({
+        clickAttempts: [attempt({ ariaSortBefore: 'ascending', ariaSortAfter: 'ascending' })],
+        rowContradiction: {
+          rowAbsentFromSampledRoot: true,
+          rowPresentInOwningRoot: false,
+          productTransitionRecorded: true,
+        },
+      }),
+    );
+    expect(verdict.verdict).toBe('open');
+    expect(verdict.reason).toContain('sort delivery unproven');
+  });
+
+  it('refuses a header-drop verdict when the sole owning root is not live and visible', () => {
+    const verdict = classifyColumnSortDiagnosis(
+      baseInput({
+        clickAttempts: [
+          attempt({ landed: false, roots: [root({ visible: false, headerPresent: false })] }),
+        ],
+        domRemovalObserved: true,
+      }),
+    );
+    expect(verdict.verdict).toBe('open');
+  });
+
   it('refuses a class verdict without a matched control (AE1/AE2)', () => {
     const verdict = classifyColumnSortDiagnosis(
       baseInput({
@@ -402,6 +444,8 @@ describe('buildColumnSortControlDigest', () => {
       armed: true,
       overflow: false,
       collectorFailure: false,
+      basePath: 'Companion.base',
+      readinessGates: 7,
     });
     expect(digest.identity.buildSha).toBe('a'.repeat(40));
     expect(digest.identity.obsidianVersion).toBe('1.9.14');
@@ -411,6 +455,53 @@ describe('buildColumnSortControlDigest', () => {
       { callSite: 'ae2-clear-click', attempts: 1, allLanded: true },
     ]);
     expect(digest.armed).toBe(true);
+    expect(digest.basePath).toBe('Companion.base');
+    expect(digest.readinessGates).toBe(7);
+    expect(digest.journey).toBe('ae1-sort-loop|ae2-clear-click');
+  });
+});
+
+describe('areColumnSortControlsEquivalent', () => {
+  function digest(overrides: Partial<Parameters<typeof buildColumnSortControlDigest>[0]> = {}) {
+    return buildColumnSortControlDigest({
+      identity: completeIdentity(),
+      attempts: [attempt()],
+      armed: true,
+      overflow: false,
+      collectorFailure: false,
+      basePath: 'Companion.base',
+      readinessGates: 7,
+      ...overrides,
+    });
+  }
+
+  it('accepts two digests with identical complete identity, base, journey, and gate count', () => {
+    expect(areColumnSortControlsEquivalent(digest(), digest())).toBe(true);
+  });
+
+  it('rejects a pair when any identity field differs', () => {
+    const other = digest({ identity: { ...completeIdentity(), electronVersion: '37.2.5' } });
+    expect(areColumnSortControlsEquivalent(digest(), other)).toBe(false);
+  });
+
+  it('rejects a pair when either identity is incomplete', () => {
+    const incomplete = digest({ identity: { ...completeIdentity(), buildSha: null } });
+    expect(areColumnSortControlsEquivalent(digest(), incomplete)).toBe(false);
+  });
+
+  it('rejects a pair whose click-site journeys differ', () => {
+    const other = digest({ attempts: [attempt({ callSite: 'ae2-sort-loop' })] });
+    expect(areColumnSortControlsEquivalent(digest(), other)).toBe(false);
+  });
+
+  it('rejects a pair whose Base path or readiness-gate count differs', () => {
+    expect(areColumnSortControlsEquivalent(digest(), digest({ basePath: 'Other.base' }))).toBe(false);
+    expect(areColumnSortControlsEquivalent(digest(), digest({ readinessGates: 8 }))).toBe(false);
+  });
+
+  it('rejects a pair when either side ran unarmed or with a collector failure', () => {
+    expect(areColumnSortControlsEquivalent(digest(), digest({ armed: false }))).toBe(false);
+    expect(areColumnSortControlsEquivalent(digest(), digest({ collectorFailure: true }))).toBe(false);
   });
 });
 

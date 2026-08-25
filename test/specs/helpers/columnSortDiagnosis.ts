@@ -127,8 +127,15 @@ function localizeAbsentClick(
     };
   }
   const owningRoots = attempt.roots.filter((root) => root.ownsBase === true);
+  // A drop is only provable against a LIVE owning root: an invisible or
+  // disconnected owner cannot prove the header is absent from what the user
+  // (and the click) actually faced.
   const genuineAbsence =
-    owningRoots.length === 1 && owningRoots[0] === sampled && !owningRoots[0].headerPresent;
+    owningRoots.length === 1 &&
+    owningRoots[0] === sampled &&
+    owningRoots[0].connected &&
+    owningRoots[0].visible &&
+    !owningRoots[0].headerPresent;
   if (!genuineAbsence) {
     return open('click-attempt census ambiguous: no provable wrong-root or genuine-absence shape');
   }
@@ -144,6 +151,7 @@ function localizeAbsentClick(
 
 function localizeRowContradiction(
   row: ColumnSortRowContradiction,
+  clickAttempts: readonly ColumnSortClickAttempt[],
 ): CandidateVerdict | ColumnSortVerdict {
   if (!row.rowAbsentFromSampledRoot) {
     return open('row contradiction reported without a sampled-root absence');
@@ -155,6 +163,18 @@ function localizeRowContradiction(
       causalAttemptOrdinal: null,
     };
   }
+  // Class (d) requires ALL mandatory facts: ownership proven absent (null is
+  // unknown, not absent), a recorded product transition, and a landed click
+  // whose sort delivery is proven by an observed aria-sort change.
+  if (row.rowPresentInOwningRoot === null) {
+    return open('row-loss owner presence unknown: ownership resolution incomplete');
+  }
+  const sortDelivered = clickAttempts.some(
+    (attempt) => attempt.landed && attempt.ariaSortBefore !== attempt.ariaSortAfter,
+  );
+  if (!sortDelivered) {
+    return open('row-loss sort delivery unproven: no landed click with an observed aria-sort change');
+  }
   if (row.productTransitionRecorded === true) {
     return {
       verdict: 'class-d-row-loss',
@@ -162,7 +182,7 @@ function localizeRowContradiction(
       causalAttemptOrdinal: null,
     };
   }
-  return open('row-loss facts incomplete: owner presence and product transition both unproven');
+  return open('row-loss facts incomplete: no recorded product transition');
 }
 
 /**
@@ -175,7 +195,7 @@ function localize(input: ColumnSortTraceInput): CandidateVerdict | ColumnSortVer
     .sort((a, b) => a.sequence - b.sequence)
     .find((attempt) => !attempt.landed);
   if (absentAttempt) return localizeAbsentClick(absentAttempt, input.domRemovalObserved);
-  if (input.rowContradiction) return localizeRowContradiction(input.rowContradiction);
+  if (input.rowContradiction) return localizeRowContradiction(input.rowContradiction, input.clickAttempts);
   return open('no contradiction located in the trace');
 }
 
@@ -299,6 +319,8 @@ export interface ColumnSortControlDigestInput {
   armed: boolean;
   overflow: boolean;
   collectorFailure: boolean;
+  basePath: string;
+  readinessGates: number;
 }
 
 export interface ColumnSortPerSiteSummary {
@@ -314,6 +336,10 @@ export interface ColumnSortControlDigest {
   armed: boolean;
   overflow: boolean;
   collectorFailure: boolean;
+  basePath: string;
+  readinessGates: number;
+  /** Ordered click-site journey (call sites in first-attempt order, bounded). */
+  journey: string;
 }
 
 /**
@@ -345,5 +371,37 @@ export function buildColumnSortControlDigest(
     armed: input.armed,
     overflow: input.overflow,
     collectorFailure: input.collectorFailure,
+    basePath: input.basePath,
+    readinessGates: input.readinessGates,
+    journey: boundedFact([...perSite.keys()]),
   };
+}
+
+/**
+ * Mechanical control equivalence: two digests are comparable as a
+ * failure/control pair only when their identities are complete and identical,
+ * and they walked the same Base, journey, and readiness-gate count with a
+ * healthy collector. Any difference or incompleteness makes them
+ * non-equivalent — the operator never eyeballs a match.
+ */
+export function areColumnSortControlsEquivalent(
+  a: ColumnSortControlDigest,
+  b: ColumnSortControlDigest,
+): boolean {
+  const identityEqual = (Object.keys(a.identity) as (keyof ColumnSortControlIdentity)[]).every(
+    (key) => a.identity[key] === b.identity[key],
+  );
+  return (
+    isColumnSortControlIdentityComplete(a.identity) &&
+    isColumnSortControlIdentityComplete(b.identity) &&
+    identityEqual &&
+    a.schema === b.schema &&
+    a.basePath === b.basePath &&
+    a.journey === b.journey &&
+    a.readinessGates === b.readinessGates &&
+    a.armed &&
+    b.armed &&
+    !a.collectorFailure &&
+    !b.collectorFailure
+  );
 }
