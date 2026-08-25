@@ -109,22 +109,20 @@ async function activateBaseLeaf(): Promise<void> {
  * session-only (R4) — there is no persisted sort to restore.
  */
 async function reopenBase(): Promise<void> {
-  // The detach markers bracket this DELIBERATE remount in the lifecycle trace,
-  // so any mount sequence outside them reads as product-initiated.
+  // The detach markers bracket this DELIBERATE remount in the lifecycle trace
+  // (as PHASE transitions, per the pre-registered vocabulary), so any mount
+  // sequence outside them reads as product-initiated.
+  await setColumnSortPhase("reopen-detach-start");
+  await recordColumnSortEvent("colsort-reopen-detach-start", {});
   const leafCount = await browser.executeObsidian(async ({ app }) => {
     const ws = app.workspace as unknown as {
       getLeavesOfType: (t: string) => Array<{ detach?: () => void }>;
     };
     const leaves = ws.getLeavesOfType("bases");
+    for (const leaf of leaves) leaf.detach?.();
     return leaves.length;
   });
-  await recordColumnSortEvent("colsort-reopen-detach-start", { leafCount });
-  await browser.executeObsidian(async ({ app }) => {
-    const ws = app.workspace as unknown as {
-      getLeavesOfType: (t: string) => Array<{ detach?: () => void }>;
-    };
-    for (const leaf of ws.getLeavesOfType("bases")) leaf.detach?.();
-  });
+  await setColumnSortPhase("reopen-detached");
   await recordColumnSortEvent("colsort-reopen-detached", { leafCount });
   await ensureGanttReady();
 }

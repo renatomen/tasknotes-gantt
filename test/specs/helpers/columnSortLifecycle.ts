@@ -11,7 +11,6 @@ import {
   writeLifecycleRetrievalFailure,
 } from './lifecycleTrace';
 import {
-  boundedFact,
   buildColumnSortControlDigest,
   COLUMN_SORT_LIFECYCLE_CAPACITY,
   COLUMN_SORT_TRACE_SCHEMA,
@@ -39,14 +38,6 @@ let envelopeFileOrdinal = 0;
 let envelopeGate = createColumnSortEnvelopeGate();
 const attempts: ColumnSortClickAttempt[] = [];
 
-export function isColumnSortCaptureArmed(): boolean {
-  return armed;
-}
-
-export function collectedColumnSortClickAttempts(): readonly ColumnSortClickAttempt[] {
-  return attempts;
-}
-
 /**
  * Arm the default-off page collector for this suite. A missing collector
  * degrades: the suite runs unarmed and the loud retrieval-failure line makes
@@ -59,6 +50,7 @@ export async function startColumnSortLifecycleCapture(): Promise<void> {
   readinessOrdinal = 0;
   envelopeGate = createColumnSortEnvelopeGate();
   attempts.length = 0;
+  cachedIdentity = null;
   const started = await browser.execute(
     (capacity: number, schema: string, scope: string) => {
       const control = (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle;
@@ -121,9 +113,15 @@ export async function recordColumnSortEvent(
   );
 }
 
-/** Record the moment a readiness gate satisfies, so post-gate absence is slice-decidable. */
+/**
+ * Mark the moment a readiness gate satisfies, so post-gate absence is
+ * slice-decidable. The pre-registered vocabulary names this a PHASE, so it is
+ * a `setPhase` transition (subsequent ring records inherit it until the next
+ * transition) plus one event record carrying the ordinal fact.
+ */
 export async function recordColumnSortReadinessPassed(): Promise<void> {
   readinessOrdinal += 1;
+  await setColumnSortPhase(`readiness-passed:${readinessOrdinal}`);
   await recordColumnSortEvent('colsort-readiness-passed', { ordinal: readinessOrdinal });
 }
 
@@ -155,63 +153,77 @@ export async function recordedClickColumnHeader(callSite: string, columnId: stri
           (el) => strip(el.getAttribute('data-header-id') ?? '') === columnIdArg,
         );
 
-      interface LeafLike {
-        view?: { getViewType?: () => string; containerEl?: HTMLElement; file?: { path?: string }; getState?: () => unknown };
-        containerEl?: HTMLElement;
-      }
-      const workspace = app.workspace as unknown as {
-        iterateAllLeaves: (cb: (leaf: LeafLike) => void) => void;
-        activeLeaf?: { view?: { getViewType?: () => string } } | null;
-      };
-      const leaves: LeafLike[] = [];
-      workspace.iterateAllLeaves((leaf) => leaves.push(leaf));
-      const markdownLeafPresent = leaves.some((leaf) => leaf.view?.getViewType?.() === 'markdown');
-      const activeLeafViewType = workspace.activeLeaf?.view?.getViewType?.() ?? null;
-      const leafPath = (leaf: LeafLike): string | null => {
-        let filePath = leaf.view?.file?.path ?? null;
-        if (filePath === null && typeof leaf.view?.getState === 'function') {
-          try {
-            const state = leaf.view.getState() as { file?: unknown } | null;
-            filePath = typeof state?.file === 'string' ? state.file : null;
-          } catch {
-            filePath = null;
-          }
-        }
-        return filePath;
-      };
-
-      const roots = Array.from(document.querySelectorAll<HTMLElement>('.og-bases-gantt'));
       const sampled = document.querySelector<HTMLElement>('.og-bases-gantt');
-      const census = roots.map((root) => {
-        const owner = leaves.find(
-          (leaf) =>
-            leaf.view?.getViewType?.() === 'bases' &&
-            (leaf.view?.containerEl?.contains(root) === true || leaf.containerEl?.contains(root) === true),
-        );
-        const mountToken = Number(root.dataset.ogMountToken);
-        const bounds = root.getBoundingClientRect();
-        return {
-          mountToken: Number.isFinite(mountToken) ? mountToken : null,
-          selectedByGlobalProxy: root === sampled,
-          connected: root.isConnected,
-          visible: bounds.width > 0 && bounds.height > 0,
-          ownsBase: owner === undefined ? null : leafPath(owner) === basePath,
-          headerPresent: findHeader(root) !== undefined,
-        };
-      });
-
       const header = sampled ? findHeader(sampled) : undefined;
       const ariaSortBefore = header?.getAttribute('aria-sort') ?? null;
       if (header) header.click();
       const ariaSortAfter = header?.getAttribute('aria-sort') ?? null;
-      const sampledHeaderIds = sampled
-        ? Array.from(sampled.querySelectorAll<HTMLElement>('[data-header-id]'))
-            .map((el) => strip(el.getAttribute('data-header-id') ?? ''))
-            .join('|')
-            .slice(0, 500)
-        : '';
 
+      // The click above is the spec's behavior; everything below is armed-only
+      // observation. Unarmed runs skip the leaf iteration and census entirely —
+      // no consumer can read them (envelope and digest both require an armed
+      // collector).
+      let markdownLeafPresent = false;
+      let activeLeafViewType: string | null = null;
+      let census: {
+        mountToken: number | null;
+        selectedByGlobalProxy: boolean;
+        connected: boolean;
+        visible: boolean;
+        ownsBase: boolean | null;
+        headerPresent: boolean;
+      }[] = [];
+      let sampledHeaderIds = '';
       if (record) {
+        interface LeafLike {
+          view?: { getViewType?: () => string; containerEl?: HTMLElement; file?: { path?: string }; getState?: () => unknown };
+          containerEl?: HTMLElement;
+        }
+        const workspace = app.workspace as unknown as {
+          iterateAllLeaves: (cb: (leaf: LeafLike) => void) => void;
+          activeLeaf?: { view?: { getViewType?: () => string } } | null;
+        };
+        const leaves: LeafLike[] = [];
+        workspace.iterateAllLeaves((leaf) => leaves.push(leaf));
+        markdownLeafPresent = leaves.some((leaf) => leaf.view?.getViewType?.() === 'markdown');
+        activeLeafViewType = workspace.activeLeaf?.view?.getViewType?.() ?? null;
+        const leafPath = (leaf: LeafLike): string | null => {
+          let filePath = leaf.view?.file?.path ?? null;
+          if (filePath === null && typeof leaf.view?.getState === 'function') {
+            try {
+              const state = leaf.view.getState() as { file?: unknown } | null;
+              filePath = typeof state?.file === 'string' ? state.file : null;
+            } catch {
+              filePath = null;
+            }
+          }
+          return filePath;
+        };
+
+        const roots = Array.from(document.querySelectorAll<HTMLElement>('.og-bases-gantt'));
+        census = roots.map((root) => {
+          const owner = leaves.find(
+            (leaf) =>
+              leaf.view?.getViewType?.() === 'bases' &&
+              (leaf.view?.containerEl?.contains(root) === true || leaf.containerEl?.contains(root) === true),
+          );
+          const mountToken = Number(root.dataset.ogMountToken);
+          const bounds = root.getBoundingClientRect();
+          return {
+            mountToken: Number.isFinite(mountToken) ? mountToken : null,
+            selectedByGlobalProxy: root === sampled,
+            connected: root.isConnected,
+            visible: bounds.width > 0 && bounds.height > 0,
+            ownsBase: owner === undefined ? null : leafPath(owner) === basePath,
+            headerPresent: findHeader(root) !== undefined,
+          };
+        });
+        sampledHeaderIds = sampled
+          ? Array.from(sampled.querySelectorAll<HTMLElement>('[data-header-id]'))
+              .map((el) => strip(el.getAttribute('data-header-id') ?? ''))
+              .join('|')
+              .slice(0, 500)
+          : '';
         (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle?.record({
           scope: 'column-sort',
           mountToken: census.find((entry) => entry.selectedByGlobalProxy)?.mountToken ?? 0,
@@ -254,17 +266,19 @@ export async function recordedClickColumnHeader(callSite: string, columnId: stri
     ordinal,
     armed,
   );
-  attempts.push({
-    callSite,
-    attemptOrdinal: ordinal,
-    landed: result.landed,
-    ariaSortBefore: result.ariaSortBefore,
-    ariaSortAfter: result.ariaSortAfter,
-    activeLeafViewType: result.activeLeafViewType,
-    markdownLeafPresent: result.markdownLeafPresent,
-    roots: result.roots,
-    sequence: ordinal,
-  });
+  if (armed) {
+    attempts.push({
+      callSite,
+      attemptOrdinal: ordinal,
+      landed: result.landed,
+      ariaSortBefore: result.ariaSortBefore,
+      ariaSortAfter: result.ariaSortAfter,
+      activeLeafViewType: result.activeLeafViewType,
+      markdownLeafPresent: result.markdownLeafPresent,
+      roots: result.roots,
+      sequence: ordinal,
+    });
+  }
   return result.landed;
 }
 
@@ -330,10 +344,6 @@ export async function readColumnSortStateRecorded(waitSite: string): Promise<Rec
   );
 }
 
-export function noteColumnSortOriginalFailure(): void {
-  originalFailureSeen = true;
-}
-
 export function columnSortFailureSeen(): boolean {
   return originalFailureSeen;
 }
@@ -387,7 +397,10 @@ async function readColumnSortLifecycleAfterFailure(columnId: string): Promise<Ga
   );
 }
 
+let cachedIdentity: ColumnSortControlIdentity | null = null;
+
 async function readControlIdentity(): Promise<ColumnSortControlIdentity> {
+  if (cachedIdentity) return cachedIdentity;
   let taskNotesVersion: string | null = null;
   try {
     taskNotesVersion = await browser.executeObsidian(({ app }) => {
@@ -399,7 +412,7 @@ async function readControlIdentity(): Promise<ColumnSortControlIdentity> {
     taskNotesVersion = null;
   }
   const capabilities = browser.capabilities as { browserVersion?: string };
-  return {
+  cachedIdentity = {
     buildSha: process.env.GITHUB_SHA ?? null,
     specSchema: COLUMN_SORT_TRACE_SCHEMA,
     chromiumVersion: capabilities.browserVersion ?? null,
@@ -407,6 +420,7 @@ async function readControlIdentity(): Promise<ColumnSortControlIdentity> {
     platform: process.platform,
     nodeVersion: process.version,
   };
+  return cachedIdentity;
 }
 
 function persistEnvelopeFile(name: string, payload: unknown): void {
@@ -512,6 +526,3 @@ export async function stopColumnSortLifecycleCapture(): Promise<void> {
   armed = false;
 }
 
-export function boundedColumnSortFact(values: readonly string[]): string {
-  return boundedFact(values);
-}

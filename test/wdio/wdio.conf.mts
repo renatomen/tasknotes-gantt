@@ -24,6 +24,15 @@ try {
 const resultsDir = path.resolve(pluginRoot, ".wdio-results");
 const MERGED_RESULTS_FILENAME = "wdio-merged-results.json";
 
+// Specs register this global to route runner-side test/hook failures into
+// their own diagnostic envelope path; absent registration it is a no-op.
+const reportRunnerFailure = async (title: string, error: unknown): Promise<void> => {
+  const reporter = (globalThis as typeof globalThis & {
+    __tnGanttLegendRunnerFailureReporter?: (testTitle: string, error: unknown) => Promise<void>;
+  }).__tnGanttLegendRunnerFailureReporter;
+  await reporter?.(title, error);
+};
+
 export const config: WebdriverIO.Config = {
   runner: "local",
   framework: "mocha",
@@ -76,10 +85,7 @@ export const config: WebdriverIO.Config = {
   mochaOpts: { ui: "bdd", timeout: 180000 },
   afterTest: async (test, _context, result) => {
     if (!result.error) return;
-    const reporter = (globalThis as typeof globalThis & {
-      __tnGanttLegendRunnerFailureReporter?: (testTitle: string, error: unknown) => Promise<void>;
-    }).__tnGanttLegendRunnerFailureReporter;
-    await reporter?.(test.title, result.error);
+    await reportRunnerFailure(test.title, result.error);
   },
   // Hook failures never reach afterTest, and a before-hook TIMEOUT abandons the
   // spec's own try/catch entirely — this is the only capture path for that
@@ -87,10 +93,7 @@ export const config: WebdriverIO.Config = {
   // timeout by design).
   afterHook: async (test, _context, result) => {
     if (!result.error) return;
-    const reporter = (globalThis as typeof globalThis & {
-      __tnGanttLegendRunnerFailureReporter?: (testTitle: string, error: unknown) => Promise<void>;
-    }).__tnGanttLegendRunnerFailureReporter;
-    await reporter?.(`hook:${test.title}`, result.error);
+    await reportRunnerFailure(`hook:${test.title}`, result.error);
   },
   // Stale results are cleared ONLY here: onPrepare runs once in the launcher.
   // This file is re-imported by every worker session, so module-scope cleanup
