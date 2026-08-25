@@ -313,6 +313,27 @@ function assertBaselineReachable(runGit, baselineSha) {
   }
 }
 
+/**
+ * A registry anchor that is present but not an ancestor of its measurement
+ * endpoint would make the windowed `git log`/`diff` ranges silently empty, so
+ * the values would read as zero instead of crashing. Ancestry is therefore a
+ * crash-side check, not a value.
+ *
+ * @param {(args: string[]) => string} runGit
+ * @param {string} ancestorSha @param {string} descendantSha @param {string} label
+ */
+function assertAncestorOf(runGit, ancestorSha, descendantSha, label) {
+  try {
+    runGit(['merge-base', '--is-ancestor', ancestorSha, descendantSha]);
+  } catch {
+    fail(
+      `${label} ${ancestorSha.slice(0, 9)} is not an ancestor of measurement endpoint ` +
+        `${descendantSha.slice(0, 9)} — the registry entry does not lie on this history; ` +
+        'fetch full history (CI: fetch-depth: 0) or fix the registry entry',
+    );
+  }
+}
+
 /** Line count matching split-on-newline semantics: an empty blob is one line. */
 function countLines(body) {
   if (body.length === 0) return 1;
@@ -352,13 +373,25 @@ export function parseCatFileBatchLineCounts(output) {
   return counts;
 }
 
-/** @param {(args: string[], input: string) => Buffer} runGitBuffer */
+/**
+ * Ranked-file sizes plus the diagnostics seam module: the seam is where the
+ * junction files' extracted implementation lives, so its growth is part of
+ * the same trend picture even though it carries no defect rank.
+ *
+ * @param {(args: string[], input: string) => Buffer} runGitBuffer
+ */
 function rankedSizeLines(runGitBuffer, registry, head) {
-  const specs = registry.rankedFiles.map((entry) => `${head}:${entry.path}`);
-  const output = runGitBuffer(['cat-file', '--batch'], `${specs.join('\n')}\n`);
+  const paths = [
+    ...registry.rankedFiles.map((entry) => ({ path: entry.path, label: `rank ${entry.rank}` })),
+    { path: registry.boundary.seamModule, label: 'diagnostics seam, unranked' },
+  ];
+  const output = runGitBuffer(
+    ['cat-file', '--batch'],
+    `${paths.map((entry) => `${head}:${entry.path}`).join('\n')}\n`,
+  );
   const counts = parseCatFileBatchLineCounts(output);
-  return registry.rankedFiles.map(
-    (entry, index) => `  ${counts[index] ?? 'absent'} ${entry.path} (rank ${entry.rank})`,
+  return paths.map(
+    (entry, index) => `  ${counts[index] ?? 'absent'} ${entry.path} (${entry.label})`,
   );
 }
 
@@ -416,6 +449,7 @@ function reportSection(runGit, registry, base) {
   // tip where one resolves, because ending at this branch's merge-base would
   // hide ranked-file PRs main merged after the fork.
   const end = resolveMainTip(runGit) ?? base;
+  assertAncestorOf(runGit, latest.anchorSha, end, "latest report's anchor");
   const log = runGit([
     'log', '--first-parent', '--no-renames', '--format=@%H', '--name-status',
     `${latest.anchorSha}..${end}`,
@@ -449,6 +483,7 @@ export async function runTrend({ argv, runGit, runGitBuffer, makeEslintRunner })
   }
   const { base, head } = resolveRange(runGit, opts);
   assertBaselineReachable(runGit, registry.baseline.sha);
+  assertAncestorOf(runGit, registry.baseline.sha, base, 'baseline commit');
   const numstat = base === head ? [] : parseNumstat(runGit(['diff', '--numstat', '--no-renames', `${base}..${head}`]));
   const rangeLabel = `${base.slice(0, 9)}..${head.slice(0, 9)}`;
   const atCeilingLines = await atCeilingSection(

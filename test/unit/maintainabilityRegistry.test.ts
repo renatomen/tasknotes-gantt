@@ -25,6 +25,24 @@ const fromRoot = (relativePath: string): string => resolve(process.cwd(), relati
 
 const committedRegistry = readRegistry();
 
+/**
+ * The committed registry carries no allowances once the seam exists, so the
+ * schema and handshake guards plant this fully-formed synthetic entry to
+ * exercise the allowance rules.
+ */
+const syntheticAllowance = (): Registry['boundary']['allowances'][number] => ({
+  file: 'src/bases/register.ts',
+  importName: 'captureGanttLifecycle',
+  dated: '2026-08-25',
+  removedBy: 'synthetic-test-fixture',
+  record: {
+    delta: 'synthetic test fixture',
+    whyNotSeam: 'exercises the allowance schema guards',
+    alternatives: 'none: committed allowances retired with the seam',
+    approval: 'not applicable: in-memory fixture',
+  },
+});
+
 describe('maintainability registry — committed data', () => {
   const registry = committedRegistry;
 
@@ -143,6 +161,7 @@ describe('validateRegistry — schema guards name the offending entry', () => {
 
   it('rejects an allowance missing a record field', () => {
     const registry = base();
+    registry.boundary.allowances = [syntheticAllowance()];
     delete (registry.boundary.allowances[0].record as { approval?: string }).approval;
     expect(() => validateRegistry(registry)).toThrow(/approval/);
     expect(() => validateRegistry(registry)).toThrow(/captureGanttLifecycle/);
@@ -150,18 +169,21 @@ describe('validateRegistry — schema guards name the offending entry', () => {
 
   it('rejects an allowance missing its remover', () => {
     const registry = base();
+    registry.boundary.allowances = [syntheticAllowance()];
     delete (registry.boundary.allowances[0] as { removedBy?: string }).removedBy;
     expect(() => validateRegistry(registry)).toThrow(/removedBy/);
   });
 
   it('rejects an allowance missing its date', () => {
     const registry = base();
+    registry.boundary.allowances = [syntheticAllowance()];
     delete (registry.boundary.allowances[0] as { dated?: string }).dated;
     expect(() => validateRegistry(registry)).toThrow(/dated/);
   });
 
   it('rejects an allowance naming a file outside the boundary set', () => {
     const registry = base();
+    registry.boundary.allowances = [syntheticAllowance()];
     registry.boundary.allowances[0].file = 'src/bases/entrySignature.ts';
     expect(() => validateRegistry(registry)).toThrow(/boundary/);
     expect(() => validateRegistry(registry)).toThrow(/entrySignature\.ts/);
@@ -169,6 +191,7 @@ describe('validateRegistry — schema guards name the offending entry', () => {
 
   it('rejects an allowance duplicating the base allowlist', () => {
     const registry = base();
+    registry.boundary.allowances = [syntheticAllowance()];
     registry.boundary.allowances[0].importName = 'dlog';
     expect(() => validateRegistry(registry)).toThrow(/allowlist/);
     expect(() => validateRegistry(registry)).toThrow(/dlog/);
@@ -176,9 +199,7 @@ describe('validateRegistry — schema guards name the offending entry', () => {
 
   it('rejects a duplicate allowance for the same file and name', () => {
     const registry = base();
-    registry.boundary.allowances.push(
-      cloneRegistry(registry).boundary.allowances[0],
-    );
+    registry.boundary.allowances = [syntheticAllowance(), syntheticAllowance()];
     expect(() => validateRegistry(registry)).toThrow(/duplicate/i);
   });
 
@@ -267,8 +288,7 @@ describe('allowanceStateViolations — the allowance/seam handshake', () => {
     registry.boundary.allowances = allowances;
     return registry;
   };
-  const someAllowance = (): Registry['boundary']['allowances'] =>
-    [cloneRegistry(committedRegistry).boundary.allowances[0]];
+  const someAllowance = (): Registry['boundary']['allowances'] => [syntheticAllowance()];
 
   it('permits interim allowances while the seam module does not exist', () => {
     expect(allowanceStateViolations(registryWith(someAllowance()), false)).toEqual([]);

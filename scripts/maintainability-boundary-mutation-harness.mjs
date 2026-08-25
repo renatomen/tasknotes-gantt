@@ -248,19 +248,31 @@ function verdictHolds(plant, outcome) {
 
 /**
  * Proves the derivation is live end-to-end through the real rule engine: the
- * same junction import lints clean while its registry allowance exists and
- * red once a mutated registry drops it. Runs against override-only ESLint
- * instances built from `deriveBoundaryOverrides`, so no committed file and no
- * on-disk registry edit is needed.
+ * same junction import lints clean while a registry allowance covers it and
+ * red without one. The committed registry carries no allowances (the seam
+ * exists), so the permitting side runs against a synthesized allowance entry
+ * rather than a committed one. Runs against override-only ESLint instances
+ * built from `deriveBoundaryOverrides`, so no committed file and no on-disk
+ * registry edit is needed.
  */
 async function runRegistryDropProof() {
   const registry = readRegistry();
   const register = boundaryPath(registry, 'register.ts');
-  const mutated = JSON.parse(JSON.stringify(registry));
-  mutated.boundary.allowances = mutated.boundary.allowances.filter(
-    (allowance) =>
-      !(allowance.file === register && allowance.importName === 'captureGanttLifecycle'),
-  );
+  const withSyntheticAllowance = JSON.parse(JSON.stringify(registry));
+  withSyntheticAllowance.boundary.allowances = [
+    {
+      file: register,
+      importName: 'captureGanttLifecycle',
+      dated: '2026-08-25',
+      removedBy: 'harness-synthetic',
+      record: {
+        delta: 'synthetic harness entry proving the allowance derivation stays live',
+        whyNotSeam: 'never committed; exists only inside this in-memory proof',
+        alternatives: 'depending on a committed allowance - impossible once the seam retired them',
+        approval: 'not applicable: in-memory mutation-harness fixture',
+      },
+    },
+  ];
   const code = "import { captureGanttLifecycle } from '../debugLog';\nvoid captureGanttLifecycle;\n";
   const lintWithRegistry = async (candidate) => {
     const eslint = new ESLint({
@@ -283,14 +295,21 @@ async function runRegistryDropProof() {
       warningCount: result.warningCount,
     };
   };
-  const withAllowance = await lintWithRegistry(registry);
-  const withoutAllowance = await lintWithRegistry(mutated);
+  // An allowance is keyed to one file: the same name allowed for the container
+  // must still be refused in register.ts, or deleting the per-file filter in
+  // the derivation would silently pool allowances across junction files.
+  const container = boundaryPath(registry, 'GanttContainer.svelte');
+  const withCrossFileAllowance = JSON.parse(JSON.stringify(withSyntheticAllowance));
+  withCrossFileAllowance.boundary.allowances[0].file = container;
+  const withAllowance = await lintWithRegistry(withSyntheticAllowance);
+  const withoutAllowance = await lintWithRegistry(registry);
+  const crossFile = await lintWithRegistry(withCrossFileAllowance);
   return [
     {
       id: 'registry-live-allowance-permits',
       filePath: register,
       expectation: 'clean',
-      ok: withAllowance.errorCount === 0,
+      ok: withAllowance.errorCount === 0 && withAllowance.warningCount === 0,
       ...withAllowance,
     },
     {
@@ -299,6 +318,13 @@ async function runRegistryDropProof() {
       expectation: 'red:no-restricted-imports',
       ok: withoutAllowance.errorRuleIds.includes('no-restricted-imports'),
       ...withoutAllowance,
+    },
+    {
+      id: 'cross-file-allowance-does-not-leak',
+      filePath: register,
+      expectation: 'red:no-restricted-imports',
+      ok: crossFile.errorRuleIds.includes('no-restricted-imports'),
+      ...crossFile,
     },
   ];
 }

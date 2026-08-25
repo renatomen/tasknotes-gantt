@@ -178,13 +178,8 @@ import {
 } from './createCalendarNote';
 import { matchesCalendarMarker } from '../controller/calendar/schema';
 import { resolveParentLink } from '../datasource/parentLink';
-import {
-  captureGanttLifecycle,
-  dlog,
-  ganttLifecycleErrorFacts,
-  isGanttDebugEnabled,
-  type GanttLifecycleFacts,
-} from '../debugLog';
+import { dlog, isGanttDebugEnabled } from '../debugLog';
+import { createMountLifecycleCapture } from './ganttLifecycleDiagnostics';
 
 export { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
 
@@ -427,23 +422,21 @@ class ObsidianGanttBasesView extends BasesView {
    */
   private readonly mountTokens = createMountTokenLifecycle();
 
-  private captureMountLifecycle(
-    mountToken: number,
-    event: string,
-    facts?: GanttLifecycleFacts,
-    controller: GanttController | null = this.ganttController,
-  ): void {
-    const generation = controller?.recomputeGeneration() ?? null;
-    captureGanttLifecycle({
-      scope: this.treatmentScopeClass,
-      mountToken,
-      controllerStarted: generation?.started ?? null,
-      controllerDelivered: generation?.delivered ?? null,
-      svarGeneration: null,
-      event,
-      facts,
-    });
+  private mountLifecycleAccess() {
+    const view = this;
+    return {
+      get treatmentScopeClass() {
+        return view.treatmentScopeClass;
+      },
+      get ganttController() {
+        return view.ganttController;
+      },
+    };
   }
+
+  private readonly mountLifecycle = createMountLifecycleCapture(this.mountLifecycleAccess());
+  private readonly captureMountLifecycle = this.mountLifecycle.capture;
+  private readonly captureMountLifecycleError = this.mountLifecycle.captureError;
 
   /** [OGDBG #161] view-instance counter: a bump here = Bases recreated the view
    * (a remount). Distinguishes "we looped in one view" from "Bases re-created us". */
@@ -1473,7 +1466,7 @@ class ObsidianGanttBasesView extends BasesView {
       });
       this.readinessOrchestrator.maybeStart();
     } catch (error) {
-      this.captureMountLifecycle(token, 'mount-failed', ganttLifecycleErrorFacts(error), null);
+      this.captureMountLifecycleError(token, 'mount-failed', error, null);
       console.error('[Gantt] Failed to mount GanttContainer:', error);
       if (this.mountTokens.isCurrent(token)) {
         this.containerEl.empty();

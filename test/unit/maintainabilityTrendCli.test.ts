@@ -137,6 +137,15 @@ describe('maintainability-trend CLI', () => {
     expect(run.stdout).toContain('ranked file touched — cite rank 1 in the PR description');
   });
 
+  it('lists the diagnostics seam module beside the ranked sizes, absent-tolerant', () => {
+    plantRegistry(registryFixture(baselineSha));
+    const run = runScript(['--registry', registryPath]);
+    expect(run.status).toBe(0);
+    // The fixture repo never creates the seam path, so the size column reads
+    // `absent` while the line itself is always present.
+    expect(run.stdout).toMatch(/absent src\/bases\/ganttLifecycleDiagnostics\.ts \(diagnostics seam, unranked\)/);
+  });
+
   it('defaults the range to merge-base(HEAD, main)..HEAD when no flags are given', () => {
     plantRegistry(registryFixture(baselineSha));
     // The planted registry lives outside the repo, so the default-registry read
@@ -172,6 +181,29 @@ describe('maintainability-trend CLI', () => {
     const run = runScript(['--registry', registryPath]);
     expect(run.status).toBe(1);
     expect(run.stderr).toContain('fetch-depth: 0');
+  });
+
+  it('exits non-zero when the baseline is present but not an ancestor of the window end', () => {
+    // The feature tip exists in the clone yet lies off the main history, so a
+    // window ending at main would be silently empty instead of measured.
+    plantRegistry(registryFixture(featureSha));
+    const run = runScript(['--registry', registryPath, '--base', mainTipSha, '--head', mainTipSha]);
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('not an ancestor of measurement endpoint');
+    expect(run.stderr).toContain('baseline commit');
+  });
+
+  it("exits non-zero when the latest report's anchor is not an ancestor of the count's end", () => {
+    plantRegistry(
+      registryFixture(baselineSha, [
+        { date: '2026-08-17', anchorSha: featureSha, report: 'docs/reports/older.md' },
+      ]),
+    );
+    const mergeBase = git(['merge-base', 'main', 'feature']);
+    const run = runScript(['--registry', registryPath, '--base', mergeBase, '--head', featureSha]);
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('not an ancestor of measurement endpoint');
+    expect(run.stderr).toContain("latest report's anchor");
   });
 
   it('exits non-zero naming the field on a malformed registry', () => {
