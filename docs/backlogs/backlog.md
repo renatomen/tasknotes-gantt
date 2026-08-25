@@ -845,7 +845,11 @@ pattern. The privileged publisher must not republish PR-produced values:
 it recomputes the trend with the default branch's script and registry
 against the PR's base and head (the same trusted-side rule the peer
 wrapper's staging already applies), treating the PR-run artifact as a
-presence signal at most. The AGENTS.md review-guidelines line that names
+presence signal at most. Ordering matters: a hosted review requested
+before the publisher posts would settle without the trend context, so the
+paste ritual retires only when the workflow guarantees the comment exists
+before the review is solicited — solicit after the publisher completes, or
+retrigger the review on publication. The AGENTS.md review-guidelines line that names
 "the author's PR-body paste" as the hosted gate's trend source changes to
 name the CI-posted comment, with an explicit read-the-trend-comment
 direction for the hosted reviewer; the pre-push print stays for the human
