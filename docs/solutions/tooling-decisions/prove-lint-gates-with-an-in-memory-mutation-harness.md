@@ -1,6 +1,7 @@
 ---
 title: "Prove a lint gate with an in-memory mutation harness, and bound its adversarial review by finding class"
 date: 2026-08-24
+last_refreshed: 2026-08-25
 category: docs/solutions/tooling-decisions
 module: maintainability-boundary / lint-gate
 problem_type: tooling_decision
@@ -32,14 +33,18 @@ uses ESLint's `lintText` API to lint planted source text at the real guarded fil
 paths against the real `eslint.config.mjs` — so `new ESLint({ cwd: repoRoot })` applies
 the true per-file overrides without any red file existing on disk. A jest test spawns
 the harness and asserts every verdict (red plants report the expected rule id; clean
-plants report zero errors and zero warnings — the allowance-liveness check alone gates
-on errors only), so the whole plant set re-proves on every local suite run and every CI
-run. For derivation liveness, build a second instance with `overrideConfigFile: true`
-and `overrideConfig: deriveBoundaryOverrides(mutatedRegistry)`: the same import lints
-clean with the committed registry and red once the mutated registry drops its allowance
-— proving the derivation is live (the overrides respond to registry edits) without
-touching the committed registry. That instance deliberately bypasses
-`eslint.config.mjs`, so it says nothing about the real config on its own: the binding
+plants — the allowance-liveness permitting leg included — report zero errors and zero
+warnings), so the whole plant set re-proves on every local suite run and every CI
+run. For derivation liveness, build override-only instances with
+`overrideConfigFile: true` and `overrideConfig: deriveBoundaryOverrides(candidate)`
+over three registry candidates: one carrying a **synthesized** allowance for the
+linted file (the same import lints clean), the committed registry (red — once the
+extraction retired every committed allowance there is nothing left to drop, so the
+permitting side plants its own in-memory entry), and one whose only allowance names a
+*different* junction file (red again — an allowance never leaks across files; the
+`cross-file-allowance-does-not-leak` leg pins the per-file keying of the derivation).
+This proves the derivation is live without touching the committed registry. Those instances deliberately bypass
+`eslint.config.mjs`, so they say nothing about the real config on their own: the binding
 is carried by the real-config plants above plus a source-reading assertion that the
 config spreads `deriveBoundaryOverrides()`; a hand-written extra override slipped in
 beside the spread remains the review-guarded residual.
@@ -95,13 +100,17 @@ const [result] = await eslint.lintText(
 // assert result.messages contains ruleId 'no-restricted-imports'
 ```
 
-Derivation-liveness shape (mutated registry, override-only instance):
+Derivation-liveness shape (synthesized-allowance registry, override-only instance):
 
 ```js
+// Three candidates through the same instance shape: withSyntheticAllowance
+// (permits: zero errors, zero warnings), the committed registry (refuses),
+// and withCrossFileAllowance — the same import name allowed for a different
+// junction file (still refuses: allowances are keyed per file).
 const eslint = new ESLint({
   cwd: repoRoot,
   overrideConfigFile: true,
-  overrideConfig: [languageDefaults, ...deriveBoundaryOverrides(mutatedRegistry)],
+  overrideConfig: [languageDefaults, ...deriveBoundaryOverrides(candidate)],
 });
 ```
 
