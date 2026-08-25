@@ -103,7 +103,7 @@ function sampledRoot(attempt: ColumnSortClickAttempt): ColumnSortRootCensusEntry
 
 function liveOwnerWithHeader(attempt: ColumnSortClickAttempt): ColumnSortRootCensusEntry | undefined {
   return attempt.roots.find(
-    (root) => root.ownsBase === true && root.connected && root.headerPresent,
+    (root) => root.ownsBase === true && root.connected && root.visible && root.headerPresent,
   );
 }
 
@@ -350,6 +350,10 @@ export interface ColumnSortControlDigest {
   readinessGates: number;
   /** Ordered click-site journey (call sites in first-attempt order, bounded). */
   journey: string;
+  /** Largest root count any click attempt observed (0 when no census ran). */
+  maxRootCount: number;
+  /** Whether every censused root was owning, connected, and visible. */
+  allRootsLiveOwners: boolean;
 }
 
 /**
@@ -374,6 +378,13 @@ export function buildColumnSortControlDigest(
       });
     }
   }
+  const maxRootCount = input.attempts.reduce(
+    (max, attempt) => Math.max(max, attempt.roots.length),
+    0,
+  );
+  const allRootsLiveOwners = input.attempts.every((attempt) =>
+    attempt.roots.every((root) => root.ownsBase === true && root.connected && root.visible),
+  );
   return {
     schema: COLUMN_SORT_TRACE_SCHEMA,
     identity: input.identity,
@@ -384,6 +395,8 @@ export function buildColumnSortControlDigest(
     basePath: input.basePath,
     readinessGates: input.readinessGates,
     journey: boundedFact([...perSite.keys()]),
+    maxRootCount,
+    allRootsLiveOwners,
   };
 }
 
@@ -416,6 +429,9 @@ export function areColumnSortControlsEquivalent(
     a.basePath === b.basePath &&
     a.journey === b.journey &&
     a.readinessGates === b.readinessGates &&
+    a.maxRootCount === b.maxRootCount &&
+    a.allRootsLiveOwners &&
+    b.allRootsLiveOwners &&
     a.armed &&
     b.armed &&
     !a.overflow &&

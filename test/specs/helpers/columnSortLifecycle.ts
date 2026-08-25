@@ -87,7 +87,12 @@ export async function startColumnSortLifecycleCapture(): Promise<void> {
       null,
       false,
     );
+    return;
   }
+  // Prime the control identity while the WebDriver channel is healthy: the
+  // failure path must never re-enter that channel, so it consumes the cache
+  // (or an incomplete Node-side identity) instead of reading live.
+  await runDiagnosticCommand('column-sort:identity', () => readControlIdentity());
 }
 
 export async function setColumnSortPhase(phase: string): Promise<void> {
@@ -513,6 +518,21 @@ async function readColumnSortLifecycleAfterFailure(columnId: string): Promise<Ga
 
 let cachedIdentity: ColumnSortControlIdentity | null = null;
 
+/** Identity from Node-side facts only — no browser round trip. */
+function nodeSideIdentity(): ColumnSortControlIdentity {
+  const capabilities = browser.capabilities as { browserVersion?: string };
+  return {
+    buildSha: process.env.GITHUB_SHA ?? null,
+    specSchema: COLUMN_SORT_TRACE_SCHEMA,
+    chromiumVersion: capabilities.browserVersion ?? null,
+    taskNotesVersion: null,
+    platform: process.platform,
+    nodeVersion: process.version,
+    obsidianVersion: null,
+    electronVersion: null,
+  };
+}
+
 /**
  * Run a diagnostic-only browser command so a transport failure (wedged
  * session, dead worker) surfaces as probe evidence, never as a suite result.
@@ -600,7 +620,10 @@ export async function reportColumnSortLifecycle(origin: string, primaryError: un
   }
   if (!envelopeGate.shouldEmit(primaryError)) return;
   try {
-    const identity = await readControlIdentity();
+    // Never re-enter the possibly-wedged WebDriver channel on the failure
+    // path: use the identity primed at arming, or a Node-side-only identity
+    // whose browser fields stay null (incomplete, therefore unmatchable).
+    const identity = cachedIdentity ?? nodeSideIdentity();
     const envelope = await captureLifecycleEnvelope<GanttLifecycleSnapshot | null, ColumnSortEnvelopeTrace>({
       origin,
       primaryError,

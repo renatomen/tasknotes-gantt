@@ -319,6 +319,23 @@ describe('classifyColumnSortDiagnosis', () => {
     expect(verdict.reason).toContain('sort delivery unproven');
   });
 
+  it('refuses a wrong-root verdict when the only other owner is hidden', () => {
+    const verdict = classifyColumnSortDiagnosis(
+      baseInput({
+        clickAttempts: [
+          attempt({
+            landed: false,
+            roots: [
+              root({ ownsBase: false, connected: false, headerPresent: false }),
+              root({ selectedByGlobalProxy: false, ownsBase: true, visible: false, headerPresent: true }),
+            ],
+          }),
+        ],
+      }),
+    );
+    expect(verdict.verdict).toBe('open');
+  });
+
   it('refuses a header-drop verdict when the sole owning root is not live and visible', () => {
     const verdict = classifyColumnSortDiagnosis(
       baseInput({
@@ -473,6 +490,8 @@ describe('buildColumnSortControlDigest', () => {
     expect(digest.basePath).toBe('Companion.base');
     expect(digest.readinessGates).toBe(7);
     expect(digest.journey).toBe('ae1-sort-loop|ae2-clear-click');
+    expect(digest.maxRootCount).toBe(1);
+    expect(digest.allRootsLiveOwners).toBe(true);
   });
 });
 
@@ -521,6 +540,17 @@ describe('areColumnSortControlsEquivalent', () => {
 
   it('rejects a pair when either side overflowed', () => {
     expect(areColumnSortControlsEquivalent(digest(), digest({ overflow: true }))).toBe(false);
+  });
+
+  it('rejects a pair when a stale or extra root degraded either run', () => {
+    const extraStaleRoot = digest({
+      attempts: [
+        attempt({
+          roots: [root(), root({ selectedByGlobalProxy: false, ownsBase: false, connected: false })],
+        }),
+      ],
+    });
+    expect(areColumnSortControlsEquivalent(digest(), extraStaleRoot)).toBe(false);
   });
 
   it('rejects a pair whose per-site click summaries diverge', () => {
