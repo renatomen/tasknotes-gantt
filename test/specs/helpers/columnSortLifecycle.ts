@@ -678,8 +678,17 @@ export async function reportColumnSortLifecycle(origin: string, primaryError: un
 export async function emitColumnSortControlDigest(): Promise<void> {
   if (!armed) return;
   try {
-    const identity = await readControlIdentity();
-    const snapshot = await readColumnSortLifecycle();
+    // Both reads are deadline-bounded: a channel that wedges after the final
+    // assertion must degrade to a retrieval-failure line, not spend the
+    // teardown hook's budget and redden a green suite.
+    const identity = await withGanttDiagnosticDeadline(
+      () => readControlIdentity(),
+      LIFECYCLE_RETRIEVAL_TIMEOUT_MS,
+    );
+    const snapshot = await withGanttDiagnosticDeadline(
+      () => readColumnSortLifecycle(),
+      LIFECYCLE_RETRIEVAL_TIMEOUT_MS,
+    );
     const digest = buildColumnSortControlDigest({
       identity,
       attempts,
