@@ -49,6 +49,7 @@ export interface ColumnSortSliceFacts {
   phaseStartSeen: boolean;
   terminalSeen: boolean;
   readinessPassedSeen: boolean;
+  /** Overflow OUTSIDE the failing slice is deliberately not modeled; only in-slice overflow disqualifies. */
   overflowInSlice: boolean;
   collectorFailure: boolean;
 }
@@ -277,6 +278,19 @@ export interface ColumnSortControlIdentity {
   taskNotesVersion: string | null;
   platform: string;
   nodeVersion: string;
+  obsidianVersion: string | null;
+  electronVersion: string | null;
+}
+
+/** True only when every runtime-fingerprint field of the identity is present. */
+export function isColumnSortControlIdentityComplete(identity: ColumnSortControlIdentity): boolean {
+  return (
+    identity.buildSha !== null &&
+    identity.chromiumVersion !== null &&
+    identity.taskNotesVersion !== null &&
+    identity.obsidianVersion !== null &&
+    identity.electronVersion !== null
+  );
 }
 
 export interface ColumnSortControlDigestInput {
@@ -302,7 +316,11 @@ export interface ColumnSortControlDigest {
   collectorFailure: boolean;
 }
 
-/** The pass-path control digest: exactly the fields control matching consumes. */
+/**
+ * The pass-path control digest: exactly the fields control matching consumes.
+ * A digest whose identity is incomplete per
+ * {@link isColumnSortControlIdentityComplete} is unmatchable as a control.
+ */
 export function buildColumnSortControlDigest(
   input: ColumnSortControlDigestInput,
 ): ColumnSortControlDigest {

@@ -12,6 +12,7 @@ import {
 } from './lifecycleTrace';
 import {
   buildColumnSortControlDigest,
+  COLUMN_SORT_BOUNDED_FACT_LIMIT,
   COLUMN_SORT_LIFECYCLE_CAPACITY,
   COLUMN_SORT_TRACE_SCHEMA,
   createColumnSortEnvelopeGate,
@@ -125,6 +126,59 @@ export async function recordColumnSortReadinessPassed(): Promise<void> {
   await recordColumnSortEvent('colsort-readiness-passed', { ordinal: readinessOrdinal });
 }
 
+/**
+ * Per-root census at a reset boundary: for EVERY rendered root, record mount
+ * token, sampled-root selection, reset-pill presence, and whether any header
+ * is actively sorted (aria-sort asc/desc). A reset skipped because the SAMPLED
+ * root shows no pill can leak another root's sort into the next test; this
+ * census makes that leaked state visible per root. Observation only — a throw
+ * inside never escapes outward.
+ */
+export async function recordColumnSortResetCensus(checkpoint: 'before' | 'after'): Promise<void> {
+  if (!armed) return;
+  await browser.execute(
+    (scope: string, checkpointArg: string, factLimit: number) => {
+      const recordSafely = (event: string, facts: Record<string, boolean | number | string | null>): void => {
+        try {
+          (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle?.record({
+            scope,
+            mountToken: 0,
+            controllerStarted: null,
+            controllerDelivered: null,
+            svarGeneration: null,
+            event,
+            facts,
+          });
+        } catch {
+          // Best-effort by design.
+        }
+      };
+      try {
+        const roots = Array.from(document.querySelectorAll<HTMLElement>('.og-bases-gantt'));
+        const sampled = document.querySelector<HTMLElement>('.og-bases-gantt');
+        const rootCensus = roots
+          .map((root) => {
+            const mountToken = Number(root.dataset.ogMountToken);
+            const resetPill = !!root.querySelector('.zoom-btn.reset-sort');
+            const sorted = !!root.querySelector('[aria-sort="ascending"], [aria-sort="descending"]');
+            return `${Number.isFinite(mountToken) ? mountToken : 'x'}:${root === sampled ? 1 : 0}:${resetPill ? 1 : 0}:${sorted ? 1 : 0}`;
+          })
+          .join('|')
+          .slice(0, factLimit);
+        recordSafely('colsort-reset-census', { checkpoint: checkpointArg, rootCensus });
+      } catch (error) {
+        recordSafely('colsort-observation-error', {
+          checkpoint: checkpointArg,
+          message: (error instanceof Error ? error.message : String(error)).slice(0, factLimit),
+        });
+      }
+    },
+    SORT_SCOPE,
+    checkpoint,
+    COLUMN_SORT_BOUNDED_FACT_LIMIT,
+  );
+}
+
 interface RecordedClickResult {
   landed: boolean;
   ariaSortBefore: string | null;
@@ -145,8 +199,8 @@ interface RecordedClickResult {
 export async function recordedClickColumnHeader(callSite: string, columnId: string): Promise<boolean> {
   attemptCounter += 1;
   const ordinal = attemptCounter;
-  const result = await browser.executeObsidian<RecordedClickResult, [string, string, string, number, boolean]>(
-    ({ app }, columnIdArg, basePath, site, attemptOrdinal, record) => {
+  const result = await browser.executeObsidian<RecordedClickResult, [string, string, string, number, boolean, number]>(
+    ({ app }, columnIdArg, basePath, site, attemptOrdinal, record, factLimit) => {
       const strip = (value: string): string => (value.startsWith(':') ? value.slice(1) : value);
       const findHeader = (root: Element): HTMLElement | undefined =>
         Array.from(root.querySelectorAll<HTMLElement>('[data-header-id]')).find(
@@ -162,7 +216,7 @@ export async function recordedClickColumnHeader(callSite: string, columnId: stri
       // The click above is the spec's behavior; everything below is armed-only
       // observation. Unarmed runs skip the leaf iteration and census entirely —
       // no consumer can read them (envelope and digest both require an armed
-      // collector).
+      // collector) — and an observation throw must never disturb the click result.
       let markdownLeafPresent = false;
       let activeLeafViewType: string | null = null;
       let census: {
@@ -174,7 +228,7 @@ export async function recordedClickColumnHeader(callSite: string, columnId: stri
         headerPresent: boolean;
       }[] = [];
       let sampledHeaderIds = '';
-      if (record) {
+      const observe = (): void => {
         interface LeafLike {
           view?: { getViewType?: () => string; containerEl?: HTMLElement; file?: { path?: string }; getState?: () => unknown };
           containerEl?: HTMLElement;
@@ -222,7 +276,7 @@ export async function recordedClickColumnHeader(callSite: string, columnId: stri
           ? Array.from(sampled.querySelectorAll<HTMLElement>('[data-header-id]'))
               .map((el) => strip(el.getAttribute('data-header-id') ?? ''))
               .join('|')
-              .slice(0, 500)
+              .slice(0, factLimit)
           : '';
         (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle?.record({
           scope: 'column-sort',
@@ -245,10 +299,37 @@ export async function recordedClickColumnHeader(callSite: string, columnId: stri
                   `${entry.mountToken}:${entry.selectedByGlobalProxy ? 1 : 0}:${entry.connected ? 1 : 0}:${entry.visible ? 1 : 0}:${entry.ownsBase === null ? 'x' : entry.ownsBase ? 1 : 0}:${entry.headerPresent ? 1 : 0}`,
               )
               .join('|')
-              .slice(0, 500),
+              .slice(0, factLimit),
             sampledHeaderIds,
           },
         });
+      };
+      if (record) {
+        try {
+          observe();
+        } catch (error) {
+          markdownLeafPresent = false;
+          activeLeafViewType = null;
+          census = [];
+          sampledHeaderIds = '';
+          try {
+            (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle?.record({
+              scope: 'column-sort',
+              mountToken: 0,
+              controllerStarted: null,
+              controllerDelivered: null,
+              svarGeneration: null,
+              event: 'colsort-observation-error',
+              facts: {
+                callSite: site,
+                attemptOrdinal,
+                message: (error instanceof Error ? error.message : String(error)).slice(0, factLimit),
+              },
+            });
+          } catch {
+            // Recording the observation failure is itself best-effort.
+          }
+        }
       }
       return {
         landed: header !== undefined,
@@ -265,6 +346,7 @@ export async function recordedClickColumnHeader(callSite: string, columnId: stri
     callSite,
     ordinal,
     armed,
+    COLUMN_SORT_BOUNDED_FACT_LIMIT,
   );
   if (armed) {
     attempts.push({
@@ -298,11 +380,31 @@ export interface RecordedSortState {
  */
 export async function readColumnSortStateRecorded(waitSite: string): Promise<RecordedSortState> {
   return browser.execute(
-    (site: string, record: boolean) => {
+    (site: string, record: boolean, factLimit: number) => {
       const strip = (id: string): string => (id.startsWith(':') ? id.slice(1) : id);
+      // Recording is observation only: it must never throw into the sort-state
+      // read that wait conditions consume.
+      const recordSafely = (event: string, facts: Record<string, boolean | number | string | null>): void => {
+        try {
+          (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle?.record({
+            scope: 'column-sort',
+            mountToken: 0,
+            controllerStarted: null,
+            controllerDelivered: null,
+            svarGeneration: null,
+            event,
+            facts,
+          });
+        } catch {
+          // Best-effort by design.
+        }
+      };
       const roots = Array.from(document.querySelectorAll<HTMLElement>('.og-bases-gantt'));
       const sampled = document.querySelector<HTMLElement>('.og-bases-gantt');
       if (!sampled) {
+        if (record) {
+          recordSafely('colsort-order-tick', { waitSite: site, mounted: false, rootCensus: '' });
+        }
         return { mounted: false, ids: [], resetPill: false, sorted: false, hostHeight: 0 };
       }
       const ids = Array.from(sampled.querySelectorAll('.wx-bar')).map((bar) =>
@@ -313,34 +415,34 @@ export async function readColumnSortStateRecorded(waitSite: string): Promise<Rec
       const chart = sampled.querySelector('.og-chart-area');
       const hostHeight = chart ? chart.getBoundingClientRect().height : 0;
       if (record) {
-        const censusOf = (root: HTMLElement): string => {
-          const barIds = Array.from(root.querySelectorAll('.wx-bar')).map((bar) =>
-            strip(bar.getAttribute('data-id') ?? ''),
-          );
-          const mountToken = Number(root.dataset.ogMountToken);
-          const aIndex = barIds.findIndex((id) => id.startsWith('Project A.md'));
-          const bIndex = barIds.findIndex((id) => id.startsWith('Project B.md'));
-          return `${Number.isFinite(mountToken) ? mountToken : 'x'}:${root === sampled ? 1 : 0}:${barIds.length}:${aIndex}:${bIndex}`;
-        };
-        (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle?.record({
-          scope: 'column-sort',
-          mountToken: 0,
-          controllerStarted: null,
-          controllerDelivered: null,
-          svarGeneration: null,
-          event: 'colsort-order-tick',
-          facts: {
+        try {
+          const censusOf = (root: HTMLElement): string => {
+            const barIds = Array.from(root.querySelectorAll('.wx-bar')).map((bar) =>
+              strip(bar.getAttribute('data-id') ?? ''),
+            );
+            const mountToken = Number(root.dataset.ogMountToken);
+            const aIndex = barIds.findIndex((id) => id.startsWith('Project A.md'));
+            const bIndex = barIds.findIndex((id) => id.startsWith('Project B.md'));
+            return `${Number.isFinite(mountToken) ? mountToken : 'x'}:${root === sampled ? 1 : 0}:${barIds.length}:${aIndex}:${bIndex}`;
+          };
+          recordSafely('colsort-order-tick', {
             waitSite: site,
             resetPill,
             sorted,
-            rootCensus: roots.map(censusOf).join('|').slice(0, 500),
-          },
-        });
+            rootCensus: roots.map(censusOf).join('|').slice(0, factLimit),
+          });
+        } catch (error) {
+          recordSafely('colsort-observation-error', {
+            waitSite: site,
+            message: (error instanceof Error ? error.message : String(error)).slice(0, factLimit),
+          });
+        }
       }
       return { mounted: true, ids, resetPill, sorted, hostHeight };
     },
     waitSite,
     armed,
+    COLUMN_SORT_BOUNDED_FACT_LIMIT,
   );
 }
 
@@ -379,7 +481,7 @@ async function readColumnSortLifecycleAfterFailure(columnId: string): Promise<Ga
         headerPresent ? 1 : 0,
         root.querySelectorAll(".wx-bar").length,
       ].join(":");
-    }).join("|").slice(0, 500);
+    }).join("|").slice(0, ${COLUMN_SORT_BOUNDED_FACT_LIMIT});
     control?.record({
       scope: "column-sort",
       mountToken: 0,
@@ -402,14 +504,28 @@ let cachedIdentity: ColumnSortControlIdentity | null = null;
 async function readControlIdentity(): Promise<ColumnSortControlIdentity> {
   if (cachedIdentity) return cachedIdentity;
   let taskNotesVersion: string | null = null;
+  let obsidianVersion: string | null = null;
+  let electronVersion: string | null = null;
   try {
-    taskNotesVersion = await browser.executeObsidian(({ app }) => {
+    const fingerprint = await browser.executeObsidian(({ app, obsidian }) => {
       const plugin = (app as unknown as { plugins?: { getPlugin?: (id: string) => unknown } })
         .plugins?.getPlugin?.('tasknotes') as { manifest?: { version?: string } } | undefined;
-      return plugin?.manifest?.version ?? null;
+      // `apiVersion` is the obsidian module's release version string — the
+      // reliable in-renderer read (there is no public `app.appVersion`).
+      const apiVersion = (obsidian as unknown as { apiVersion?: string }).apiVersion;
+      const electron = (globalThis as { process?: { versions?: { electron?: string } } })
+        .process?.versions?.electron;
+      return {
+        taskNotesVersion: plugin?.manifest?.version ?? null,
+        obsidianVersion: typeof apiVersion === 'string' ? apiVersion : null,
+        electronVersion: electron ?? null,
+      };
     });
+    taskNotesVersion = fingerprint.taskNotesVersion;
+    obsidianVersion = fingerprint.obsidianVersion;
+    electronVersion = fingerprint.electronVersion;
   } catch {
-    taskNotesVersion = null;
+    // Best-effort by design: an unreadable fingerprint leaves the identity incomplete.
   }
   const capabilities = browser.capabilities as { browserVersion?: string };
   cachedIdentity = {
@@ -419,6 +535,8 @@ async function readControlIdentity(): Promise<ColumnSortControlIdentity> {
     taskNotesVersion,
     platform: process.platform,
     nodeVersion: process.version,
+    obsidianVersion,
+    electronVersion,
   };
   return cachedIdentity;
 }

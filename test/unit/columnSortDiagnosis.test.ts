@@ -7,7 +7,9 @@ import {
   COLUMN_SORT_LIFECYCLE_CAPACITY,
   createColumnSortEnvelopeGate,
   estimateWorstCaseRecordBudget,
+  isColumnSortControlIdentityComplete,
   type ColumnSortClickAttempt,
+  type ColumnSortControlIdentity,
   type ColumnSortRootCensusEntry,
   type ColumnSortTraceInput,
 } from '../specs/helpers/columnSortDiagnosis';
@@ -37,6 +39,16 @@ function attempt(overrides: Partial<ColumnSortClickAttempt> = {}): ColumnSortCli
     sequence: 10,
     ...overrides,
   };
+}
+
+function wrongRootAttempt(): ColumnSortClickAttempt {
+  return attempt({
+    landed: false,
+    roots: [
+      root({ ownsBase: false, connected: false, headerPresent: false }),
+      root({ selectedByGlobalProxy: false, ownsBase: true, headerPresent: true }),
+    ],
+  });
 }
 
 function completeSlice(): NonNullable<ColumnSortTraceInput['slice']> {
@@ -99,7 +111,63 @@ describe('classifyColumnSortDiagnosis', () => {
     expect(verdict.verdict).toBe('open');
   });
 
-  it('does not disqualify a slice for overflow recorded outside it', () => {
+  it('refuses every verdict when the failing-test slice is missing', () => {
+    const verdict = classifyColumnSortDiagnosis(
+      baseInput({ slice: null, clickAttempts: [wrongRootAttempt()] }),
+    );
+    expect(verdict.verdict).toBe('open');
+    expect(verdict.reason).toContain('slice missing');
+  });
+
+  it('refuses every verdict when the slice records a collector failure', () => {
+    const verdict = classifyColumnSortDiagnosis(
+      baseInput({
+        slice: { ...completeSlice(), collectorFailure: true },
+        clickAttempts: [wrongRootAttempt()],
+      }),
+    );
+    expect(verdict.verdict).toBe('open');
+    expect(verdict.reason).toContain('collector failure');
+  });
+
+  it('refuses every verdict when the terminal phase marker is missing', () => {
+    const verdict = classifyColumnSortDiagnosis(
+      baseInput({
+        slice: { ...completeSlice(), terminalSeen: false },
+        clickAttempts: [wrongRootAttempt()],
+      }),
+    );
+    expect(verdict.verdict).toBe('open');
+    expect(verdict.reason).toContain('phase markers');
+  });
+
+  it('refuses every verdict when the readiness-passed marker is missing', () => {
+    const verdict = classifyColumnSortDiagnosis(
+      baseInput({
+        slice: { ...completeSlice(), readinessPassedSeen: false },
+        clickAttempts: [wrongRootAttempt()],
+      }),
+    );
+    expect(verdict.verdict).toBe('open');
+    expect(verdict.reason).toContain('readiness');
+  });
+
+  it('lets the earliest absent click own the verdict over a row contradiction that alone would be row loss', () => {
+    const verdict = classifyColumnSortDiagnosis(
+      baseInput({
+        clickAttempts: [wrongRootAttempt()],
+        rowContradiction: {
+          rowAbsentFromSampledRoot: true,
+          rowPresentInOwningRoot: false,
+          productTransitionRecorded: true,
+        },
+      }),
+    );
+    expect(verdict.verdict).toBe('class-b-wrong-root');
+    expect(verdict.causalAttemptOrdinal).toBe(1);
+  });
+
+  it('reaches a verdict from in-slice facts alone; ring overflow outside the slice is not an input', () => {
     const verdict = classifyColumnSortDiagnosis(
       baseInput({
         clickAttempts: [attempt({ landed: false, roots: [root({ headerPresent: false })] })],
@@ -313,27 +381,56 @@ describe('estimateWorstCaseRecordBudget', () => {
   });
 });
 
+function completeIdentity(): ColumnSortControlIdentity {
+  return {
+    buildSha: 'a'.repeat(40),
+    specSchema: 'column-sort-diagnosis/v1',
+    chromiumVersion: '1.12.7',
+    taskNotesVersion: '4.11.0',
+    platform: 'win32',
+    nodeVersion: 'v20.0.0',
+    obsidianVersion: '1.9.14',
+    electronVersion: '37.2.4',
+  };
+}
+
 describe('buildColumnSortControlDigest', () => {
   it('carries the control-identity stamp and per-site click summaries the matching rules consume', () => {
     const digest = buildColumnSortControlDigest({
-      identity: {
-        buildSha: 'a'.repeat(40),
-        specSchema: 'column-sort-diagnosis/v1',
-        chromiumVersion: '1.12.7',
-        taskNotesVersion: '4.11.0',
-        platform: 'win32',
-        nodeVersion: 'v20.0.0',
-      },
+      identity: completeIdentity(),
       attempts: [attempt(), attempt({ callSite: 'ae2-clear-click', landed: true })],
       armed: true,
       overflow: false,
       collectorFailure: false,
     });
     expect(digest.identity.buildSha).toBe('a'.repeat(40));
+    expect(digest.identity.obsidianVersion).toBe('1.9.14');
+    expect(digest.identity.electronVersion).toBe('37.2.4');
     expect(digest.perSite).toEqual([
       { callSite: 'ae1-sort-loop', attempts: 1, allLanded: true },
       { callSite: 'ae2-clear-click', attempts: 1, allLanded: true },
     ]);
     expect(digest.armed).toBe(true);
+  });
+});
+
+describe('isColumnSortControlIdentityComplete', () => {
+  it('accepts an identity with every runtime-fingerprint field present', () => {
+    expect(isColumnSortControlIdentityComplete(completeIdentity())).toBe(true);
+  });
+
+  it('rejects an identity when any runtime-fingerprint field is null', () => {
+    const fingerprintFields = [
+      'buildSha',
+      'chromiumVersion',
+      'taskNotesVersion',
+      'obsidianVersion',
+      'electronVersion',
+    ] as const;
+    for (const field of fingerprintFields) {
+      const identity = completeIdentity();
+      identity[field] = null;
+      expect(isColumnSortControlIdentityComplete(identity)).toBe(false);
+    }
   });
 });

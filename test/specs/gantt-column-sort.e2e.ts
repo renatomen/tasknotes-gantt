@@ -11,6 +11,7 @@ import {
   readColumnSortStateRecorded,
   recordColumnSortEvent,
   recordColumnSortReadinessPassed,
+  recordColumnSortResetCensus,
   recordedClickColumnHeader,
   registerColumnSortRunnerReporter,
   setColumnSortPhase,
@@ -258,9 +259,11 @@ async function ensureGanttReady(): Promise<void> {
  * reset pill. Both boundaries and the skip reason are recorded facts: a reset
  * skipped because the SAMPLED root shows no pill can leak the real root's sort
  * into the next test, and that leak must be distinguishable from product
- * nondeterminism in the trace.
+ * nondeterminism in the trace. A per-root census at each boundary records
+ * every root's pill and aria-sort state, so the leaked root itself is visible.
  */
 async function resetSortIfActive(): Promise<void> {
+  await recordColumnSortResetCensus("before");
   const state = await readSortState();
   if (!state.resetPill) {
     await recordColumnSortEvent("colsort-reset-boundary", {
@@ -284,6 +287,7 @@ async function resetSortIfActive(): Promise<void> {
     timeout: 10000,
     timeoutMsg: "Reset pill did not clear between tests",
   });
+  await recordColumnSortResetCensus("after");
   const after = await readSortState();
   await recordColumnSortEvent("colsort-reset-complete", {
     resetPill: after.resetPill,
@@ -293,6 +297,13 @@ async function resetSortIfActive(): Promise<void> {
 
 describe("Gantt (OG) ephemeral column sort", () => {
   before(async () => {
+    // Register the runner-side failure reporter (pure Node-side) before any
+    // setup work: a hook timeout during the reload/readiness waits below fires
+    // the conf's afterHook, which must find the reporter global already in
+    // place. Until the collector is armed further down, the reporter degrades
+    // to the retrieval-failure line carrying the primary error.
+    registerColumnSortRunnerReporter();
+
     const tmpVault = path.join(os.tmpdir(), "og-gantt-column-sort-e2e");
     fs.rmSync(tmpVault, { recursive: true, force: true });
     fs.cpSync(fixtureVault, tmpVault, { recursive: true });
@@ -346,13 +357,12 @@ describe("Gantt (OG) ephemeral column sort", () => {
       { timeout: 60000, timeoutMsg: "TaskNotes subtask relationships did not resolve" },
     );
 
-    // Arm the default-off lifecycle collector for every ordinary execution of
-    // this spec (degrades loudly if the collector is unavailable), and route
-    // runner-side test/hook failures into the envelope path. The worst-case
-    // waits above already exceed the mocha hook timeout, so a hook timeout is
-    // an EXPECTED organic failure shape the afterHook wiring must capture.
+    // Arm the default-off lifecycle collector only now: it needs the reloaded
+    // page, so it cannot move ahead of the reload the way the reporter does
+    // (degrades loudly if the collector is unavailable). The worst-case waits
+    // above already exceed the mocha hook timeout, so a hook timeout is an
+    // EXPECTED organic failure shape the afterHook wiring must capture.
     await startColumnSortLifecycleCapture();
-    registerColumnSortRunnerReporter();
 
     // Repeatable failure-path rehearsal: forces a before-hook failure so the
     // afterHook -> runner-reporter -> envelope path can be mutation-checked on
