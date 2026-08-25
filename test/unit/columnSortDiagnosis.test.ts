@@ -319,7 +319,7 @@ describe('buildColumnSortControlDigest', () => {
       identity: {
         buildSha: 'a'.repeat(40),
         specSchema: 'column-sort-diagnosis/v1',
-        obsidianVersion: '1.12.7',
+        chromiumVersion: '1.12.7',
         taskNotesVersion: '4.11.0',
         platform: 'win32',
         nodeVersion: 'v20.0.0',

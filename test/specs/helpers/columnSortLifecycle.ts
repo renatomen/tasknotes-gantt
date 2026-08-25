@@ -402,7 +402,7 @@ async function readControlIdentity(): Promise<ColumnSortControlIdentity> {
   return {
     buildSha: process.env.GITHUB_SHA ?? null,
     specSchema: COLUMN_SORT_TRACE_SCHEMA,
-    obsidianVersion: capabilities.browserVersion ?? null,
+    chromiumVersion: capabilities.browserVersion ?? null,
     taskNotesVersion,
     platform: process.platform,
     nodeVersion: process.version,

@@ -273,7 +273,7 @@ export function estimateWorstCaseRecordBudget(): ColumnSortRecordBudget {
 export interface ColumnSortControlIdentity {
   buildSha: string | null;
   specSchema: string;
-  obsidianVersion: string | null;
+  chromiumVersion: string | null;
   taskNotesVersion: string | null;
   platform: string;
   nodeVersion: string;
