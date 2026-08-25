@@ -320,6 +320,42 @@ describe('classifyColumnSortDiagnosis', () => {
     expect(verdict.reason).toContain('sort delivery unproven');
   });
 
+  it('refuses a wrong-root verdict when the sampled root ownership is merely unresolved', () => {
+    const verdict = classifyColumnSortDiagnosis(
+      baseInput({
+        clickAttempts: [
+          attempt({
+            landed: false,
+            roots: [
+              root({ ownsBase: null, headerPresent: false }),
+              root({ selectedByGlobalProxy: false, ownsBase: true, headerPresent: true }),
+            ],
+          }),
+        ],
+      }),
+    );
+    expect(verdict.verdict).toBe('open');
+    expect(verdict.reason).toContain('ownership unresolved');
+  });
+
+  it('refuses a header-drop verdict while another root has unresolved ownership', () => {
+    const verdict = classifyColumnSortDiagnosis(
+      baseInput({
+        clickAttempts: [
+          attempt({
+            landed: false,
+            roots: [
+              root({ headerPresent: false }),
+              root({ selectedByGlobalProxy: false, ownsBase: null, headerPresent: false }),
+            ],
+          }),
+        ],
+        domRemovalObserved: true,
+      }),
+    );
+    expect(verdict.verdict).toBe('open');
+  });
+
   it('refuses a wrong-root verdict when the only other owner is hidden', () => {
     const verdict = classifyColumnSortDiagnosis(
       baseInput({
@@ -479,6 +515,7 @@ describe('buildColumnSortControlDigest', () => {
       collectorFailure: false,
       basePath: 'Companion.base',
       readinessGates: 7,
+      diagnosticCommandFailures: 0,
     });
     expect(digest.identity.buildSha).toBe('a'.repeat(40));
     expect(digest.identity.obsidianVersion).toBe('1.9.14');
@@ -493,6 +530,8 @@ describe('buildColumnSortControlDigest', () => {
     expect(digest.journey).toBe('ae1-sort-loop|ae2-clear-click');
     expect(digest.maxRootCount).toBe(1);
     expect(digest.allRootsLiveOwners).toBe(true);
+    expect(digest.distinctMountTokens).toBe(1);
+    expect(digest.diagnosticCommandFailures).toBe(0);
   });
 });
 
@@ -506,6 +545,7 @@ describe('areColumnSortControlsEquivalent', () => {
       collectorFailure: false,
       basePath: 'Companion.base',
       readinessGates: 7,
+      diagnosticCommandFailures: 0,
       ...overrides,
     });
   }
@@ -541,6 +581,20 @@ describe('areColumnSortControlsEquivalent', () => {
 
   it('rejects a pair when either side overflowed', () => {
     expect(areColumnSortControlsEquivalent(digest(), digest({ overflow: true }))).toBe(false);
+  });
+
+  it('rejects a pair whose sampled roots remounted a different number of times', () => {
+    const remounted = digest({
+      attempts: [attempt(), attempt({ callSite: 'ae3-sort-loop', roots: [root({ mountToken: 2 })] })],
+    });
+    const steady = digest({
+      attempts: [attempt(), attempt({ callSite: 'ae3-sort-loop' })],
+    });
+    expect(areColumnSortControlsEquivalent(steady, remounted)).toBe(false);
+  });
+
+  it('rejects a pair when either side latched a diagnostic command failure', () => {
+    expect(areColumnSortControlsEquivalent(digest(), digest({ diagnosticCommandFailures: 1 }))).toBe(false);
   });
 
   it('rejects a pair when an attempt carries an empty census (degraded observation)', () => {
@@ -579,6 +633,7 @@ describe('columnSortControlCoversBoundary', () => {
       collectorFailure: false,
       basePath: 'Companion.base',
       readinessGates: 7,
+      diagnosticCommandFailures: 0,
     });
   }
 

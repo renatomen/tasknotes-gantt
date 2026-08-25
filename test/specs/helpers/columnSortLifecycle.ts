@@ -36,6 +36,7 @@ let originalFailureSeen = false;
 let attemptCounter = 0;
 let readinessOrdinal = 0;
 let envelopeFileOrdinal = 0;
+let diagnosticCommandFailures = 0;
 let envelopeGate = createColumnSortEnvelopeGate();
 const attempts: ColumnSortClickAttempt[] = [];
 
@@ -52,6 +53,7 @@ export async function startColumnSortLifecycleCapture(): Promise<void> {
   envelopeGate = createColumnSortEnvelopeGate();
   attempts.length = 0;
   cachedIdentity = null;
+  diagnosticCommandFailures = 0;
   let started: boolean | undefined = false;
   try {
     started = await browser.execute(
@@ -543,6 +545,10 @@ async function runDiagnosticCommand(origin: string, command: () => Promise<unkno
   try {
     await command();
   } catch (error) {
+    // Latch the failure into control health: a checkpoint that never reached
+    // the collector leaves the digest incomplete in a way the collector's own
+    // flags cannot see.
+    diagnosticCommandFailures += 1;
     writeLifecycleRetrievalFailure(origin, error, null, originalFailureSeen);
   }
 }
@@ -663,6 +669,7 @@ export async function emitColumnSortControlDigest(): Promise<void> {
       collectorFailure: snapshot?.incomplete.collectorFailure ?? true,
       basePath: BASE_PATH,
       readinessGates: readinessOrdinal,
+      diagnosticCommandFailures,
     });
     const payload = { origin: 'column-sort:control-digest', digest };
     console.error(`[OG-LIFECYCLE] ${JSON.stringify(payload)}`);

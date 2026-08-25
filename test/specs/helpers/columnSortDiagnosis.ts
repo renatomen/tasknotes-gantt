@@ -135,9 +135,18 @@ function localizeAbsentClick(
 ): CandidateVerdict | ColumnSortVerdict {
   const sampled = sampledRoot(attempt);
   const owner = liveOwnerWithHeader(attempt);
-  const sampledIsStale =
-    sampled === undefined || sampled.ownsBase !== true || !sampled.connected || !sampled.visible;
-  if (sampledIsStale && owner !== undefined && owner !== sampled) {
+  // Staleness must be POSITIVE evidence: proven non-ownership or a dead node.
+  // Unresolved ownership (null) is unknown, not stale — a second pane can
+  // legitimately show the same Base, so another proven owner does not convict
+  // a root whose own resolution merely failed.
+  const sampledProvenStale =
+    sampled === undefined || sampled.ownsBase === false || !sampled.connected || !sampled.visible;
+  const sampledOwnershipUnresolved =
+    sampled !== undefined && sampled.ownsBase === null && sampled.connected && sampled.visible;
+  if (sampledOwnershipUnresolved) {
+    return open('sampled-root ownership unresolved: staleness unprovable');
+  }
+  if (sampledProvenStale && owner !== undefined && owner !== sampled) {
     return {
       verdict: 'class-b-wrong-root',
       reason: 'sampled root stale or non-owning while a live owning root held the header',
@@ -145,15 +154,18 @@ function localizeAbsentClick(
     };
   }
   const owningRoots = attempt.roots.filter((root) => root.ownsBase === true);
+  const unresolvedOthers = attempt.roots.some((root) => root !== sampled && root.ownsBase === null);
   // A drop is only provable against a LIVE owning root: an invisible or
   // disconnected owner cannot prove the header is absent from what the user
-  // (and the click) actually faced.
+  // (and the click) actually faced — and any OTHER root with unresolved
+  // ownership leaves single-ownership unproven.
   const genuineAbsence =
     owningRoots.length === 1 &&
     owningRoots[0] === sampled &&
     owningRoots[0].connected &&
     owningRoots[0].visible &&
-    !owningRoots[0].headerPresent;
+    !owningRoots[0].headerPresent &&
+    !unresolvedOthers;
   if (!genuineAbsence) {
     return open('click-attempt census ambiguous: no provable wrong-root or genuine-absence shape');
   }
@@ -342,6 +354,8 @@ export interface ColumnSortControlDigestInput {
   collectorFailure: boolean;
   basePath: string;
   readinessGates: number;
+  /** Node-side count of diagnostic browser commands that failed this suite. */
+  diagnosticCommandFailures: number;
 }
 
 export interface ColumnSortPerSiteSummary {
@@ -365,6 +379,10 @@ export interface ColumnSortControlDigest {
   maxRootCount: number;
   /** Whether every censused root was owning, connected, and visible. */
   allRootsLiveOwners: boolean;
+  /** Distinct sampled-root mount tokens across the journey (remount count). */
+  distinctMountTokens: number;
+  /** Diagnostic commands that failed without reaching the collector. */
+  diagnosticCommandFailures: number;
 }
 
 /**
@@ -400,6 +418,11 @@ export function buildColumnSortControlDigest(
       attempt.roots.length > 0 &&
       attempt.roots.every((root) => root.ownsBase === true && root.connected && root.visible),
   );
+  const mountTokens = new Set<number | null>();
+  for (const attempt of input.attempts) {
+    const sampled = attempt.roots.find((root) => root.selectedByGlobalProxy);
+    if (sampled) mountTokens.add(sampled.mountToken);
+  }
   return {
     schema: COLUMN_SORT_TRACE_SCHEMA,
     identity: input.identity,
@@ -412,6 +435,8 @@ export function buildColumnSortControlDigest(
     journey: boundedFact([...perSite.keys()]),
     maxRootCount,
     allRootsLiveOwners,
+    distinctMountTokens: mountTokens.size,
+    diagnosticCommandFailures: input.diagnosticCommandFailures,
   };
 }
 
@@ -445,8 +470,11 @@ export function areColumnSortControlsEquivalent(
     a.journey === b.journey &&
     a.readinessGates === b.readinessGates &&
     a.maxRootCount === b.maxRootCount &&
+    a.distinctMountTokens === b.distinctMountTokens &&
     a.allRootsLiveOwners &&
     b.allRootsLiveOwners &&
+    a.diagnosticCommandFailures === 0 &&
+    b.diagnosticCommandFailures === 0 &&
     a.armed &&
     b.armed &&
     !a.overflow &&
@@ -473,6 +501,7 @@ export function columnSortControlCoversBoundary(
     control.armed &&
     !control.overflow &&
     !control.collectorFailure &&
+    control.diagnosticCommandFailures === 0 &&
     control.allRootsLiveOwners &&
     failureJourney.length > 0 &&
     (control.journey === failureJourney || control.journey.startsWith(`${failureJourney}|`))
