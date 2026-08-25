@@ -836,7 +836,10 @@ and Dependabot PRs, whose `pull_request` runs get a read-only token, so the
 artifact-then-publisher split is the shape GitHub documents for this
 pattern. The privileged publisher must not republish PR-produced values:
 it recomputes the trend with the default branch's script and registry
-against the PR's base and head (the same trusted-side rule the peer
+against the merge-base of the PR's head with main, and the head — the same
+merge-base the CI trend step and the peer wrapper already compute, since a
+tip-of-base two-dot range would misreport ranked-file deltas once main
+advances past the branch point (and the same trusted-side rule the peer
 wrapper's staging already applies), treating the PR-run artifact as a
 presence signal at most. Ordering matters: a hosted review requested
 before the publisher posts would settle without the trend context, so the
