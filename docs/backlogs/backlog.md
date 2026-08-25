@@ -632,18 +632,11 @@ that a stray untracked file can reach the reviewer as context.
 
 All from PR #419, accepted rather than fixed so the review loop could terminate:
 
-- **Sentinel entropy is 15 bits.** `${RANDOM}` is the only secret in the
-  read-proof token, the prefix is derivable, and the verifier matches any line
-  in the answer — so a reviewer emitting many candidate lines could brute-force
-  it. Mint from `/dev/urandom` and anchor the check to the first non-blank line,
-  the way the verdict check already anchors to the last.
-- **`.peer-review-diff.tmp` is untracked but not gitignored**, and its path is
-  fixed rather than per-run. One stray `git add -A` commits it and wedges the
-  next review at exit 17, then every one after at exit 15 — the EXIT trap's own
-  `rm` has become a tracked deletion; two overlapping runs delete each other's
-  payload. A
-  `mktemp` path fixes both, and avoids colliding with the prompt's own rule
-  against opening ignored files.
+- ~~**Sentinel entropy is 15 bits** / **`.peer-review-diff.tmp` is not
+  gitignored and its path is fixed**~~ — consolidated 2026-08-25 into the
+  "Peer-gate hardening" entry below, which carries the current state: the
+  staging files ARE gitignored now, while the fixed paths and the 15-bit
+  sentinel remain open and parked there. Promote only that entry.
 - ~~**`branch.<name>.remote = "."`**~~ — fixed: `tracking_remote` now accepts
   only a configured remote NAME, and `default_base` accepts an upstream only
   when it resolves under `refs/remotes/`. Left here as the record of what the
