@@ -43,8 +43,8 @@ extraction retired every committed allowance there is nothing left to drop, so t
 permitting side plants its own in-memory entry), and one whose only allowance names a
 *different* junction file (red again — an allowance never leaks across files; the
 `cross-file-allowance-does-not-leak` leg pins the per-file keying of the derivation).
-This proves the derivation is live without touching the committed registry. That instance deliberately bypasses
-`eslint.config.mjs`, so it says nothing about the real config on its own: the binding
+This proves the derivation is live without touching the committed registry. Those instances deliberately bypass
+`eslint.config.mjs`, so they say nothing about the real config on their own: the binding
 is carried by the real-config plants above plus a source-reading assertion that the
 config spreads `deriveBoundaryOverrides()`; a hand-written extra override slipped in
 beside the spread remains the review-guarded residual.
