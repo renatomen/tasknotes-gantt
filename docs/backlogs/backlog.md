@@ -632,18 +632,11 @@ that a stray untracked file can reach the reviewer as context.
 
 All from PR #419, accepted rather than fixed so the review loop could terminate:
 
-- **Sentinel entropy is 15 bits.** `${RANDOM}` is the only secret in the
-  read-proof token, the prefix is derivable, and the verifier matches any line
-  in the answer — so a reviewer emitting many candidate lines could brute-force
-  it. Mint from `/dev/urandom` and anchor the check to the first non-blank line,
-  the way the verdict check already anchors to the last.
-- **`.peer-review-diff.tmp` is untracked but not gitignored**, and its path is
-  fixed rather than per-run. One stray `git add -A` commits it and wedges the
-  next review at exit 17, then every one after at exit 15 — the EXIT trap's own
-  `rm` has become a tracked deletion; two overlapping runs delete each other's
-  payload. A
-  `mktemp` path fixes both, and avoids colliding with the prompt's own rule
-  against opening ignored files.
+- ~~**Sentinel entropy is 15 bits** / **`.peer-review-diff.tmp` is not
+  gitignored and its path is fixed**~~ — consolidated 2026-08-25 into the
+  "Peer-gate hardening" entry below, which carries the current state: the
+  staging files ARE gitignored now, while the fixed paths and the 15-bit
+  sentinel remain open and parked there. Promote only that entry.
 - ~~**`branch.<name>.remote = "."`**~~ — fixed: `tracking_remote` now accepts
   only a configured remote NAME, and `default_base` accepts an upstream only
   when it resolves under `refs/remotes/`. Left here as the record of what the
@@ -812,3 +805,46 @@ toggle at storm scale, which may be a real presentation-layer regression of
 the #161 U5 contract or a stale spec expectation. Diagnosis was out of scope
 for U3 (pre-existing on main, unrelated to type repair). When picked up,
 promote to a GitHub issue and delete this entry.
+
+## Peer-gate hardening: per-run staging paths and a stronger read receipt
+
+Two acknowledged findings from PR #454's cross-model peer review of the
+staging-pattern learning, parked by maintainer call on 2026-08-25 (campaign
+focus: finish the quality campaigns and return to feature work). Both are
+deliberate-evasion or concurrent-operation residuals outside the gate's
+operating model of a single maintainer running one review at a time:
+(1) `scripts/cross-model-peer-review.sh` stages the reviewed diff and trend
+block at fixed paths, so two overlapping invocations in one checkout could
+cross-stamp — fix is per-run unique staging paths with an overlapping-run
+regression test; (2) the diff-read sentinel uses bash `$RANDOM` (15 bits)
+and is accepted anywhere in the reviewer's output — fix is a high-entropy
+token and first-nonblank-line enforcement. The staging-pattern learning in
+`docs/solutions/tooling-decisions/stage-peer-review-content-as-data-files.md`
+records both at their honest strength. When picked up, promote to a GitHub
+issue and delete this entry.
+
+## Mechanize the trend block's path to the hosted reviewer as a CI-posted comment
+
+Maintainer-settled on 2026-08-25: the hosted PR reviewer can read PR
+comments when its instruction text explicitly directs it to, so the
+author-paste ritual (copy the pre-push hook's trend print into the PR body)
+can be replaced by mechanism. Implementation when picked up: the required
+`build` job already publishes the trend output as an artifact; a separate
+trusted `workflow_run`-triggered workflow posts it as the PR comment —
+granting `pull-requests: write` on the build job itself would 403 on fork
+and Dependabot PRs, whose `pull_request` runs get a read-only token, so the
+artifact-then-publisher split is the shape GitHub documents for this
+pattern. The privileged publisher must not republish PR-produced values:
+it recomputes the trend with the default branch's script and registry
+against the PR's base and head (the same trusted-side rule the peer
+wrapper's staging already applies), treating the PR-run artifact as a
+presence signal at most. Ordering matters: a hosted review requested
+before the publisher posts would settle without the trend context, so the
+paste ritual retires only when the workflow guarantees the comment exists
+before the review is solicited — solicit after the publisher completes, or
+retrigger the review on publication. The AGENTS.md review-guidelines line that names
+"the author's PR-body paste" as the hosted gate's trend source changes to
+name the CI-posted comment, with an explicit read-the-trend-comment
+direction for the hosted reviewer; the pre-push print stays for the human
+author. Until then the paste ritual stands. When picked up, promote to a
+GitHub issue and delete this entry.
