@@ -81,6 +81,17 @@ export const config: WebdriverIO.Config = {
     }).__tnGanttLegendRunnerFailureReporter;
     await reporter?.(test.title, result.error);
   },
+  // Hook failures never reach afterTest, and a before-hook TIMEOUT abandons the
+  // spec's own try/catch entirely — this is the only capture path for that
+  // failure shape (some specs' worst-case before waits exceed the mocha hook
+  // timeout by design).
+  afterHook: async (test, _context, result) => {
+    if (!result.error) return;
+    const reporter = (globalThis as typeof globalThis & {
+      __tnGanttLegendRunnerFailureReporter?: (testTitle: string, error: unknown) => Promise<void>;
+    }).__tnGanttLegendRunnerFailureReporter;
+    await reporter?.(`hook:${test.title}`, result.error);
+  },
   // Stale results are cleared ONLY here: onPrepare runs once in the launcher.
   // This file is re-imported by every worker session, so module-scope cleanup
   // would delete earlier specs' session files mid-run and silently understate
