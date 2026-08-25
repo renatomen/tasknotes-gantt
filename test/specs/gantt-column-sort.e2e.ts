@@ -4,6 +4,20 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { fileURLToPath } from "node:url";
+import {
+  columnSortFailureSeen,
+  deregisterColumnSortRunnerReporter,
+  emitColumnSortControlDigest,
+  readColumnSortStateRecorded,
+  recordColumnSortEvent,
+  recordColumnSortReadinessPassed,
+  recordColumnSortResetCensus,
+  recordedClickColumnHeader,
+  registerColumnSortRunnerReporter,
+  setColumnSortPhase,
+  startColumnSortLifecycleCapture,
+  stopColumnSortLifecycleCapture,
+} from "./helpers/columnSortLifecycle";
 
 /**
  * Ephemeral column-sort spec (plan 2026-06-22-002, U7).
@@ -96,12 +110,21 @@ async function activateBaseLeaf(): Promise<void> {
  * session-only (R4) — there is no persisted sort to restore.
  */
 async function reopenBase(): Promise<void> {
-  await browser.executeObsidian(async ({ app }) => {
+  // The detach markers bracket this DELIBERATE remount in the lifecycle trace
+  // (as PHASE transitions, per the pre-registered vocabulary), so any mount
+  // sequence outside them reads as product-initiated.
+  await setColumnSortPhase("reopen-detach-start");
+  await recordColumnSortEvent("colsort-reopen-detach-start", {});
+  const leafCount = await browser.executeObsidian(async ({ app }) => {
     const ws = app.workspace as unknown as {
       getLeavesOfType: (t: string) => Array<{ detach?: () => void }>;
     };
-    for (const leaf of ws.getLeavesOfType("bases")) leaf.detach?.();
+    const leaves = ws.getLeavesOfType("bases");
+    for (const leaf of leaves) leaf.detach?.();
+    return leaves.length;
   });
+  await setColumnSortPhase("reopen-detached");
+  await recordColumnSortEvent("colsort-reopen-detached", { leafCount });
   await ensureGanttReady();
 }
 
@@ -136,7 +159,7 @@ async function readSortState(): Promise<SortState> {
 
 /**
  * Whether the grid header cell for a SPECIFIC column id is in the DOM. Mirrors
- * {@link clickColumnHeader}'s matcher exactly (stripped `data-header-id`), without
+ * the click helper's matcher exactly (stripped `data-header-id`), without
  * clicking — so the readiness gate and the click agree on what "the header exists"
  * means and can never drift apart.
  *
@@ -160,34 +183,20 @@ async function isColumnHeaderPresent(columnId: string): Promise<boolean> {
 }
 
 /**
- * Click a grid column header by its SVAR column id (= Bases property id). The
- * header cell carries `data-header-id = setID(column.id)`, which prefixes string
- * ids with `:` (same as bar `data-id`), so match by the STRIPPED value. The cell
- * div owns the sort onclick; click it directly (not the `.wx-grip` resize handle,
- * which stops propagation). Returns true if the header was found + clicked.
- */
-async function clickColumnHeader(columnId: string): Promise<boolean> {
-  return browser.execute((id: string) => {
-    const root = document.querySelector(".og-bases-gantt");
-    if (!root) return false;
-    const strip = (v: string): string => (v.startsWith(":") ? v.slice(1) : v);
-    const header = Array.from(root.querySelectorAll<HTMLElement>("[data-header-id]")).find(
-      (el) => strip(el.getAttribute("data-header-id") ?? "") === id,
-    );
-    if (!header) return false;
-    header.click();
-    return true;
-  }, columnId);
-}
-
-/**
+ * Header clicks go through the recording twin in columnSortLifecycle: the same
+ * synthetic `.click()` on the header cell (`data-header-id = setID(column.id)`,
+ * string ids prefixed `:`, matched by the STRIPPED value — not the `.wx-grip`
+ * resize handle, which stops propagation), plus a per-attempt all-roots census
+ * into the lifecycle collector. Every call site records; a vanished header at
+ * ANY click is evidence, not silence.
+ *
  * Click a column header, retrying until the click lands. `ensureGanttReady` (run
  * in `beforeEach`) already gates on this exact column's header being present, so
  * the click normally lands first try; the retry remains only as a thin backstop
  * for a transient header re-render during a mid-suite column-config reseed.
  */
-async function sortByColumn(columnId: string): Promise<void> {
-  await browser.waitUntil(() => clickColumnHeader(columnId), {
+async function sortByColumn(columnId: string, callSite: string): Promise<void> {
+  await browser.waitUntil(() => recordedClickColumnHeader(callSite, columnId), {
     timeout: 10000,
     timeoutMsg: `Column header "${columnId}" did not become clickable`,
   });
@@ -240,12 +249,37 @@ async function ensureGanttReady(): Promise<void> {
   } catch {
     throw new Error(`Companion Gantt not ready. Last observed: ${last}`);
   }
+  // Post-gate absence is only decidable from the trace when the gate's own
+  // satisfaction moment is a recorded fact.
+  await recordColumnSortReadinessPassed();
 }
 
-/** Restore the Base order between tests: if a sort is active, clear it via the reset pill. */
+/**
+ * Restore the Base order between tests: if a sort is active, clear it via the
+ * reset pill. Both boundaries and the skip reason are recorded facts: a reset
+ * skipped because the SAMPLED root shows no pill can leak the real root's sort
+ * into the next test, and that leak must be distinguishable from product
+ * nondeterminism in the trace. A per-root census at each boundary records
+ * every root's pill and aria-sort state, so the leaked root itself is visible.
+ */
 async function resetSortIfActive(): Promise<void> {
+  await recordColumnSortResetCensus("before");
   const state = await readSortState();
-  if (!state.resetPill) return;
+  if (!state.resetPill) {
+    await recordColumnSortEvent("colsort-reset-boundary", {
+      skipped: true,
+      skipReason: "no-pill-on-sampled-root",
+      mounted: state.mounted,
+      sorted: state.sorted,
+    });
+    return;
+  }
+  await recordColumnSortEvent("colsort-reset-boundary", {
+    skipped: false,
+    skipReason: null,
+    mounted: state.mounted,
+    sorted: state.sorted,
+  });
   await browser.execute(() => {
     (document.querySelector(".og-bases-gantt .zoom-btn.reset-sort") as HTMLElement | null)?.click();
   });
@@ -253,10 +287,23 @@ async function resetSortIfActive(): Promise<void> {
     timeout: 10000,
     timeoutMsg: "Reset pill did not clear between tests",
   });
+  await recordColumnSortResetCensus("after");
+  const after = await readSortState();
+  await recordColumnSortEvent("colsort-reset-complete", {
+    resetPill: after.resetPill,
+    sorted: after.sorted,
+  });
 }
 
 describe("Gantt (OG) ephemeral column sort", () => {
   before(async () => {
+    // Register the runner-side failure reporter (pure Node-side) before any
+    // setup work: a hook timeout during the reload/readiness waits below fires
+    // the conf's afterHook, which must find the reporter global already in
+    // place. Until the collector is armed further down, the reporter degrades
+    // to the retrieval-failure line carrying the primary error.
+    registerColumnSortRunnerReporter();
+
     const tmpVault = path.join(os.tmpdir(), "og-gantt-column-sort-e2e");
     fs.rmSync(tmpVault, { recursive: true, force: true });
     fs.cpSync(fixtureVault, tmpVault, { recursive: true });
@@ -310,12 +357,37 @@ describe("Gantt (OG) ephemeral column sort", () => {
       { timeout: 60000, timeoutMsg: "TaskNotes subtask relationships did not resolve" },
     );
 
+    // Arm the default-off lifecycle collector only now: it needs the reloaded
+    // page, so it cannot move ahead of the reload the way the reporter does
+    // (degrades loudly if the collector is unavailable). The worst-case waits
+    // above already exceed the mocha hook timeout, so a hook timeout is an
+    // EXPECTED organic failure shape the afterHook wiring must capture.
+    await startColumnSortLifecycleCapture();
+
+    // Repeatable failure-path rehearsal: forces a before-hook failure so the
+    // afterHook -> runner-reporter -> envelope path can be mutation-checked on
+    // demand. Off unless the env var is set; never on in ordinary runs.
+    if (process.env.OG_COLSORT_REHEARSE_HOOK_FAILURE === "1") {
+      throw new Error("synthetic-rehearsal: injected before-hook failure");
+    }
+
     await ensureGanttReady();
   });
 
-  beforeEach(async () => {
+  let testOrdinal = 0;
+  beforeEach(async function () {
+    testOrdinal += 1;
+    const title = this.currentTest?.title ?? `test-${testOrdinal}`;
+    await setColumnSortPhase(`before-each:${testOrdinal}:${title}`);
     await ensureGanttReady();
     await resetSortIfActive();
+    await setColumnSortPhase(`test:${title}`);
+  });
+
+  after(async () => {
+    if (!columnSortFailureSeen()) await emitColumnSortControlDigest();
+    await stopColumnSortLifecycleCapture();
+    deregisterColumnSortRunnerReporter();
   });
 
   it("sorts matched + fetched rows when a property column header is clicked (AE1, custom-sort-fn guard)", async () => {
@@ -323,13 +395,13 @@ describe("Gantt (OG) ephemeral column sort", () => {
     // `note.due` property column → descending → B (2026-03-25) before A
     // (2026-03-20). A reorder here can ONLY happen if the property-column
     // comparator runs (the value lives in custom.properties, not task.note.due).
-    await sortByColumn(SORT_COLUMN_ID); // first click → ascending (retries until header is ready)
-    await clickColumnHeader(SORT_COLUMN_ID); // second click → descending
+    await sortByColumn(SORT_COLUMN_ID, "ae1-sort-loop"); // first click → ascending (retries until header is ready)
+    await recordedClickColumnHeader("ae1-desc-click", SORT_COLUMN_ID); // second click → descending
 
     let state: SortState | null = null;
     await waitUntilOrExplain(
       async () => {
-        state = await readSortState();
+        state = await readColumnSortStateRecorded("ae1-order");
         return state.mounted && orderedBefore(state.ids, "Project B.md", "Project A.md");
       },
       () =>
@@ -345,26 +417,26 @@ describe("Gantt (OG) ephemeral column sort", () => {
     expect((await readSortState()).resetPill).toBe(false);
 
     // First click → ascending: reset pill appears, header reads as sorted.
-    await sortByColumn(SORT_COLUMN_ID);
-    await browser.waitUntil(async () => (await readSortState()).resetPill, {
+    await sortByColumn(SORT_COLUMN_ID, "ae2-sort-loop");
+    await browser.waitUntil(async () => (await readColumnSortStateRecorded("ae2-pill-asc")).resetPill, {
       timeout: 10000,
       timeoutMsg: "Reset pill did not appear on the first sort click",
     });
     expect((await readSortState()).sorted).toBe(true);
 
     // Second click → descending: pill still present.
-    await clickColumnHeader(SORT_COLUMN_ID);
-    await browser.waitUntil(async () => (await readSortState()).resetPill, {
+    await recordedClickColumnHeader("ae2-desc-click", SORT_COLUMN_ID);
+    await browser.waitUntil(async () => (await readColumnSortStateRecorded("ae2-pill-desc")).resetPill, {
       timeout: 10000,
       timeoutMsg: "Reset pill should remain for the descending state",
     });
 
     // Third click → cleared: pill hidden, sort cue gone, Base order restored (A before B).
-    await clickColumnHeader(SORT_COLUMN_ID);
+    await recordedClickColumnHeader("ae2-clear-click", SORT_COLUMN_ID);
     let state: SortState | null = null;
     await waitUntilOrExplain(
       async () => {
-        state = await readSortState();
+        state = await readColumnSortStateRecorded("ae2-clear");
         return !state.resetPill && !state.sorted &&
           orderedBefore(state.ids, "Project A.md", "Project B.md");
       },
@@ -377,11 +449,11 @@ describe("Gantt (OG) ephemeral column sort", () => {
 
   it("clears an active sort back to the Base order via the reset pill (R5)", async () => {
     // Sort descending (B before A), then click the reset pill → Base order (A before B).
-    await sortByColumn(SORT_COLUMN_ID);
-    await clickColumnHeader(SORT_COLUMN_ID);
+    await sortByColumn(SORT_COLUMN_ID, "r5-sort-loop");
+    await recordedClickColumnHeader("r5-desc-click", SORT_COLUMN_ID);
     await browser.waitUntil(
       async () => {
-        const s = await readSortState();
+        const s = await readColumnSortStateRecorded("r5-desc");
         return s.resetPill && orderedBefore(s.ids, "Project B.md", "Project A.md");
       },
       { timeout: 15000, timeoutMsg: "Did not reach the descending sorted state before reset" },
@@ -394,7 +466,7 @@ describe("Gantt (OG) ephemeral column sort", () => {
     let state: SortState | null = null;
     await waitUntilOrExplain(
       async () => {
-        state = await readSortState();
+        state = await readColumnSortStateRecorded("r5-reset");
         return !state.resetPill && orderedBefore(state.ids, "Project A.md", "Project B.md");
       },
       () =>
@@ -406,11 +478,11 @@ describe("Gantt (OG) ephemeral column sort", () => {
 
   it("is session-only: reopening the view returns to the Base sort (AE3/R4)", async () => {
     // Sort descending (B before A), then remount the view by reopening the Base.
-    await sortByColumn(SORT_COLUMN_ID);
-    await clickColumnHeader(SORT_COLUMN_ID);
+    await sortByColumn(SORT_COLUMN_ID, "ae3-sort-loop");
+    await recordedClickColumnHeader("ae3-desc-click", SORT_COLUMN_ID);
     await browser.waitUntil(
       async () => {
-        const s = await readSortState();
+        const s = await readColumnSortStateRecorded("ae3-desc");
         return s.resetPill && orderedBefore(s.ids, "Project B.md", "Project A.md");
       },
       { timeout: 15000, timeoutMsg: "Did not reach the descending sorted state before reopen" },
@@ -426,11 +498,11 @@ describe("Gantt (OG) ephemeral column sort", () => {
 
   it("keeps an active sort across a data refresh and stays above min height (AE6/R8)", async () => {
     // Sort descending (B before A).
-    await sortByColumn(SORT_COLUMN_ID);
-    await clickColumnHeader(SORT_COLUMN_ID);
+    await sortByColumn(SORT_COLUMN_ID, "ae6-sort-loop");
+    await recordedClickColumnHeader("ae6-desc-click", SORT_COLUMN_ID);
     await browser.waitUntil(
       async () => {
-        const s = await readSortState();
+        const s = await readColumnSortStateRecorded("ae6-desc");
         return s.resetPill && orderedBefore(s.ids, "Project B.md", "Project A.md");
       },
       { timeout: 15000, timeoutMsg: "Did not reach the descending sorted state before refresh" },
@@ -450,7 +522,7 @@ describe("Gantt (OG) ephemeral column sort", () => {
     let state: SortState | null = null;
     await waitUntilOrExplain(
       async () => {
-        state = await readSortState();
+        state = await readColumnSortStateRecorded("ae6-refresh");
         return state.mounted && state.resetPill &&
           orderedBefore(state.ids, "Project B.md", "Project A.md");
       },
