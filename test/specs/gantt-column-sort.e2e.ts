@@ -356,6 +356,13 @@ describe("Gantt (OG) ephemeral column sort", () => {
     await startColumnSortLifecycleCapture();
     registerColumnSortRunnerReporter();
 
+    // Repeatable failure-path rehearsal: forces a before-hook failure so the
+    // afterHook -> runner-reporter -> envelope path can be mutation-checked on
+    // demand. Off unless the env var is set; never on in ordinary runs.
+    if (process.env.OG_COLSORT_REHEARSE_HOOK_FAILURE === "1") {
+      throw new Error("synthetic-rehearsal: injected before-hook failure");
+    }
+
     await ensureGanttReady();
   });
 
