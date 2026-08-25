@@ -57,7 +57,12 @@ export interface ColumnSortSliceFacts {
 export interface ColumnSortRowContradiction {
   rowAbsentFromSampledRoot: boolean;
   rowPresentInOwningRoot: boolean | null;
-  /** null while no capture exists at the product reseed decision points. */
+  /**
+   * Certified fact, not raw presence: true only when the operator verified a
+   * recorded product transition on the failing mount AFTER the landed click
+   * sequence, within the failing slice. null while no capture exists at the
+   * product reseed decision points, or when ordering is unverified.
+   */
   productTransitionRecorded: boolean | null;
 }
 
@@ -66,7 +71,13 @@ export interface ColumnSortTraceInput {
   slice: ColumnSortSliceFacts | null;
   clickAttempts: readonly ColumnSortClickAttempt[];
   rowContradiction: ColumnSortRowContradiction | null;
-  /** null while the seam observes no header/row DOM add/remove lifecycle. */
+  /**
+   * Certified fact, not raw presence: true only when the operator verified a
+   * header/row removal WITHOUT recreation, on the failing attempt's mount,
+   * AFTER the slice's readiness-passed marker. null while the seam observes
+   * no header/row DOM add/remove lifecycle, or when any of those ordering and
+   * mount conditions is unverified.
+   */
   domRemovalObserved: boolean | null;
   /**
    * Whether any order-tick recorded after the click sequence observed an
@@ -382,8 +393,12 @@ export function buildColumnSortControlDigest(
     (max, attempt) => Math.max(max, attempt.roots.length),
     0,
   );
-  const allRootsLiveOwners = input.attempts.every((attempt) =>
-    attempt.roots.every((root) => root.ownsBase === true && root.connected && root.visible),
+  // An attempt with an EMPTY census is degraded observation, not health: a
+  // vacuous every() must not read as "all roots were live owners".
+  const allRootsLiveOwners = input.attempts.every(
+    (attempt) =>
+      attempt.roots.length > 0 &&
+      attempt.roots.every((root) => root.ownsBase === true && root.connected && root.visible),
   );
   return {
     schema: COLUMN_SORT_TRACE_SCHEMA,
@@ -438,5 +453,28 @@ export function areColumnSortControlsEquivalent(
     !b.overflow &&
     !a.collectorFailure &&
     !b.collectorFailure
+  );
+}
+
+/**
+ * Boundary coverage for a failure that stopped mid-journey: a full-suite
+ * control can serve an early-test failure only when the failure's click-site
+ * journey is a PREFIX of the control's journey and the control run is
+ * healthy (complete identity, no overflow, no collector failure, live-owner
+ * censuses throughout). Facts past the failure boundary exist only in the
+ * control and are not evidence against it.
+ */
+export function columnSortControlCoversBoundary(
+  control: ColumnSortControlDigest,
+  failureJourney: string,
+): boolean {
+  return (
+    isColumnSortControlIdentityComplete(control.identity) &&
+    control.armed &&
+    !control.overflow &&
+    !control.collectorFailure &&
+    control.allRootsLiveOwners &&
+    failureJourney.length > 0 &&
+    (control.journey === failureJourney || control.journey.startsWith(`${failureJourney}|`))
   );
 }

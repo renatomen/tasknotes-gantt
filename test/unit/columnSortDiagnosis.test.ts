@@ -3,6 +3,7 @@ import {
   areColumnSortControlsEquivalent,
   boundedFact,
   buildColumnSortControlDigest,
+  columnSortControlCoversBoundary,
   classifyColumnSortDiagnosis,
   COLUMN_SORT_BOUNDED_FACT_LIMIT,
   COLUMN_SORT_LIFECYCLE_CAPACITY,
@@ -542,6 +543,11 @@ describe('areColumnSortControlsEquivalent', () => {
     expect(areColumnSortControlsEquivalent(digest(), digest({ overflow: true }))).toBe(false);
   });
 
+  it('rejects a pair when an attempt carries an empty census (degraded observation)', () => {
+    const emptyCensus = digest({ attempts: [attempt({ roots: [] })] });
+    expect(areColumnSortControlsEquivalent(digest(), emptyCensus)).toBe(false);
+  });
+
   it('rejects a pair when a stale or extra root degraded either run', () => {
     const extraStaleRoot = digest({
       attempts: [
@@ -556,6 +562,43 @@ describe('areColumnSortControlsEquivalent', () => {
   it('rejects a pair whose per-site click summaries diverge', () => {
     const retried = digest({ attempts: [attempt(), attempt({ landed: false })] });
     expect(areColumnSortControlsEquivalent(digest(), retried)).toBe(false);
+  });
+});
+
+describe('columnSortControlCoversBoundary', () => {
+  function fullControl() {
+    return buildColumnSortControlDigest({
+      identity: completeIdentity(),
+      attempts: [
+        attempt({ callSite: 'ae1-sort-loop' }),
+        attempt({ callSite: 'ae1-desc-click' }),
+        attempt({ callSite: 'ae2-sort-loop' }),
+      ],
+      armed: true,
+      overflow: false,
+      collectorFailure: false,
+      basePath: 'Companion.base',
+      readinessGates: 7,
+    });
+  }
+
+  it('covers a failure whose journey is a prefix of the control journey', () => {
+    expect(columnSortControlCoversBoundary(fullControl(), 'ae1-sort-loop|ae1-desc-click')).toBe(true);
+    expect(columnSortControlCoversBoundary(fullControl(), 'ae1-sort-loop|ae1-desc-click|ae2-sort-loop')).toBe(true);
+  });
+
+  it('refuses a journey that is not a prefix, is empty, or only partially matches a site name', () => {
+    expect(columnSortControlCoversBoundary(fullControl(), 'ae2-sort-loop')).toBe(false);
+    expect(columnSortControlCoversBoundary(fullControl(), '')).toBe(false);
+    expect(columnSortControlCoversBoundary(fullControl(), 'ae1-sort')).toBe(false);
+  });
+
+  it('refuses an unhealthy control regardless of journey', () => {
+    const overflowed = { ...fullControl(), overflow: true };
+    expect(columnSortControlCoversBoundary(overflowed, 'ae1-sort-loop')).toBe(false);
+    const incomplete = fullControl();
+    incomplete.identity = { ...incomplete.identity, buildSha: null };
+    expect(columnSortControlCoversBoundary(incomplete, 'ae1-sort-loop')).toBe(false);
   });
 });
 
