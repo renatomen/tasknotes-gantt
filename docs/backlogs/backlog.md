@@ -836,8 +836,12 @@ Maintainer-settled on 2026-08-25: the hosted PR reviewer can read PR
 comments when its instruction text explicitly directs it to, so the
 author-paste ritual (copy the pre-push hook's trend print into the PR body)
 can be replaced by mechanism. Implementation when picked up: the required
-`build` job posts the trend output as a PR comment (needs `pull-requests:
-write` on that job), and the AGENTS.md review-guidelines line that names
+`build` job already publishes the trend output as an artifact; a separate
+trusted `workflow_run`-triggered workflow posts it as the PR comment —
+granting `pull-requests: write` on the build job itself would 403 on fork
+and Dependabot PRs, whose `pull_request` runs get a read-only token, so the
+artifact-then-publisher split is the shape GitHub documents for this
+pattern. The AGENTS.md review-guidelines line that names
 "the author's PR-body paste" as the hosted gate's trend source changes to
 name the CI-posted comment, with an explicit read-the-trend-comment
 direction for the hosted reviewer; the pre-push print stays for the human
