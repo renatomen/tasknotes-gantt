@@ -34,6 +34,8 @@ export interface ColumnSortRootCensusEntry {
 
 export interface ColumnSortClickAttempt {
   callSite: string;
+  /** Ambient phase when the attempt ran — slices attempts to their test. */
+  phase: string;
   attemptOrdinal: number;
   landed: boolean;
   ariaSortBefore: string | null;
@@ -80,12 +82,20 @@ export interface ColumnSortTraceInput {
    */
   domRemovalObserved: boolean | null;
   /**
-   * Whether any order-tick recorded after the click sequence observed an
-   * active sort. Aria facts on the click itself are same-tick reads taken
-   * before the framework renders the transition, so delivery is provable from
-   * either signal. null when no post-click tick exists in the slice.
+   * Certified fact: true only when an order-tick recorded after the click
+   * sequence observed an active sort IN THE DIRECTION the clicks requested.
+   * Aria facts on the click itself are same-tick reads taken before the
+   * framework renders the transition, so delivery is provable from either
+   * signal. null when no post-click tick exists in the slice or direction
+   * is unverified.
    */
   sortStateObservedAfterClicks?: boolean | null;
+  /**
+   * The failing test's phase label. When set, only click attempts stamped
+   * with this phase participate in localization — a recovered miss from an
+   * earlier passing test is that test's fact, never this failure's cause.
+   */
+  failingPhase?: string | null;
   matchedControl: boolean;
   comparableTraceDisagrees?: boolean;
 }
@@ -182,6 +192,7 @@ function localizeAbsentClick(
 function localizeRowContradiction(
   row: ColumnSortRowContradiction,
   input: ColumnSortTraceInput,
+  scopedAttempts: readonly ColumnSortClickAttempt[],
 ): CandidateVerdict | ColumnSortVerdict {
   if (!row.rowAbsentFromSampledRoot) {
     return open('row contradiction reported without a sampled-root absence');
@@ -201,7 +212,7 @@ function localizeRowContradiction(
   if (row.rowPresentInOwningRoot === null) {
     return open('row-loss owner presence unknown: ownership resolution incomplete');
   }
-  const ariaChanged = input.clickAttempts.some(
+  const ariaChanged = scopedAttempts.some(
     (attempt) => attempt.landed && attempt.ariaSortBefore !== attempt.ariaSortAfter,
   );
   const sortDelivered = ariaChanged || input.sortStateObservedAfterClicks === true;
@@ -224,11 +235,17 @@ function localizeRowContradiction(
  * re-litigation. Returns a candidate class verdict or an `open` refusal.
  */
 function localize(input: ColumnSortTraceInput): CandidateVerdict | ColumnSortVerdict {
-  const absentAttempt = [...input.clickAttempts]
+  const scopedAttempts =
+    input.failingPhase == null
+      ? input.clickAttempts
+      : input.clickAttempts.filter((attempt) => attempt.phase === input.failingPhase);
+  const absentAttempt = [...scopedAttempts]
     .sort((a, b) => a.sequence - b.sequence)
     .find((attempt) => !attempt.landed);
   if (absentAttempt) return localizeAbsentClick(absentAttempt, input.domRemovalObserved);
-  if (input.rowContradiction) return localizeRowContradiction(input.rowContradiction, input);
+  if (input.rowContradiction) {
+    return localizeRowContradiction(input.rowContradiction, input, scopedAttempts);
+  }
   return open('no contradiction located in the trace');
 }
 

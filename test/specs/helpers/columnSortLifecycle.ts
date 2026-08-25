@@ -3,10 +3,12 @@ import { browser } from '@wdio/globals';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { GanttLifecycleControl, GanttLifecycleSnapshot } from '../../../src/debugLog';
+import { withGanttDiagnosticDeadline, type GanttLifecycleControl, type GanttLifecycleSnapshot } from '../../../src/debugLog';
 import {
   captureLifecycleEnvelope,
   evaluateBoundedCdp,
+  LIFECYCLE_RETRIEVAL_TIMEOUT_MS,
+  renderLifecycleFailure,
   writeLifecycleEnvelope,
   writeLifecycleRetrievalFailure,
 } from './lifecycleTrace';
@@ -37,6 +39,7 @@ let attemptCounter = 0;
 let readinessOrdinal = 0;
 let envelopeFileOrdinal = 0;
 let diagnosticCommandFailures = 0;
+let currentNodePhase = 'suite-before';
 let envelopeGate = createColumnSortEnvelopeGate();
 const attempts: ColumnSortClickAttempt[] = [];
 
@@ -99,6 +102,9 @@ export async function startColumnSortLifecycleCapture(): Promise<void> {
 
 export async function setColumnSortPhase(phase: string): Promise<void> {
   if (!armed) return;
+  // Node-side mirror of the ambient phase so click attempts carry the phase
+  // they belong to — the classifier slices attempts by failing phase.
+  currentNodePhase = phase;
   await runDiagnosticCommand('column-sort:set-phase', () =>
     browser.execute((nextPhase: string) => {
       (globalThis as { __tnGanttLifecycle?: GanttLifecycleControl }).__tnGanttLifecycle?.setPhase(nextPhase);
@@ -370,6 +376,7 @@ export async function recordedClickColumnHeader(callSite: string, columnId: stri
   if (armed) {
     attempts.push({
       callSite,
+      phase: currentNodePhase,
       attemptOrdinal: ordinal,
       landed: result.landed,
       ariaSortBefore: result.ariaSortBefore,
@@ -543,7 +550,9 @@ function nodeSideIdentity(): ColumnSortControlIdentity {
  */
 async function runDiagnosticCommand(origin: string, command: () => Promise<unknown>): Promise<void> {
   try {
-    await command();
+    // Deadline-bounded: a wedged WebDriver channel after the last assertion
+    // must never spend the mocha hook budget and redden a green suite.
+    await withGanttDiagnosticDeadline(() => command(), LIFECYCLE_RETRIEVAL_TIMEOUT_MS);
   } catch (error) {
     // Latch the failure into control health: a checkpoint that never reached
     // the collector leaves the digest incomplete in a way the collector's own
@@ -610,6 +619,7 @@ interface ColumnSortEnvelopeTrace {
   lifecycle: GanttLifecycleSnapshot | null;
   clickAttempts: ColumnSortClickAttempt[];
   identity: ColumnSortControlIdentity;
+  diagnosticCommandFailures: number;
 }
 
 /**
@@ -622,6 +632,14 @@ export async function reportColumnSortLifecycle(origin: string, primaryError: un
   if (primaryError !== null && primaryError !== undefined) originalFailureSeen = true;
   if (!armed) {
     writeLifecycleRetrievalFailure(origin, new Error('collector unarmed'), primaryError, originalFailureSeen);
+    // Pre-arm failures (the expected worst-case setup timeout included) must
+    // survive CI log expiry: persist the same facts the stderr line carries.
+    persistEnvelopeFile('unarmed-failure', {
+      origin,
+      originalError: renderLifecycleFailure(primaryError),
+      diagnosticOutcome: 'unavailable',
+      reason: 'collector unarmed',
+    });
     return;
   }
   if (!envelopeGate.shouldEmit(primaryError)) return;
@@ -643,6 +661,7 @@ export async function reportColumnSortLifecycle(origin: string, primaryError: un
         lifecycle,
         clickAttempts: [...attempts],
         identity,
+        diagnosticCommandFailures,
       }),
     });
     writeLifecycleEnvelope(envelope);

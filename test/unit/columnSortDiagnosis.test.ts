@@ -31,6 +31,7 @@ function root(overrides: Partial<ColumnSortRootCensusEntry> = {}): ColumnSortRoo
 function attempt(overrides: Partial<ColumnSortClickAttempt> = {}): ColumnSortClickAttempt {
   return {
     callSite: 'ae1-sort-loop',
+    phase: 'test:sorts matched + fetched rows',
     attemptOrdinal: 1,
     landed: true,
     ariaSortBefore: 'none',
@@ -318,6 +319,28 @@ describe('classifyColumnSortDiagnosis', () => {
     );
     expect(verdict.verdict).toBe('open');
     expect(verdict.reason).toContain('sort delivery unproven');
+  });
+
+  it('ignores a recovered miss from an earlier passing test when the failing phase is scoped', () => {
+    const verdict = classifyColumnSortDiagnosis(
+      baseInput({
+        failingPhase: 'test:is session-only',
+        clickAttempts: [
+          attempt({
+            phase: 'test:sorts matched + fetched rows',
+            sequence: 3,
+            landed: false,
+            roots: [
+              root({ ownsBase: false, connected: false, headerPresent: false }),
+              root({ selectedByGlobalProxy: false, ownsBase: true, headerPresent: true }),
+            ],
+          }),
+          attempt({ phase: 'test:is session-only', sequence: 9, landed: true }),
+        ],
+      }),
+    );
+    expect(verdict.verdict).toBe('open');
+    expect(verdict.reason).toContain('no contradiction');
   });
 
   it('refuses a wrong-root verdict when the sampled root ownership is merely unresolved', () => {
