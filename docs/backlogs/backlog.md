@@ -812,3 +812,34 @@ toggle at storm scale, which may be a real presentation-layer regression of
 the #161 U5 contract or a stale spec expectation. Diagnosis was out of scope
 for U3 (pre-existing on main, unrelated to type repair). When picked up,
 promote to a GitHub issue and delete this entry.
+
+## Peer-gate hardening: per-run staging paths and a stronger read receipt
+
+Two acknowledged findings from PR #454's cross-model peer review of the
+staging-pattern learning, parked by maintainer call on 2026-08-25 (campaign
+focus: finish the quality campaigns and return to feature work). Both are
+deliberate-evasion or concurrent-operation residuals outside the gate's
+operating model of a single maintainer running one review at a time:
+(1) `scripts/cross-model-peer-review.sh` stages the reviewed diff and trend
+block at fixed paths, so two overlapping invocations in one checkout could
+cross-stamp — fix is per-run unique staging paths with an overlapping-run
+regression test; (2) the diff-read sentinel uses bash `$RANDOM` (15 bits)
+and is accepted anywhere in the reviewer's output — fix is a high-entropy
+token and first-nonblank-line enforcement. The staging-pattern learning in
+`docs/solutions/tooling-decisions/stage-peer-review-content-as-data-files.md`
+records both at their honest strength. When picked up, promote to a GitHub
+issue and delete this entry.
+
+## Mechanize the trend block's path to the hosted reviewer as a CI-posted comment
+
+Maintainer-settled on 2026-08-25: the hosted PR reviewer can read PR
+comments when its instruction text explicitly directs it to, so the
+author-paste ritual (copy the pre-push hook's trend print into the PR body)
+can be replaced by mechanism. Implementation when picked up: the required
+`build` job posts the trend output as a PR comment (needs `pull-requests:
+write` on that job), and the AGENTS.md review-guidelines line that names
+"the author's PR-body paste" as the hosted gate's trend source changes to
+name the CI-posted comment, with an explicit read-the-trend-comment
+direction for the hosted reviewer; the pre-push print stays for the human
+author. Until then the paste ritual stands. When picked up, promote to a
+GitHub issue and delete this entry.
