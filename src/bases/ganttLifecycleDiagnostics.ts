@@ -165,6 +165,17 @@ const EMPTY_VIEWPORT_OBSERVATION: ViewportObservation = {
 
 const MAX_VIEWPORT_SETTLEMENT_FRAMES = 8;
 const MAX_PENDING_VIEWPORT_SOURCE_ACTIONS = 16;
+// Pinned by the seam unit test against the spec helpers' record-budget copy.
+const MAX_DOM_LIFECYCLE_RECORDS_PER_MOUNT = 256;
+const DOM_LIFECYCLE_KINDS = [
+  { kind: 'header', selector: '[data-header-id]', idAttribute: 'data-header-id' },
+  { kind: 'bar', selector: '.wx-bar[data-id]', idAttribute: 'data-id' },
+] as const;
+
+// SVAR prefixes string ids with ':'; strip it so recorded facts match the census readers.
+function stripDomElementId(value: string): string {
+  return value.startsWith(':') ? value.slice(1) : value;
+}
 
 export function createGanttLifecycleDiagnostics(
   access: GanttLifecycleDiagnosticsAccess,
@@ -647,6 +658,79 @@ export function createGanttLifecycleDiagnostics(
     }, phase, originatingHostGeneration);
   }
 
+  /**
+   * Watches the removal and recreation moments of header and bar elements as
+   * scalar facts: spec-side polling can prove an element absent but never
+   * observe the transition itself. childList-only, capped per mount, and
+   * created only while capture is armed so the unarmed hot path holds zero
+   * observer machinery.
+   */
+  function attachDomLifecycleObserver(root: HTMLElement): (() => void) | null {
+    if (typeof MutationObserver === 'undefined') return null;
+    const attachCaptureGeneration = currentGanttLifecycleCaptureGeneration();
+    if (attachCaptureGeneration === null) return null;
+    let domSequence = 0;
+    let capped = false;
+    const recordChange = (
+      kind: 'header' | 'bar',
+      elementId: string,
+      change: 'added' | 'removed',
+    ): void => {
+      if (capped) return;
+      if (domSequence >= MAX_DOM_LIFECYCLE_RECORDS_PER_MOUNT) {
+        capped = true;
+        observer.disconnect();
+        captureLifecycle('dom-lifecycle-capped', {
+          domRecordCap: MAX_DOM_LIFECYCLE_RECORDS_PER_MOUNT,
+        });
+        return;
+      }
+      domSequence += 1;
+      captureLifecycle('dom-lifecycle', {
+        kind,
+        elementId: stripDomElementId(elementId).slice(0, 80),
+        change,
+        domSequence,
+      });
+    };
+    const recordMatches = (node: unknown, change: 'added' | 'removed'): void => {
+      if (capped || !(node instanceof HTMLElement)) return;
+      for (const { kind, selector, idAttribute } of DOM_LIFECYCLE_KINDS) {
+        if (node.matches(selector)) {
+          recordChange(kind, node.getAttribute(idAttribute) ?? '', change);
+        }
+        for (const match of Array.from(node.querySelectorAll(selector))) {
+          if (capped) return;
+          recordChange(kind, match.getAttribute(idAttribute) ?? '', change);
+        }
+      }
+    };
+    const observer = new MutationObserver((mutations) => {
+      if (capped || currentGanttLifecycleCaptureGeneration() !== attachCaptureGeneration) return;
+      try {
+        for (const mutation of mutations) {
+          if (capped) break;
+          // Removals precede additions within one record: a replaceChild
+          // removes the old node before the new one lands, and a trace that
+          // ends 'removed' on a same-id replacement would fake the
+          // removal-without-recreation evidence shape.
+          for (const node of Array.from(mutation.removedNodes)) recordMatches(node, 'removed');
+          for (const node of Array.from(mutation.addedNodes)) recordMatches(node, 'added');
+        }
+      } catch {
+        // Diagnostics must never change product control flow.
+      }
+    });
+    observer.observe(root, { childList: true, subtree: true });
+    // Health marker: distinguishes "observed, no removals" from "never
+    // observed" — a summary without it is absence of observation, not
+    // evidence of survival.
+    captureLifecycle('dom-lifecycle-observing', {
+      domRecordCap: MAX_DOM_LIFECYCLE_RECORDS_PER_MOUNT,
+    });
+    return () => observer.disconnect();
+  }
+
   function attachRoot(root: HTMLElement): () => void {
     const captureCheckpoint = (event: Event): void => {
       if (!isGanttLifecycleCaptureActive()) return;
@@ -690,10 +774,14 @@ export function createGanttLifecycleDiagnostics(
     root.addEventListener('tn-gantt-lifecycle-checkpoint', captureCheckpoint);
     root.addEventListener('tn-gantt-lifecycle-scroll-source', captureChartScrollSource);
     root.addEventListener('scroll', captureChartScrollDelivery, true);
+    const detachDomLifecycleObserver = isGanttLifecycleCaptureActive()
+      ? attachDomLifecycleObserver(root)
+      : null;
     return () => {
       root.removeEventListener('tn-gantt-lifecycle-checkpoint', captureCheckpoint);
       root.removeEventListener('tn-gantt-lifecycle-scroll-source', captureChartScrollSource);
       root.removeEventListener('scroll', captureChartScrollDelivery, true);
+      detachDomLifecycleObserver?.();
     };
   }
 

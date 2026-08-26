@@ -8,10 +8,16 @@
  * control.
  */
 
-export const COLUMN_SORT_TRACE_SCHEMA = 'column-sort-diagnosis/v1';
+export const COLUMN_SORT_TRACE_SCHEMA = 'column-sort-diagnosis/v2';
 export const COLUMN_SORT_LIFECYCLE_CAPACITY = 4096;
 export const COLUMN_SORT_ENVELOPE_CAP = 3;
 export const COLUMN_SORT_BOUNDED_FACT_LIMIT = 500;
+/**
+ * The seam's private per-mount cap on DOM add/remove lifecycle records. The
+ * seam module exports no constants, so the seam unit test pins its observed
+ * cap to exactly this value — a drift on either side fails that test.
+ */
+export const SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT = 256;
 
 /** Serialize a list-shaped observation into one bounded scalar fact. */
 export function boundedFact(
@@ -328,6 +334,9 @@ export function estimateWorstCaseRecordBudget(): ColumnSortRecordBudget {
     boundaryAndPhaseMarkers: 5 + 7 + 12 + 2,
     // svar-ready and other view hook sites during this journey (no zoom/scroll).
     otherProductHooks: 20,
+    // Every mount charged at the seam's full per-mount DOM lifecycle cap,
+    // plus its one capped-marker and one observing-marker record.
+    domLifecycle: 5 * (SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT + 2),
   };
   const total = Object.values(breakdown).reduce((sum, records) => sum + records, 0);
   return {
@@ -363,6 +372,73 @@ export function isColumnSortControlIdentityComplete(identity: ColumnSortControlI
   );
 }
 
+/**
+ * Bounded aggregate of the seam's header/bar DOM add/remove records: what a
+ * control run's DOM lifecycle looked like, without the full ring. Summary
+ * differences never block control equivalence — a failing run's drop versus a
+ * control's survival IS the classification content.
+ */
+export interface ColumnSortDomLifecycleSummary {
+  headerAdded: number;
+  headerRemoved: number;
+  barAdded: number;
+  barRemoved: number;
+  cappedMounts: number;
+  /**
+   * Mounts whose observer actually attached (the seam's health marker). Zero
+   * means the DOM lifecycle was never observed — a zeroed summary is then
+   * absence of observation, not evidence of survival, and control matching
+   * fail-closes on it.
+   */
+  observedMounts: number;
+}
+
+/** The slice of a collector record the DOM lifecycle summary consumes. */
+export interface ColumnSortDomLifecycleRecordLike {
+  event: string;
+  facts?: Record<string, unknown>;
+}
+
+function tallyDomLifecycleChange(
+  summary: ColumnSortDomLifecycleSummary,
+  kind: unknown,
+  change: unknown,
+): void {
+  if (kind !== 'header' && kind !== 'bar') return;
+  if (change !== 'added' && change !== 'removed') return;
+  if (kind === 'header') {
+    if (change === 'added') summary.headerAdded += 1;
+    else summary.headerRemoved += 1;
+  } else if (change === 'added') {
+    summary.barAdded += 1;
+  } else {
+    summary.barRemoved += 1;
+  }
+}
+
+export function summarizeDomLifecycle(
+  records: readonly ColumnSortDomLifecycleRecordLike[],
+): ColumnSortDomLifecycleSummary {
+  const summary: ColumnSortDomLifecycleSummary = {
+    headerAdded: 0,
+    headerRemoved: 0,
+    barAdded: 0,
+    barRemoved: 0,
+    cappedMounts: 0,
+    observedMounts: 0,
+  };
+  for (const record of records) {
+    if (record.event === 'dom-lifecycle-capped') {
+      summary.cappedMounts += 1;
+    } else if (record.event === 'dom-lifecycle-observing') {
+      summary.observedMounts += 1;
+    } else if (record.event === 'dom-lifecycle') {
+      tallyDomLifecycleChange(summary, record.facts?.kind, record.facts?.change);
+    }
+  }
+  return summary;
+}
+
 export interface ColumnSortControlDigestInput {
   identity: ColumnSortControlIdentity;
   attempts: readonly ColumnSortClickAttempt[];
@@ -373,6 +449,7 @@ export interface ColumnSortControlDigestInput {
   readinessGates: number;
   /** Node-side count of diagnostic browser commands that failed this suite. */
   diagnosticCommandFailures: number;
+  domLifecycle: ColumnSortDomLifecycleSummary;
 }
 
 export interface ColumnSortPerSiteSummary {
@@ -400,6 +477,7 @@ export interface ColumnSortControlDigest {
   distinctMountTokens: number;
   /** Diagnostic commands that failed without reaching the collector. */
   diagnosticCommandFailures: number;
+  domLifecycle: ColumnSortDomLifecycleSummary;
 }
 
 /**
@@ -454,6 +532,7 @@ export function buildColumnSortControlDigest(
     allRootsLiveOwners,
     distinctMountTokens: mountTokens.size,
     diagnosticCommandFailures: input.diagnosticCommandFailures,
+    domLifecycle: input.domLifecycle,
   };
 }
 
@@ -492,6 +571,15 @@ export function areColumnSortControlsEquivalent(
     b.allRootsLiveOwners &&
     a.diagnosticCommandFailures === 0 &&
     b.diagnosticCommandFailures === 0 &&
+    a.domLifecycle.cappedMounts === 0 &&
+    b.domLifecycle.cappedMounts === 0 &&
+    a.domLifecycle.observedMounts > 0 &&
+    b.domLifecycle.observedMounts > 0 &&
+    // Every sampled mount must plausibly carry an observer: a run where a
+    // later mount was observed but an earlier sampled one was not would
+    // otherwise pass unrelated evidence off as complete.
+    a.domLifecycle.observedMounts >= a.distinctMountTokens &&
+    b.domLifecycle.observedMounts >= b.distinctMountTokens &&
     a.armed &&
     b.armed &&
     !a.overflow &&
@@ -519,6 +607,9 @@ export function columnSortControlCoversBoundary(
     !control.overflow &&
     !control.collectorFailure &&
     control.diagnosticCommandFailures === 0 &&
+    control.domLifecycle.cappedMounts === 0 &&
+    control.domLifecycle.observedMounts > 0 &&
+    control.domLifecycle.observedMounts >= control.distinctMountTokens &&
     control.allRootsLiveOwners &&
     failureJourney.length > 0 &&
     (control.journey === failureJourney || control.journey.startsWith(`${failureJourney}|`))

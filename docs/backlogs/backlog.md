@@ -152,36 +152,30 @@ propagated into the learnings docs before anyone checked the PR that closed it.
   `entry.getValue()`. Only an *unprefixed* or `formula.*` column id still does — a perf
   characteristic, not a bug: the real vault runs exactly that shape with no storm.
 
-### Reliability incident record — windows since the 2026-08-19 fold (fold per R3 at next plan close)
+### Reliability incident record — windows since the 2026-08-26 fold (fold per R3 at next plan close)
 New instances land here per the incident-record method of
 `docs/reports/2026-08-19-001-reliability-rediagnosis.md` (window-specific denominators from
 summed `run_attempt`, never pooled across windows; symptoms named per spec, cited by run id).
 That report's table is immutable; ruling R3 (PR #455) folds this entry into the next
-reliability report at plan close.
+reliability report at plan close. The 2026-08-25 window (PRs #454–#456, 7 executions,
+2 failed) folded into
+`docs/reports/2026-08-26-001-reliability-column-sort-diagnosis.md` at the column-sort
+diagnosis plan's close, with its ranked-list observations preserved there.
 
-| Window | Runs (ids) | Executions (`run_attempt` sum) | Failed | Failing specs |
-|---|---|---|---|---|
-| Guard-mechanisms closeout PRs #454–#456 (2026-08-25, all docs-only diffs) | 32795673512 (2), 32797728173 (2) — both PR #454's branch, SHAs `7f1fa5a` / `19786dc`; 32803282786 (1), 32804736666 (1) — PR #455; 32805925264 (1) — PR #456 | 2+2+1+1+1 = **7** | **2** | run 32795673512 attempt 1: `gantt-column-sort` AE1 — `Column header "note.due" did not become clickable` (the record's symptom shape 1). Run 32797728173 attempt 1 — a **two-spec execution**: `gantt-column-sort` AE3/R4 ("is session-only: reopening the view returns to the Base sort") — `Did not reach the descending sorted state before reopen`, a test new to the record, sort-outcome-never-materialised family; and `gantt-default-field-mappings` ("opens the configured-statuses picker on the unmapped status cell") — `doubleClickCell(TASK_ROW, STATUS_COL)` returned false (spec line 343), click-never-landed family. Both runs green on attempt 2 |
+_No instances recorded in the current window yet._
 
-Observations against the ranked list:
-
-- **Rank 3 (`gantt-column-sort`) now spans three tests and three symptom shapes** — AE1
-  header-clickability (this window + 4 prior instances), AE1 `B@-1` sort-never-materialised
-  (run 32113805668), and now AE3/R4 reopen-state. Diffs in this window are docs-only, so the
-  product code at both failing SHAs is byte-identical to main — diff provably uninvolved
-  (which per the method never means environmental; R6 keeps every cause class open). The
-  spread across tests strengthens the report's header/row-lifecycle suspicion over any
-  single test's wait condition.
-- **Rank 4 (`gantt-default-field-mappings`) recurred — third instance** (after run
-  31909561031's status-cell and run 32075292739 attempt 2's picker + beforeEach). The
-  report's own posture was "no dedicated unit until it recurs"; it graduates to at least
-  incident-tracked. Its click-never-landed shape is the same family as rank 3's AE1.
-- **Within-execution clustering** (two ranked specs failing in one leg) recurred in ordinary
-  CI, as in the pre-fold record's three two-spec executions; the 14-leg baseline never
-  showed it.
-- Noise, not counted: run 32797728173 attempt 1 also logged a worker EBUSY unlink
-  (`Cookies-journal`) on a spec that then passed — cleanup-time infrastructure noise of the
-  class the record tracks separately.
+### Column-sort on-recurrence procedure (standing; rank 3 open, probe armed)
+On any red `gantt-column-sort.e2e.ts` CI run: (1) download the `og-lifecycle` envelope
+from that run's `e2e-artifacts` upload BEFORE any rerun; (2) one same-commit
+`gh run rerun --failed` as the pre-registered control supply — verify the rerun checked
+out the identical merge SHA, else it does not qualify; (3) match the control digest
+mechanically and certify the operator facts from the ring slice; (4) classify per the
+binding rules in `docs/reports/2026-08-26-001-reliability-column-sort-diagnosis.md` and
+fold the verdict per ruling R3. `probe-failure` outcomes trend in their own bucket and
+prompt a probe-health fix, never a cause verdict. Contingency if no organic trace by 40
+instrumented ordinary-CI executions or six weeks from the seam-observation merge: one
+`e2e-repeat.yml` dispatch (`executions=24`) at a pinned instrumented SHA is
+pre-authorized (window-cutoff convention).
 
 ---
 

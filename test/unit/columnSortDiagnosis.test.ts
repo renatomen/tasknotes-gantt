@@ -7,9 +7,12 @@ import {
   classifyColumnSortDiagnosis,
   COLUMN_SORT_BOUNDED_FACT_LIMIT,
   COLUMN_SORT_LIFECYCLE_CAPACITY,
+  COLUMN_SORT_TRACE_SCHEMA,
   createColumnSortEnvelopeGate,
   estimateWorstCaseRecordBudget,
   isColumnSortControlIdentityComplete,
+  SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT,
+  summarizeDomLifecycle,
   type ColumnSortClickAttempt,
   type ColumnSortControlIdentity,
   type ColumnSortRootCensusEntry,
@@ -513,12 +516,55 @@ describe('estimateWorstCaseRecordBudget', () => {
     expect(budget.total).toBeLessThanOrEqual(COLUMN_SORT_LIFECYCLE_CAPACITY * 0.75);
     expect(budget.survivingBoundaries.length).toBeGreaterThan(0);
   });
+
+  it('charges every worst-case mount at the full seam DOM lifecycle cap', () => {
+    const budget = estimateWorstCaseRecordBudget();
+    expect(budget.breakdown.domLifecycle).toBe(5 * (SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT + 2));
+  });
+});
+
+describe('summarizeDomLifecycle', () => {
+  it('counts adds and removes by element kind and ignores unrelated events', () => {
+    const summary = summarizeDomLifecycle([
+      { event: 'dom-lifecycle', facts: { kind: 'header', change: 'added' } },
+      { event: 'dom-lifecycle', facts: { kind: 'header', change: 'removed' } },
+      { event: 'dom-lifecycle', facts: { kind: 'header', change: 'removed' } },
+      { event: 'dom-lifecycle', facts: { kind: 'bar', change: 'added' } },
+      { event: 'dom-lifecycle', facts: { kind: 'bar', change: 'removed' } },
+      { event: 'svar-ready', facts: { kind: 'header', change: 'added' } },
+      { event: 'dom-lifecycle' },
+    ]);
+    expect(summary).toEqual({
+      headerAdded: 1,
+      headerRemoved: 2,
+      barAdded: 1,
+      barRemoved: 1,
+      cappedMounts: 0,
+      observedMounts: 0,
+    });
+  });
+
+  it('counts capped mounts so a truncated observation can never read as a quiet one', () => {
+    const summary = summarizeDomLifecycle([
+      { event: 'dom-lifecycle-capped', facts: { domRecordCap: 256 } },
+      { event: 'dom-lifecycle-capped', facts: { domRecordCap: 256 } },
+    ]);
+    expect(summary.cappedMounts).toBe(2);
+  });
+
+  it('counts observed mounts from the seam health marker', () => {
+    const summary = summarizeDomLifecycle([
+      { event: 'dom-lifecycle-observing', facts: { domRecordCap: 256 } },
+      { event: 'dom-lifecycle-observing', facts: { domRecordCap: 256 } },
+    ]);
+    expect(summary.observedMounts).toBe(2);
+  });
 });
 
 function completeIdentity(): ColumnSortControlIdentity {
   return {
     buildSha: 'a'.repeat(40),
-    specSchema: 'column-sort-diagnosis/v1',
+    specSchema: 'column-sort-diagnosis/v2',
     chromiumVersion: '1.12.7',
     taskNotesVersion: '4.11.0',
     platform: 'win32',
@@ -539,6 +585,19 @@ describe('buildColumnSortControlDigest', () => {
       basePath: 'Companion.base',
       readinessGates: 7,
       diagnosticCommandFailures: 0,
+      domLifecycle: summarizeDomLifecycle([
+        { event: 'dom-lifecycle', facts: { kind: 'header', change: 'added' } },
+      ]),
+    });
+    expect(digest.schema).toBe('column-sort-diagnosis/v2');
+    expect(digest.schema).toBe(COLUMN_SORT_TRACE_SCHEMA);
+    expect(digest.domLifecycle).toEqual({
+      headerAdded: 1,
+      headerRemoved: 0,
+      barAdded: 0,
+      barRemoved: 0,
+      cappedMounts: 0,
+      observedMounts: 0,
     });
     expect(digest.identity.buildSha).toBe('a'.repeat(40));
     expect(digest.identity.obsidianVersion).toBe('1.9.14');
@@ -569,9 +628,52 @@ describe('areColumnSortControlsEquivalent', () => {
       basePath: 'Companion.base',
       readinessGates: 7,
       diagnosticCommandFailures: 0,
+      domLifecycle: summarizeDomLifecycle([{ event: 'dom-lifecycle-observing' }]),
       ...overrides,
     });
   }
+
+  it('stays equivalent when only the DOM lifecycle summaries differ — churn is content, not identity', () => {
+    const churned = digest({
+      domLifecycle: summarizeDomLifecycle([
+        { event: 'dom-lifecycle-observing' },
+        { event: 'dom-lifecycle', facts: { kind: 'bar', change: 'removed' } },
+      ]),
+    });
+    expect(areColumnSortControlsEquivalent(digest(), churned)).toBe(true);
+  });
+
+  it('rejects a control whose DOM observation was capped — truncated evidence is not a complete control', () => {
+    const capped = digest({
+      domLifecycle: summarizeDomLifecycle([
+        { event: 'dom-lifecycle-observing' },
+        { event: 'dom-lifecycle-capped', facts: { domRecordCap: 256 } },
+      ]),
+    });
+    expect(areColumnSortControlsEquivalent(digest(), capped)).toBe(false);
+  });
+
+  it('rejects a control whose mounts were never observed — a zeroed summary is not survival evidence', () => {
+    const unobserved = digest({ domLifecycle: summarizeDomLifecycle([]) });
+    expect(areColumnSortControlsEquivalent(digest(), unobserved)).toBe(false);
+  });
+
+  it('rejects a pair when a side sampled more mounts than its observers covered', () => {
+    const remountAttempts = [
+      attempt(),
+      attempt({ callSite: 'ae3-sort-loop', roots: [root({ mountToken: 2 })] }),
+    ];
+    const underObserved = digest({ attempts: remountAttempts });
+    const fullyObserved = digest({
+      attempts: remountAttempts,
+      domLifecycle: summarizeDomLifecycle([
+        { event: 'dom-lifecycle-observing' },
+        { event: 'dom-lifecycle-observing' },
+      ]),
+    });
+    expect(areColumnSortControlsEquivalent(fullyObserved, underObserved)).toBe(false);
+    expect(areColumnSortControlsEquivalent(fullyObserved, fullyObserved)).toBe(true);
+  });
 
   it('accepts two digests with identical complete identity, base, journey, and gate count', () => {
     expect(areColumnSortControlsEquivalent(digest(), digest())).toBe(true);
@@ -657,8 +759,29 @@ describe('columnSortControlCoversBoundary', () => {
       basePath: 'Companion.base',
       readinessGates: 7,
       diagnosticCommandFailures: 0,
+      domLifecycle: summarizeDomLifecycle([{ event: 'dom-lifecycle-observing' }]),
     });
   }
+
+  it('refuses a capped or never-observed control for boundary coverage', () => {
+    const capped = {
+      ...fullControl(),
+      domLifecycle: summarizeDomLifecycle([
+        { event: 'dom-lifecycle-observing' },
+        { event: 'dom-lifecycle-capped', facts: { domRecordCap: 256 } },
+      ]),
+    };
+    expect(columnSortControlCoversBoundary(capped, 'ae1-sort-loop|ae1-desc-click')).toBe(false);
+    const unobserved = { ...fullControl(), domLifecycle: summarizeDomLifecycle([]) };
+    expect(columnSortControlCoversBoundary(unobserved, 'ae1-sort-loop|ae1-desc-click')).toBe(false);
+  });
+
+  it('refuses a control that sampled more mounts than its observers covered', () => {
+    const underObserved = { ...fullControl(), distinctMountTokens: 2 };
+    expect(
+      columnSortControlCoversBoundary(underObserved, 'ae1-sort-loop|ae1-desc-click'),
+    ).toBe(false);
+  });
 
   it('covers a failure whose journey is a prefix of the control journey', () => {
     expect(columnSortControlCoversBoundary(fullControl(), 'ae1-sort-loop|ae1-desc-click')).toBe(true);
