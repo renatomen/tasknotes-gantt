@@ -18,6 +18,7 @@ import {
   COLUMN_SORT_LIFECYCLE_CAPACITY,
   COLUMN_SORT_TRACE_SCHEMA,
   createColumnSortEnvelopeGate,
+  summarizeDomLifecycle,
   type ColumnSortClickAttempt,
   type ColumnSortControlIdentity,
   type ColumnSortRootCensusEntry,
@@ -698,6 +699,7 @@ export async function emitColumnSortControlDigest(): Promise<void> {
       basePath: BASE_PATH,
       readinessGates: readinessOrdinal,
       diagnosticCommandFailures,
+      domLifecycle: summarizeDomLifecycle(snapshot?.records ?? []),
     });
     const payload = { origin: 'column-sort:control-digest', digest };
     console.error(`[OG-LIFECYCLE] ${JSON.stringify(payload)}`);

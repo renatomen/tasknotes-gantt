@@ -11,7 +11,7 @@
  * api re-binds. Frame scheduling and `tick` arrive as injected deps so the
  * async settlement loop is provable without a browser.
  */
-/* global Event, CustomEvent */
+/* global Event, CustomEvent, MutationRecord */
 import {
   captureGanttLifecycle,
   classifyViewportSettlement,
@@ -165,6 +165,14 @@ const EMPTY_VIEWPORT_OBSERVATION: ViewportObservation = {
 
 const MAX_VIEWPORT_SETTLEMENT_FRAMES = 8;
 const MAX_PENDING_VIEWPORT_SOURCE_ACTIONS = 16;
+// Pinned by the seam unit test against the spec helpers' record-budget copy.
+const MAX_DOM_LIFECYCLE_RECORDS_PER_MOUNT = 256;
+const DOM_LIFECYCLE_HEADER_SELECTOR = '[data-header-id]';
+const DOM_LIFECYCLE_BAR_SELECTOR = '.wx-bar[data-id]';
+
+interface DomLifecycleObserverConstructor {
+  new (callback: (mutations: MutationRecord[]) => void): MutationObserver;
+}
 
 export function createGanttLifecycleDiagnostics(
   access: GanttLifecycleDiagnosticsAccess,
@@ -647,6 +655,72 @@ export function createGanttLifecycleDiagnostics(
     }, phase, originatingHostGeneration);
   }
 
+  /**
+   * Watches the removal and recreation moments of header and bar elements as
+   * scalar facts: spec-side polling can prove an element absent but never
+   * observe the transition itself. childList-only, capped per mount, and
+   * created only while capture is armed so the unarmed hot path holds zero
+   * observer machinery.
+   */
+  function attachDomLifecycleObserver(root: HTMLElement): (() => void) | null {
+    const ObserverConstructor = (globalThis as {
+      MutationObserver?: DomLifecycleObserverConstructor;
+    }).MutationObserver;
+    if (!ObserverConstructor) return null;
+    let domSequence = 0;
+    let capped = false;
+    const recordChange = (
+      kind: 'header' | 'bar',
+      elementId: string,
+      change: 'added' | 'removed',
+    ): void => {
+      if (capped) return;
+      if (domSequence >= MAX_DOM_LIFECYCLE_RECORDS_PER_MOUNT) {
+        capped = true;
+        observer.disconnect();
+        captureLifecycle('dom-lifecycle-capped', {
+          domRecordCap: MAX_DOM_LIFECYCLE_RECORDS_PER_MOUNT,
+        });
+        return;
+      }
+      domSequence += 1;
+      captureLifecycle('dom-lifecycle', {
+        kind,
+        elementId: elementId.slice(0, 80),
+        change,
+        domSequence,
+      });
+    };
+    const recordMatches = (node: unknown, change: 'added' | 'removed'): void => {
+      if (!(node instanceof HTMLElement)) return;
+      if (node.matches(DOM_LIFECYCLE_HEADER_SELECTOR)) {
+        recordChange('header', node.getAttribute('data-header-id') ?? '', change);
+      }
+      if (node.matches(DOM_LIFECYCLE_BAR_SELECTOR)) {
+        recordChange('bar', node.getAttribute('data-id') ?? '', change);
+      }
+      for (const header of Array.from(node.querySelectorAll(DOM_LIFECYCLE_HEADER_SELECTOR))) {
+        recordChange('header', header.getAttribute('data-header-id') ?? '', change);
+      }
+      for (const bar of Array.from(node.querySelectorAll(DOM_LIFECYCLE_BAR_SELECTOR))) {
+        recordChange('bar', bar.getAttribute('data-id') ?? '', change);
+      }
+    };
+    const observer = new ObserverConstructor((mutations) => {
+      if (capped || !isGanttLifecycleCaptureActive()) return;
+      try {
+        for (const mutation of mutations) {
+          for (const node of Array.from(mutation.addedNodes)) recordMatches(node, 'added');
+          for (const node of Array.from(mutation.removedNodes)) recordMatches(node, 'removed');
+        }
+      } catch {
+        // Diagnostics must never change product control flow.
+      }
+    });
+    observer.observe(root, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }
+
   function attachRoot(root: HTMLElement): () => void {
     const captureCheckpoint = (event: Event): void => {
       if (!isGanttLifecycleCaptureActive()) return;
@@ -690,10 +764,14 @@ export function createGanttLifecycleDiagnostics(
     root.addEventListener('tn-gantt-lifecycle-checkpoint', captureCheckpoint);
     root.addEventListener('tn-gantt-lifecycle-scroll-source', captureChartScrollSource);
     root.addEventListener('scroll', captureChartScrollDelivery, true);
+    const detachDomLifecycleObserver = isGanttLifecycleCaptureActive()
+      ? attachDomLifecycleObserver(root)
+      : null;
     return () => {
       root.removeEventListener('tn-gantt-lifecycle-checkpoint', captureCheckpoint);
       root.removeEventListener('tn-gantt-lifecycle-scroll-source', captureChartScrollSource);
       root.removeEventListener('scroll', captureChartScrollDelivery, true);
+      detachDomLifecycleObserver?.();
     };
   }
 

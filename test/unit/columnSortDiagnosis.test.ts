@@ -7,9 +7,12 @@ import {
   classifyColumnSortDiagnosis,
   COLUMN_SORT_BOUNDED_FACT_LIMIT,
   COLUMN_SORT_LIFECYCLE_CAPACITY,
+  COLUMN_SORT_TRACE_SCHEMA,
   createColumnSortEnvelopeGate,
   estimateWorstCaseRecordBudget,
   isColumnSortControlIdentityComplete,
+  SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT,
+  summarizeDomLifecycle,
   type ColumnSortClickAttempt,
   type ColumnSortControlIdentity,
   type ColumnSortRootCensusEntry,
@@ -513,12 +516,46 @@ describe('estimateWorstCaseRecordBudget', () => {
     expect(budget.total).toBeLessThanOrEqual(COLUMN_SORT_LIFECYCLE_CAPACITY * 0.75);
     expect(budget.survivingBoundaries.length).toBeGreaterThan(0);
   });
+
+  it('charges every worst-case mount at the full seam DOM lifecycle cap', () => {
+    const budget = estimateWorstCaseRecordBudget();
+    expect(budget.breakdown.domLifecycle).toBe(5 * SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT);
+  });
+});
+
+describe('summarizeDomLifecycle', () => {
+  it('counts adds and removes by element kind and ignores unrelated events', () => {
+    const summary = summarizeDomLifecycle([
+      { event: 'dom-lifecycle', facts: { kind: 'header', change: 'added' } },
+      { event: 'dom-lifecycle', facts: { kind: 'header', change: 'removed' } },
+      { event: 'dom-lifecycle', facts: { kind: 'header', change: 'removed' } },
+      { event: 'dom-lifecycle', facts: { kind: 'bar', change: 'added' } },
+      { event: 'dom-lifecycle', facts: { kind: 'bar', change: 'removed' } },
+      { event: 'svar-ready', facts: { kind: 'header', change: 'added' } },
+      { event: 'dom-lifecycle' },
+    ]);
+    expect(summary).toEqual({
+      headerAdded: 1,
+      headerRemoved: 2,
+      barAdded: 1,
+      barRemoved: 1,
+      cappedMounts: 0,
+    });
+  });
+
+  it('counts capped mounts so a truncated observation can never read as a quiet one', () => {
+    const summary = summarizeDomLifecycle([
+      { event: 'dom-lifecycle-capped', facts: { domRecordCap: 256 } },
+      { event: 'dom-lifecycle-capped', facts: { domRecordCap: 256 } },
+    ]);
+    expect(summary.cappedMounts).toBe(2);
+  });
 });
 
 function completeIdentity(): ColumnSortControlIdentity {
   return {
     buildSha: 'a'.repeat(40),
-    specSchema: 'column-sort-diagnosis/v1',
+    specSchema: 'column-sort-diagnosis/v2',
     chromiumVersion: '1.12.7',
     taskNotesVersion: '4.11.0',
     platform: 'win32',
@@ -539,6 +576,18 @@ describe('buildColumnSortControlDigest', () => {
       basePath: 'Companion.base',
       readinessGates: 7,
       diagnosticCommandFailures: 0,
+      domLifecycle: summarizeDomLifecycle([
+        { event: 'dom-lifecycle', facts: { kind: 'header', change: 'added' } },
+      ]),
+    });
+    expect(digest.schema).toBe('column-sort-diagnosis/v2');
+    expect(digest.schema).toBe(COLUMN_SORT_TRACE_SCHEMA);
+    expect(digest.domLifecycle).toEqual({
+      headerAdded: 1,
+      headerRemoved: 0,
+      barAdded: 0,
+      barRemoved: 0,
+      cappedMounts: 0,
     });
     expect(digest.identity.buildSha).toBe('a'.repeat(40));
     expect(digest.identity.obsidianVersion).toBe('1.9.14');
@@ -569,9 +618,19 @@ describe('areColumnSortControlsEquivalent', () => {
       basePath: 'Companion.base',
       readinessGates: 7,
       diagnosticCommandFailures: 0,
+      domLifecycle: summarizeDomLifecycle([]),
       ...overrides,
     });
   }
+
+  it('stays equivalent when only the DOM lifecycle summaries differ — churn is content, not identity', () => {
+    const churned = digest({
+      domLifecycle: summarizeDomLifecycle([
+        { event: 'dom-lifecycle', facts: { kind: 'bar', change: 'removed' } },
+      ]),
+    });
+    expect(areColumnSortControlsEquivalent(digest(), churned)).toBe(true);
+  });
 
   it('accepts two digests with identical complete identity, base, journey, and gate count', () => {
     expect(areColumnSortControlsEquivalent(digest(), digest())).toBe(true);
@@ -657,6 +716,7 @@ describe('columnSortControlCoversBoundary', () => {
       basePath: 'Companion.base',
       readinessGates: 7,
       diagnosticCommandFailures: 0,
+      domLifecycle: summarizeDomLifecycle([]),
     });
   }
 

@@ -8,10 +8,16 @@
  * control.
  */
 
-export const COLUMN_SORT_TRACE_SCHEMA = 'column-sort-diagnosis/v1';
+export const COLUMN_SORT_TRACE_SCHEMA = 'column-sort-diagnosis/v2';
 export const COLUMN_SORT_LIFECYCLE_CAPACITY = 4096;
 export const COLUMN_SORT_ENVELOPE_CAP = 3;
 export const COLUMN_SORT_BOUNDED_FACT_LIMIT = 500;
+/**
+ * The seam's private per-mount cap on DOM add/remove lifecycle records. The
+ * seam module exports no constants, so the seam unit test pins its observed
+ * cap to exactly this value — a drift on either side fails that test.
+ */
+export const SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT = 256;
 
 /** Serialize a list-shaped observation into one bounded scalar fact. */
 export function boundedFact(
@@ -328,6 +334,8 @@ export function estimateWorstCaseRecordBudget(): ColumnSortRecordBudget {
     boundaryAndPhaseMarkers: 5 + 7 + 12 + 2,
     // svar-ready and other view hook sites during this journey (no zoom/scroll).
     otherProductHooks: 20,
+    // Every mount charged at the seam's full per-mount DOM lifecycle cap.
+    domLifecycle: 5 * SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT,
   };
   const total = Object.values(breakdown).reduce((sum, records) => sum + records, 0);
   return {
@@ -363,6 +371,53 @@ export function isColumnSortControlIdentityComplete(identity: ColumnSortControlI
   );
 }
 
+/**
+ * Bounded aggregate of the seam's header/bar DOM add/remove records: what a
+ * control run's DOM lifecycle looked like, without the full ring. Summary
+ * differences never block control equivalence — a failing run's drop versus a
+ * control's survival IS the classification content.
+ */
+export interface ColumnSortDomLifecycleSummary {
+  headerAdded: number;
+  headerRemoved: number;
+  barAdded: number;
+  barRemoved: number;
+  cappedMounts: number;
+}
+
+/** The slice of a collector record the DOM lifecycle summary consumes. */
+export interface ColumnSortDomLifecycleRecordLike {
+  event: string;
+  facts?: Record<string, unknown>;
+}
+
+export function summarizeDomLifecycle(
+  records: readonly ColumnSortDomLifecycleRecordLike[],
+): ColumnSortDomLifecycleSummary {
+  const summary: ColumnSortDomLifecycleSummary = {
+    headerAdded: 0,
+    headerRemoved: 0,
+    barAdded: 0,
+    barRemoved: 0,
+    cappedMounts: 0,
+  };
+  for (const record of records) {
+    if (record.event === 'dom-lifecycle-capped') {
+      summary.cappedMounts += 1;
+      continue;
+    }
+    if (record.event !== 'dom-lifecycle') continue;
+    const kind = record.facts?.kind;
+    const change = record.facts?.change;
+    if (kind !== 'header' && kind !== 'bar') continue;
+    if (change !== 'added' && change !== 'removed') continue;
+    const counter = `${kind}${change === 'added' ? 'Added' : 'Removed'}` as
+      keyof Omit<ColumnSortDomLifecycleSummary, 'cappedMounts'>;
+    summary[counter] += 1;
+  }
+  return summary;
+}
+
 export interface ColumnSortControlDigestInput {
   identity: ColumnSortControlIdentity;
   attempts: readonly ColumnSortClickAttempt[];
@@ -373,6 +428,7 @@ export interface ColumnSortControlDigestInput {
   readinessGates: number;
   /** Node-side count of diagnostic browser commands that failed this suite. */
   diagnosticCommandFailures: number;
+  domLifecycle: ColumnSortDomLifecycleSummary;
 }
 
 export interface ColumnSortPerSiteSummary {
@@ -400,6 +456,7 @@ export interface ColumnSortControlDigest {
   distinctMountTokens: number;
   /** Diagnostic commands that failed without reaching the collector. */
   diagnosticCommandFailures: number;
+  domLifecycle: ColumnSortDomLifecycleSummary;
 }
 
 /**
@@ -454,6 +511,7 @@ export function buildColumnSortControlDigest(
     allRootsLiveOwners,
     distinctMountTokens: mountTokens.size,
     diagnosticCommandFailures: input.diagnosticCommandFailures,
+    domLifecycle: input.domLifecycle,
   };
 }
 

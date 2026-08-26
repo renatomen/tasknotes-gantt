@@ -18,6 +18,7 @@ import {
   type GanttLifecycleDiagnosticsAccess,
   type GanttLifecycleDiagnosticsDeps,
 } from '../../src/bases/ganttLifecycleDiagnostics';
+import { SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT } from '../specs/helpers/columnSortDiagnosis';
 
 interface MutableAccessState {
   hostGeneration: number;
@@ -492,6 +493,183 @@ describe('createGanttLifecycleDiagnostics', () => {
         checkpoint: 'after-zoom',
         pendingViewportSourceCount: 0,
       });
+    });
+  });
+
+  describe('DOM lifecycle observation through attachRoot', () => {
+    /**
+     * Node-env stand-ins for the browser's MutationObserver contract: the
+     * fake queues nothing after disconnect, exactly as the platform does, so
+     * the seam's own gating is what the tests exercise.
+     */
+    class FakeMutationObserver {
+      static instances: FakeMutationObserver[] = [];
+      observed: { target: unknown; options: unknown }[] = [];
+      disconnected = false;
+      private readonly callback: (mutations: unknown[]) => void;
+      constructor(callback: (mutations: unknown[]) => void) {
+        this.callback = callback;
+        FakeMutationObserver.instances.push(this);
+      }
+      observe(target: unknown, options: unknown): void {
+        this.observed.push({ target, options });
+      }
+      disconnect(): void {
+        this.disconnected = true;
+      }
+      deliver(mutations: unknown[]): void {
+        if (this.disconnected) return;
+        this.callback(mutations);
+      }
+    }
+
+    class StubDomElement {
+      private readonly matchedSelectors: string[];
+      private readonly attributes: Record<string, string>;
+      readonly descendants: StubDomElement[];
+      constructor(
+        matchedSelectors: string[],
+        attributes: Record<string, string>,
+        descendants: StubDomElement[] = [],
+      ) {
+        this.matchedSelectors = matchedSelectors;
+        this.attributes = attributes;
+        this.descendants = descendants;
+      }
+      matches(selector: string): boolean {
+        return this.matchedSelectors.includes(selector);
+      }
+      getAttribute(name: string): string | null {
+        return this.attributes[name] ?? null;
+      }
+      querySelectorAll(selector: string): StubDomElement[] {
+        return this.descendants.filter((descendant) => descendant.matches(selector));
+      }
+    }
+
+    const headerElement = (id: string): StubDomElement =>
+      new StubDomElement(['[data-header-id]'], { 'data-header-id': id });
+    const barElement = (id: string): StubDomElement =>
+      new StubDomElement(['.wx-bar[data-id]'], { 'data-id': id });
+    const plainElement = (descendants: StubDomElement[] = []): StubDomElement =>
+      new StubDomElement([], {}, descendants);
+    const mutation = (
+      addedNodes: unknown[],
+      removedNodes: unknown[],
+    ): { addedNodes: unknown[]; removedNodes: unknown[] } => ({ addedNodes, removedNodes });
+
+    beforeEach(() => {
+      FakeMutationObserver.instances = [];
+      (globalThis as { MutationObserver?: unknown }).MutationObserver = FakeMutationObserver;
+      (globalThis as { HTMLElement?: unknown }).HTMLElement = StubDomElement;
+    });
+
+    afterEach(() => {
+      delete (globalThis as { MutationObserver?: unknown }).MutationObserver;
+      delete (globalThis as { HTMLElement?: unknown }).HTMLElement;
+    });
+
+    function attachObservedRoot(): {
+      observer: FakeMutationObserver;
+      detach: () => void;
+    } {
+      const root = {
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        querySelector: () => null,
+      } as unknown as HTMLElement;
+      const detach = diagnostics.attachRoot(root);
+      const observer = FakeMutationObserver.instances.at(-1);
+      if (!observer) throw new Error('attachRoot armed but created no observer');
+      return { observer, detach };
+    }
+
+    function domRecords(): CapturedGanttLifecycleRecord[] {
+      return capturedRecords().filter((record) => record.event === 'dom-lifecycle');
+    }
+
+    it('observes the root childList-only across the subtree', () => {
+      const { observer } = attachObservedRoot();
+      expect(observer.observed).toHaveLength(1);
+      expect(observer.observed[0].options).toEqual({ childList: true, subtree: true });
+    });
+
+    it('a removed header without recreation yields removal facts joinable by mount token and sequence', () => {
+      const { observer } = attachObservedRoot();
+      observer.deliver([mutation([], [headerElement('note.due')])]);
+      const records = domRecords();
+      expect(records).toHaveLength(1);
+      expect(records[0].mountToken).toBe(7);
+      expect(records[0].facts).toMatchObject({
+        kind: 'header',
+        elementId: 'note.due',
+        change: 'removed',
+        domSequence: 1,
+      });
+      expect(
+        records.filter((record) => record.facts?.change === 'added'),
+      ).toHaveLength(0);
+    });
+
+    it('headers and bars inside a removed ancestor subtree are observed through the descendant scan', () => {
+      const { observer } = attachObservedRoot();
+      const container = plainElement([headerElement('note.due'), barElement('t1')]);
+      observer.deliver([mutation([], [container])]);
+      expect(domRecords().map((record) => record.facts)).toEqual([
+        expect.objectContaining({ kind: 'header', elementId: 'note.due', change: 'removed' }),
+        expect.objectContaining({ kind: 'bar', elementId: 't1', change: 'removed' }),
+      ]);
+    });
+
+    it('adds and removes of non-matching nodes record nothing', () => {
+      const { observer } = attachObservedRoot();
+      observer.deliver([
+        mutation([plainElement(), 'a text node'], [plainElement(), { nodeType: 3 }]),
+      ]);
+      expect(domRecords()).toHaveLength(0);
+    });
+
+    it('unarmed, attachRoot creates no observer at all', () => {
+      ganttLifecycleControl.stop();
+      const root = {
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        querySelector: () => null,
+      } as unknown as HTMLElement;
+      diagnostics.attachRoot(root);
+      expect(FakeMutationObserver.instances).toHaveLength(0);
+    });
+
+    it('a mid-run disarm stops recording without touching the primary path', () => {
+      const { observer } = attachObservedRoot();
+      ganttLifecycleControl.stop();
+      observer.deliver([mutation([headerElement('note.due')], [])]);
+      ganttLifecycleControl.start(128);
+      expect(domRecords()).toHaveLength(0);
+    });
+
+    it('the per-mount record cap holds under churn and caps as a recorded fact, not silent loss', () => {
+      ganttLifecycleControl.start(SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT + 64);
+      ganttLifecycleControl.setPhase('seam-test');
+      const { observer } = attachObservedRoot();
+      for (let churn = 0; churn < SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT + 10; churn += 1) {
+        observer.deliver([mutation([barElement(`t${churn}`)], [])]);
+      }
+      expect(domRecords()).toHaveLength(SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT);
+      const capped = capturedRecords().filter((record) => record.event === 'dom-lifecycle-capped');
+      expect(capped).toHaveLength(1);
+      expect(capped[0].facts).toMatchObject({
+        domRecordCap: SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT,
+      });
+      expect(observer.disconnected).toBe(true);
+    });
+
+    it('the attachRoot disposer disconnects the observer and nothing records after detach', () => {
+      const { observer, detach } = attachObservedRoot();
+      detach();
+      expect(observer.disconnected).toBe(true);
+      observer.deliver([mutation([], [headerElement('note.due')])]);
+      expect(domRecords()).toHaveLength(0);
     });
   });
 
