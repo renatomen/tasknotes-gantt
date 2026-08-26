@@ -664,6 +664,37 @@ describe('createGanttLifecycleDiagnostics', () => {
       expect(observer.disconnected).toBe(true);
     });
 
+    it('a capture restarted after attach rejects deliveries from the old observer', () => {
+      const { observer } = attachObservedRoot();
+      ganttLifecycleControl.stop();
+      ganttLifecycleControl.start(128);
+      ganttLifecycleControl.setPhase('seam-test');
+      observer.deliver([mutation([headerElement('note.due')], [])]);
+      expect(domRecords()).toHaveLength(0);
+    });
+
+    it('SVAR-prefixed ids are recorded stripped, matching the census readers', () => {
+      const { observer } = attachObservedRoot();
+      observer.deliver([mutation([headerElement(':note.due'), barElement(':t7')], [])]);
+      expect(domRecords().map((record) => record.facts)).toEqual([
+        expect.objectContaining({ kind: 'header', elementId: 'note.due', change: 'added' }),
+        expect.objectContaining({ kind: 'bar', elementId: 't7', change: 'added' }),
+      ]);
+    });
+
+    it('a node that throws during matching is confined by the catch and later deliveries still record', () => {
+      const { observer } = attachObservedRoot();
+      const hostile = new StubDomElement([], {});
+      hostile.matches = () => {
+        throw new Error('hostile matches');
+      };
+      expect(() => observer.deliver([mutation([hostile], [])])).not.toThrow();
+      observer.deliver([mutation([barElement('t1')], [])]);
+      expect(domRecords().map((record) => record.facts)).toEqual([
+        expect.objectContaining({ kind: 'bar', elementId: 't1', change: 'added' }),
+      ]);
+    });
+
     it('the attachRoot disposer disconnects the observer and nothing records after detach', () => {
       const { observer, detach } = attachObservedRoot();
       detach();

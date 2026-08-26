@@ -334,8 +334,9 @@ export function estimateWorstCaseRecordBudget(): ColumnSortRecordBudget {
     boundaryAndPhaseMarkers: 5 + 7 + 12 + 2,
     // svar-ready and other view hook sites during this journey (no zoom/scroll).
     otherProductHooks: 20,
-    // Every mount charged at the seam's full per-mount DOM lifecycle cap.
-    domLifecycle: 5 * SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT,
+    // Every mount charged at the seam's full per-mount DOM lifecycle cap,
+    // plus its one capped-marker record.
+    domLifecycle: 5 * (SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT + 1),
   };
   const total = Object.values(breakdown).reduce((sum, records) => sum + records, 0);
   return {
@@ -560,6 +561,8 @@ export function areColumnSortControlsEquivalent(
     b.allRootsLiveOwners &&
     a.diagnosticCommandFailures === 0 &&
     b.diagnosticCommandFailures === 0 &&
+    a.domLifecycle.cappedMounts === 0 &&
+    b.domLifecycle.cappedMounts === 0 &&
     a.armed &&
     b.armed &&
     !a.overflow &&

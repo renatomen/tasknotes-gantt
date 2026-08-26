@@ -519,7 +519,7 @@ describe('estimateWorstCaseRecordBudget', () => {
 
   it('charges every worst-case mount at the full seam DOM lifecycle cap', () => {
     const budget = estimateWorstCaseRecordBudget();
-    expect(budget.breakdown.domLifecycle).toBe(5 * SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT);
+    expect(budget.breakdown.domLifecycle).toBe(5 * (SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT + 1));
   });
 });
 
@@ -630,6 +630,15 @@ describe('areColumnSortControlsEquivalent', () => {
       ]),
     });
     expect(areColumnSortControlsEquivalent(digest(), churned)).toBe(true);
+  });
+
+  it('rejects a control whose DOM observation was capped — truncated evidence is not a complete control', () => {
+    const capped = digest({
+      domLifecycle: summarizeDomLifecycle([
+        { event: 'dom-lifecycle-capped', facts: { domRecordCap: 256 } },
+      ]),
+    });
+    expect(areColumnSortControlsEquivalent(digest(), capped)).toBe(false);
   });
 
   it('accepts two digests with identical complete identity, base, journey, and gate count', () => {

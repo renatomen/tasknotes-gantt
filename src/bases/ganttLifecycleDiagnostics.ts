@@ -172,6 +172,11 @@ const DOM_LIFECYCLE_KINDS = [
   { kind: 'bar', selector: '.wx-bar[data-id]', idAttribute: 'data-id' },
 ] as const;
 
+// SVAR prefixes string ids with ':'; strip it so recorded facts match the census readers.
+function stripDomElementId(value: string): string {
+  return value.startsWith(':') ? value.slice(1) : value;
+}
+
 export function createGanttLifecycleDiagnostics(
   access: GanttLifecycleDiagnosticsAccess,
   deps: GanttLifecycleDiagnosticsDeps,
@@ -662,6 +667,8 @@ export function createGanttLifecycleDiagnostics(
    */
   function attachDomLifecycleObserver(root: HTMLElement): (() => void) | null {
     if (typeof MutationObserver === 'undefined') return null;
+    const attachCaptureGeneration = currentGanttLifecycleCaptureGeneration();
+    if (attachCaptureGeneration === null) return null;
     let domSequence = 0;
     let capped = false;
     const recordChange = (
@@ -681,7 +688,7 @@ export function createGanttLifecycleDiagnostics(
       domSequence += 1;
       captureLifecycle('dom-lifecycle', {
         kind,
-        elementId: elementId.slice(0, 80),
+        elementId: stripDomElementId(elementId).slice(0, 80),
         change,
         domSequence,
       });
@@ -699,7 +706,7 @@ export function createGanttLifecycleDiagnostics(
       }
     };
     const observer = new MutationObserver((mutations) => {
-      if (capped || !isGanttLifecycleCaptureActive()) return;
+      if (capped || currentGanttLifecycleCaptureGeneration() !== attachCaptureGeneration) return;
       try {
         for (const mutation of mutations) {
           if (capped) break;
