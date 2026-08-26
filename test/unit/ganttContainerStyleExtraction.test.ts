@@ -2,6 +2,8 @@ import { readFileSync, existsSync, mkdtempSync, writeFileSync, rmSync } from "no
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
+import { execFileSync } from "node:child_process";
 
 const componentPath = join(process.cwd(), "src", "bases", "GanttContainer.svelte");
 const stylesheetPath = join(process.cwd(), "src", "bases", "GanttContainer.css");
@@ -85,5 +87,34 @@ describe("style-inline preprocessor execution", () => {
       filename: componentPath,
     });
     expect(result).toBeUndefined();
+  });
+
+  it("the effective svelte.config.js export inlines the real component's styles", () => {
+    // Jest's VM cannot import the ESM config, so a real node subprocess
+    // executes the config's OWN preprocess array — a commented-out wiring
+    // line cannot pass this, unlike source-text assertions.
+    const script = [
+      `const configUrl = ${JSON.stringify(pathToFileURL(svelteConfigPath).href)};`,
+      `const componentPath = ${JSON.stringify(componentPath)};`,
+      'const { readFileSync } = await import("node:fs");',
+      "const config = (await import(configUrl)).default;",
+      "const preprocessors = Array.isArray(config.preprocess) ? config.preprocess : [config.preprocess];",
+      'const pre = preprocessors.find((p) => p && p.name === "og-style-src-inline");',
+      'if (!pre) { console.log("NO_PREPROCESSOR_IN_EFFECTIVE_CONFIG"); }',
+      "else {",
+      '  const component = readFileSync(componentPath, "utf8");',
+      "  const result = pre.markup({ content: component, filename: componentPath });",
+      "  console.log(",
+      '    result && result.code.includes(".wxi-menu-right") && !result.code.includes(\'src="./GanttContainer.css"\')',
+      '      ? "EFFECTIVE_CONFIG_INLINES"',
+      '      : "BAD_OUTPUT",',
+      "  );",
+      "}",
+    ].join("\n");
+    const out = execFileSync(process.execPath, ["--input-type=module", "-e", script], {
+      encoding: "utf8",
+      cwd: process.cwd(),
+    }).trim();
+    expect(out).toBe("EFFECTIVE_CONFIG_INLINES");
   });
 });
