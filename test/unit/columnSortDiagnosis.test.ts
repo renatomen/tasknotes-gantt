@@ -658,6 +658,23 @@ describe('areColumnSortControlsEquivalent', () => {
     expect(areColumnSortControlsEquivalent(digest(), unobserved)).toBe(false);
   });
 
+  it('rejects a pair when a side sampled more mounts than its observers covered', () => {
+    const remountAttempts = [
+      attempt(),
+      attempt({ callSite: 'ae3-sort-loop', roots: [root({ mountToken: 2 })] }),
+    ];
+    const underObserved = digest({ attempts: remountAttempts });
+    const fullyObserved = digest({
+      attempts: remountAttempts,
+      domLifecycle: summarizeDomLifecycle([
+        { event: 'dom-lifecycle-observing' },
+        { event: 'dom-lifecycle-observing' },
+      ]),
+    });
+    expect(areColumnSortControlsEquivalent(fullyObserved, underObserved)).toBe(false);
+    expect(areColumnSortControlsEquivalent(fullyObserved, fullyObserved)).toBe(true);
+  });
+
   it('accepts two digests with identical complete identity, base, journey, and gate count', () => {
     expect(areColumnSortControlsEquivalent(digest(), digest())).toBe(true);
   });
@@ -757,6 +774,13 @@ describe('columnSortControlCoversBoundary', () => {
     expect(columnSortControlCoversBoundary(capped, 'ae1-sort-loop|ae1-desc-click')).toBe(false);
     const unobserved = { ...fullControl(), domLifecycle: summarizeDomLifecycle([]) };
     expect(columnSortControlCoversBoundary(unobserved, 'ae1-sort-loop|ae1-desc-click')).toBe(false);
+  });
+
+  it('refuses a control that sampled more mounts than its observers covered', () => {
+    const underObserved = { ...fullControl(), distinctMountTokens: 2 };
+    expect(
+      columnSortControlCoversBoundary(underObserved, 'ae1-sort-loop|ae1-desc-click'),
+    ).toBe(false);
   });
 
   it('covers a failure whose journey is a prefix of the control journey', () => {

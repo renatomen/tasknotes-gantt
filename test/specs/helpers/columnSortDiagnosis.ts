@@ -575,6 +575,11 @@ export function areColumnSortControlsEquivalent(
     b.domLifecycle.cappedMounts === 0 &&
     a.domLifecycle.observedMounts > 0 &&
     b.domLifecycle.observedMounts > 0 &&
+    // Every sampled mount must plausibly carry an observer: a run where a
+    // later mount was observed but an earlier sampled one was not would
+    // otherwise pass unrelated evidence off as complete.
+    a.domLifecycle.observedMounts >= a.distinctMountTokens &&
+    b.domLifecycle.observedMounts >= b.distinctMountTokens &&
     a.armed &&
     b.armed &&
     !a.overflow &&
@@ -604,6 +609,7 @@ export function columnSortControlCoversBoundary(
     control.diagnosticCommandFailures === 0 &&
     control.domLifecycle.cappedMounts === 0 &&
     control.domLifecycle.observedMounts > 0 &&
+    control.domLifecycle.observedMounts >= control.distinctMountTokens &&
     control.allRootsLiveOwners &&
     failureJourney.length > 0 &&
     (control.journey === failureJourney || control.journey.startsWith(`${failureJourney}|`))

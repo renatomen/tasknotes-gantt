@@ -621,6 +621,15 @@ describe('createGanttLifecycleDiagnostics', () => {
       ).toHaveLength(0);
     });
 
+    it('a same-record replacement records the removal before the addition, so the trace ends recreated', () => {
+      const { observer } = attachObservedRoot();
+      observer.deliver([mutation([headerElement('note.due')], [headerElement('note.due')])]);
+      expect(domRecords().map((record) => record.facts)).toEqual([
+        expect.objectContaining({ elementId: 'note.due', change: 'removed', domSequence: 1 }),
+        expect.objectContaining({ elementId: 'note.due', change: 'added', domSequence: 2 }),
+      ]);
+    });
+
     it('headers and bars inside a removed ancestor subtree are observed through the descendant scan', () => {
       const { observer } = attachObservedRoot();
       const container = plainElement([headerElement('note.due'), barElement('t1')]);

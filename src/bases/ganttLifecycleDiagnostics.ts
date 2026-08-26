@@ -710,8 +710,12 @@ export function createGanttLifecycleDiagnostics(
       try {
         for (const mutation of mutations) {
           if (capped) break;
-          for (const node of Array.from(mutation.addedNodes)) recordMatches(node, 'added');
+          // Removals precede additions within one record: a replaceChild
+          // removes the old node before the new one lands, and a trace that
+          // ends 'removed' on a same-id replacement would fake the
+          // removal-without-recreation evidence shape.
           for (const node of Array.from(mutation.removedNodes)) recordMatches(node, 'removed');
+          for (const node of Array.from(mutation.addedNodes)) recordMatches(node, 'added');
         }
       } catch {
         // Diagnostics must never change product control flow.
