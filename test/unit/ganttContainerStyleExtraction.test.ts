@@ -47,16 +47,17 @@ describe("GanttContainer style extraction guard", () => {
 });
 
 describe("style-inline preprocessor execution", () => {
-  it("inlines the real stylesheet bytes into the component's style tag", () => {
+  it("inlines the real stylesheet bytes when fed the real component source", () => {
     const preprocessor = loadPreprocessor();
-    const result = preprocessor.markup({
-      content: '<style src="./GanttContainer.css"></style>',
-      filename: componentPath,
-    });
+    const component = readFileSync(componentPath, "utf8");
+    const stylesheet = readFileSync(stylesheetPath, "utf8");
+    const result = preprocessor.markup({ content: component, filename: componentPath });
     expect(result).toBeDefined();
+    expect(result!.code).toBe(
+      component.replace('<style src="./GanttContainer.css"></style>', `<style>${stylesheet}</style>`),
+    );
     expect(result!.code).toContain(".og-bases-gantt");
     expect(result!.code).toContain(".wxi-menu-right");
-    expect(result!.code).not.toContain('src="./GanttContainer.css"');
     expect(result!.dependencies).toEqual([resolve(join(process.cwd(), "src", "bases"), "./GanttContainer.css")]);
   });
 
@@ -64,7 +65,7 @@ describe("style-inline preprocessor execution", () => {
     const preprocessor = loadPreprocessor();
     const fixtureDir = mkdtempSync(join(tmpdir(), "og-style-inline-"));
     try {
-      const fixtureCss = '.a::before { content: "$& and $$ and $1"; }';
+      const fixtureCss = '\n  .a::before { content: "$& and $$ and $1"; }\n';
       writeFileSync(join(fixtureDir, "fixture.css"), fixtureCss);
       const result = preprocessor.markup({
         content: '<div></div>\n<style src="./fixture.css"></style>',
