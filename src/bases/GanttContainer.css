@@ -2,7 +2,7 @@
   .og-bases-gantt {
     width: 100%;
     /* No explicit height here: the computed chart height is applied to
-       `.og-chart-area` (plan 003 U2 / collapse-clip fix), so this outer container
+       `.og-chart-area` (collapse-clip fix), so this outer container
        sizes to its content — the optional toolbar/banners plus the chart region.
        Applying the chart height here instead made chrome subtract from the chart,
        clipping a single collapsed root. (When maximized, the `.is-maximized` rule
@@ -40,7 +40,7 @@
      than overflow). The <Willow>/<WillowDark> render their own
      `<div class="wx-theme wx-willow-theme" style="height:100%">` inside this. */
   .og-chart-area {
-    /* Height is set inline (plan 003 U2 / collapse-clip fix): this region owns
+    /* Height is set inline (collapse-clip fix): this region owns
        the computed chart height so the toolbar/banners sit above it rather than
        eating into it. `flex: none` so the flex column never shrinks it below the
        explicit height. */
@@ -92,7 +92,7 @@
     touch-action: none;
   }
 
-  /* Floating controls stack (OG-81 zoom + U7 collapse-all), bottom-right. The
+  /* Floating controls stack (zoom + collapse-all), bottom-right. The
      `gap` separates the collapse/expand pill from the zoom pill; within each pill
      the buttons stay flush (so zoom +/− have no gap between them). */
   .zoom-controls-stack {
@@ -105,7 +105,7 @@
     z-index: 100;
   }
 
-  /* U5 — resizer chevron occlusion. SVAR's grid Resizer is z-index:10
+  /* Resizer chevron occlusion. SVAR's grid Resizer is z-index:10
      (Resizer.svelte), below this floating control stack (z-index:100), so when
      the divider sits near the right edge its expand/collapse chevron paints
      BEHIND the controls and can't be grabbed. Lift the resizer just above the
@@ -167,7 +167,7 @@
     pointer-events: none;
   }
 
-  /* Floating full-screen toggle (plan 003 U4): top-right, clear of the
+  /* Floating full-screen toggle: top-right, clear of the
      bottom-right zoom controls. Always visible on the chart. */
   .og-fullscreen-toggle {
     position: absolute;
@@ -769,7 +769,7 @@
   }
 
   /*
-   * U5/R7: TaskNotes progress mode is a read-only computed value, so hide the
+   * TaskNotes progress mode is a read-only computed value, so hide the
    * bar's progress drag handle (`.wx-progress-marker`) and make the progress
    * region non-interactive. Date drag/resize (a different handle) is unaffected.
    * Scoped to the `.og-progress-readonly` root class the view toggles from
@@ -1031,7 +1031,7 @@
   }
 
   /*
-   * Per-task override indicator (R11): a small filled dot in the upper-left
+   * Per-task override indicator: a small filled dot in the upper-left
    * corner of a bar whose effective Estimate meaning differs from the view
    * default. BarContent appends the `.og-override-dot` element to the host
    * `.wx-bar` (a real element so it can carry its own hover `title`).
@@ -1063,7 +1063,7 @@
   }
 
   /*
-   * Instance cues (U6). SVAR emits a registered task type as a bare class on the
+   * Instance cues. SVAR emits a registered task type as a bare class on the
    * bar, so we target `.og-replicated` / `.og-context` directly (same hook as
    * `.datestatus-flagged`). CSS-only — SVAR's icon fonts are disabled, so no
    * glyph badges. Both treatments are deliberately subtle and stack (a bar can
@@ -1095,12 +1095,12 @@
    * visually dominant.
    */
   .og-bases-gantt :global(.wx-bar.og-context) {
-    /* Driven by the per-view "Context bar opacity" slider (U6); the fallback
+    /* Driven by the per-view "Context bar opacity" slider; the fallback
        matches DEFAULT_CONTEXT_OPACITY. */
     opacity: var(--og-context-opacity, 0.55);
   }
 
-  /* Bar content layout (U7): BarContent renders `.wx-content` as a left-aligned
+  /* Bar content layout: BarContent renders `.wx-content` as a left-aligned
      flex row — the icon chip (if any) then the task text. `padding-left` clears
      the 6px strip so the chip never overlaps it (strip color mode draws a
      generated `.wx-bar.<slug>::before` accent — see barTreatment). */
@@ -1267,7 +1267,7 @@
     visibility: visible !important;
   }
 
-  /* U7: Read-only banner (between toolbar and chart). One fixed line. */
+  /* Read-only banner (between toolbar and chart). One fixed line. */
   .og-readonly-banner {
     display: flex;
     align-items: center;

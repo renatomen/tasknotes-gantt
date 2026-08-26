@@ -882,11 +882,7 @@ GitHub issue and delete this entry.
 The `.wx-reorder-task` / `.wx-chart` / `.wx-bar` touch-action rules appear twice in
 `src/bases/GanttContainer.css` (formerly `GanttContainer.svelte` ~2784–2797 and ~2960–2969).
 The style-block extraction moved bytes exactly per its zero-rule-edit contract, so the
-duplicate was carried, not fixed. The moved bytes also carry the block's pre-existing
-volatile-reference comments (plan 003 / U5 / R11 etc.), which trip the pre-commit
-volatile-ref guard on relocation — the extraction commit bypassed it deliberately
-(zero-edit contract); make those comments self-contained in this same cleanup slice.
-Dedupe as its own tiny slice; note the byte-identity
+duplicate was carried, not fixed. Dedupe as its own tiny slice; note the byte-identity
 receipt no longer applies once rules change — verify via the computed-style e2e quartet
 (`gantt-calendar-items-recurring`, `gantt-legend`, `gantt-collapse-chevron-contrast`,
 `gantt-resizer-arrow-contrast`) instead.
