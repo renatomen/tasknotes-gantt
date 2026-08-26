@@ -876,3 +876,37 @@ name the CI-posted comment, with an explicit read-the-trend-comment
 direction for the hosted reviewer; the pre-push print stays for the human
 author. Until then the paste ritual stands. When picked up, promote to a
 GitHub issue and delete this entry.
+
+## Duplicated touch-rule group rides verbatim in the extracted GanttContainer stylesheet (2026-08-27)
+
+The `.wx-reorder-task` / `.wx-chart` / `.wx-bar` touch-action rules appear twice in
+`src/bases/GanttContainer.css` (formerly `GanttContainer.svelte` ~2784–2797 and ~2960–2969).
+The style-block extraction moved bytes exactly per its zero-rule-edit contract, so the
+duplicate was carried, not fixed. The moved bytes also carry the block's pre-existing
+volatile-reference comments (plan 003 / U5 / R11 etc.), which trip the pre-commit
+volatile-ref guard on relocation — the extraction commit bypassed it deliberately
+(zero-edit contract); make those comments self-contained in this same cleanup slice.
+Dedupe as its own tiny slice; note the byte-identity
+receipt no longer applies once rules change — verify via the computed-style e2e quartet
+(`gantt-calendar-items-recurring`, `gantt-legend`, `gantt-collapse-chevron-contrast`,
+`gantt-resizer-arrow-contrast`) instead.
+Source: docs/plans/2026-08-27-001-refactor-ganttcontainer-style-extraction-plan.md (R3).
+
+## Campaign method: add a testability-pressure input to the maintainability ranking (2026-08-27)
+
+From the Modern Software Engineering alignment audit run against the book: the ranking
+(churn × concerns × complexity pressure) lacks the book's primary early quality signal —
+how hard a file is to test. The repo already names the proxy (principle 5: a behavior
+reachable only through a >5-minute loop is a design defect): count behaviors per ranked
+file provable only at the e2e tier. This scores relocation slices as zero-design-gain and
+weld extractions (the `initGantt` closure set, diff-sync coordination) as the high-value
+ones. Needs a maintainer ruling at the next re-measure.
+Source: docs/plans/2026-08-27-001-refactor-ganttcontainer-style-extraction-plan.md (U2).
+
+## Campaign method: tie one trend-report success claim to an outcome class (2026-08-27)
+
+Same audit: trend reports claim success via structural deltas (line counts, concern
+counts, at-ceiling counts). The book's yardstick is stability/throughput — tie at least
+one claim per future trend report to an outcome class: incident cost, measured flake
+instances, or false-greens surfaced. Needs a maintainer ruling at the next re-measure.
+Source: docs/plans/2026-08-27-001-refactor-ganttcontainer-style-extraction-plan.md (U2).
