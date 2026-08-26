@@ -11,7 +11,7 @@
  * api re-binds. Frame scheduling and `tick` arrive as injected deps so the
  * async settlement loop is provable without a browser.
  */
-/* global Event, CustomEvent, MutationRecord */
+/* global Event, CustomEvent */
 import {
   captureGanttLifecycle,
   classifyViewportSettlement,
@@ -167,12 +167,10 @@ const MAX_VIEWPORT_SETTLEMENT_FRAMES = 8;
 const MAX_PENDING_VIEWPORT_SOURCE_ACTIONS = 16;
 // Pinned by the seam unit test against the spec helpers' record-budget copy.
 const MAX_DOM_LIFECYCLE_RECORDS_PER_MOUNT = 256;
-const DOM_LIFECYCLE_HEADER_SELECTOR = '[data-header-id]';
-const DOM_LIFECYCLE_BAR_SELECTOR = '.wx-bar[data-id]';
-
-interface DomLifecycleObserverConstructor {
-  new (callback: (mutations: MutationRecord[]) => void): MutationObserver;
-}
+const DOM_LIFECYCLE_KINDS = [
+  { kind: 'header', selector: '[data-header-id]', idAttribute: 'data-header-id' },
+  { kind: 'bar', selector: '.wx-bar[data-id]', idAttribute: 'data-id' },
+] as const;
 
 export function createGanttLifecycleDiagnostics(
   access: GanttLifecycleDiagnosticsAccess,
@@ -663,10 +661,7 @@ export function createGanttLifecycleDiagnostics(
    * observer machinery.
    */
   function attachDomLifecycleObserver(root: HTMLElement): (() => void) | null {
-    const ObserverConstructor = (globalThis as {
-      MutationObserver?: DomLifecycleObserverConstructor;
-    }).MutationObserver;
-    if (!ObserverConstructor) return null;
+    if (typeof MutationObserver === 'undefined') return null;
     let domSequence = 0;
     let capped = false;
     const recordChange = (
@@ -692,24 +687,22 @@ export function createGanttLifecycleDiagnostics(
       });
     };
     const recordMatches = (node: unknown, change: 'added' | 'removed'): void => {
-      if (!(node instanceof HTMLElement)) return;
-      if (node.matches(DOM_LIFECYCLE_HEADER_SELECTOR)) {
-        recordChange('header', node.getAttribute('data-header-id') ?? '', change);
-      }
-      if (node.matches(DOM_LIFECYCLE_BAR_SELECTOR)) {
-        recordChange('bar', node.getAttribute('data-id') ?? '', change);
-      }
-      for (const header of Array.from(node.querySelectorAll(DOM_LIFECYCLE_HEADER_SELECTOR))) {
-        recordChange('header', header.getAttribute('data-header-id') ?? '', change);
-      }
-      for (const bar of Array.from(node.querySelectorAll(DOM_LIFECYCLE_BAR_SELECTOR))) {
-        recordChange('bar', bar.getAttribute('data-id') ?? '', change);
+      if (capped || !(node instanceof HTMLElement)) return;
+      for (const { kind, selector, idAttribute } of DOM_LIFECYCLE_KINDS) {
+        if (node.matches(selector)) {
+          recordChange(kind, node.getAttribute(idAttribute) ?? '', change);
+        }
+        for (const match of Array.from(node.querySelectorAll(selector))) {
+          if (capped) return;
+          recordChange(kind, match.getAttribute(idAttribute) ?? '', change);
+        }
       }
     };
-    const observer = new ObserverConstructor((mutations) => {
+    const observer = new MutationObserver((mutations) => {
       if (capped || !isGanttLifecycleCaptureActive()) return;
       try {
         for (const mutation of mutations) {
+          if (capped) break;
           for (const node of Array.from(mutation.addedNodes)) recordMatches(node, 'added');
           for (const node of Array.from(mutation.removedNodes)) recordMatches(node, 'removed');
         }

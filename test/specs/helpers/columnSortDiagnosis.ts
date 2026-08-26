@@ -391,6 +391,23 @@ export interface ColumnSortDomLifecycleRecordLike {
   facts?: Record<string, unknown>;
 }
 
+function tallyDomLifecycleChange(
+  summary: ColumnSortDomLifecycleSummary,
+  kind: unknown,
+  change: unknown,
+): void {
+  if (kind !== 'header' && kind !== 'bar') return;
+  if (change !== 'added' && change !== 'removed') return;
+  if (kind === 'header') {
+    if (change === 'added') summary.headerAdded += 1;
+    else summary.headerRemoved += 1;
+  } else if (change === 'added') {
+    summary.barAdded += 1;
+  } else {
+    summary.barRemoved += 1;
+  }
+}
+
 export function summarizeDomLifecycle(
   records: readonly ColumnSortDomLifecycleRecordLike[],
 ): ColumnSortDomLifecycleSummary {
@@ -404,16 +421,9 @@ export function summarizeDomLifecycle(
   for (const record of records) {
     if (record.event === 'dom-lifecycle-capped') {
       summary.cappedMounts += 1;
-      continue;
+    } else if (record.event === 'dom-lifecycle') {
+      tallyDomLifecycleChange(summary, record.facts?.kind, record.facts?.change);
     }
-    if (record.event !== 'dom-lifecycle') continue;
-    const kind = record.facts?.kind;
-    const change = record.facts?.change;
-    if (kind !== 'header' && kind !== 'bar') continue;
-    if (change !== 'added' && change !== 'removed') continue;
-    const counter = `${kind}${change === 'added' ? 'Added' : 'Removed'}` as
-      keyof Omit<ColumnSortDomLifecycleSummary, 'cappedMounts'>;
-    summary[counter] += 1;
   }
   return summary;
 }
