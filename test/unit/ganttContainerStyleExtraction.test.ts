@@ -60,6 +60,11 @@ describe("style-inline preprocessor execution", () => {
     );
     expect(result!.code).toContain(".og-bases-gantt");
     expect(result!.code).toContain(".wxi-menu-right");
+    // A comment-wrapped style tag would still inline but ship no styles;
+    // the sentinel must survive with HTML comments stripped.
+    const withoutComments = result!.code.replace(/<!--[\s\S]*?-->/g, "");
+    expect(withoutComments).toContain("<style>");
+    expect(withoutComments).toContain(".wxi-menu-right");
     expect(result!.dependencies).toEqual([resolve(join(process.cwd(), "src", "bases"), "./GanttContainer.css")]);
   });
 
@@ -104,8 +109,9 @@ describe("style-inline preprocessor execution", () => {
       "else {",
       '  const component = readFileSync(componentPath, "utf8");',
       "  const result = pre.markup({ content: component, filename: componentPath });",
+      '  const active = result ? result.code.replace(/<!--[\\s\\S]*?-->/g, "") : "";',
       "  console.log(",
-      '    result && result.code.includes(".wxi-menu-right") && !result.code.includes(\'src="./GanttContainer.css"\')',
+      '    result && active.includes(".wxi-menu-right") && !result.code.includes(\'src="./GanttContainer.css"\')',
       '      ? "EFFECTIVE_CONFIG_INLINES"',
       '      : "BAD_OUTPUT",',
       "  );",
