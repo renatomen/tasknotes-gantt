@@ -33,11 +33,12 @@ describe("GanttContainer style extraction guard", () => {
 
   it("keeps the extracted stylesheet present with its load-bearing concerns", () => {
     expect(existsSync(stylesheetPath)).toBe(true);
-    const stylesheet = readFileSync(stylesheetPath, "utf8");
-    expect(stylesheet).toContain(".og-bases-gantt");
-    expect(stylesheet).toContain("mask-image");
-    expect(stylesheet).toContain(".wxi-menu-right");
-    expect(stylesheet).toContain("--og-zigzag-depth");
+    // Sentinels must match active rules, not explanatory CSS comments.
+    const activeCss = readFileSync(stylesheetPath, "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
+    expect(activeCss).toContain(".og-bases-gantt");
+    expect(activeCss).toContain("mask-image");
+    expect(activeCss).toContain(".wxi-menu-right");
+    expect(activeCss).toContain("--og-zigzag-depth");
   });
 
   it("keeps the style-inline preprocessor wired so the external styles reach the compiler", () => {
@@ -60,9 +61,11 @@ describe("style-inline preprocessor execution", () => {
     );
     expect(result!.code).toContain(".og-bases-gantt");
     expect(result!.code).toContain(".wxi-menu-right");
-    // A comment-wrapped style tag would still inline but ship no styles;
-    // the sentinel must survive with HTML comments stripped.
-    const withoutComments = result!.code.replace(/<!--[\s\S]*?-->/g, "");
+    // A comment-wrapped style tag would still inline but ship no styles, and
+    // a CSS comment could carry the sentinel text: strip both comment kinds.
+    const withoutComments = result!.code
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
     expect(withoutComments).toContain("<style>");
     expect(withoutComments).toContain(".wxi-menu-right");
     expect(result!.dependencies).toEqual([resolve(join(process.cwd(), "src", "bases"), "./GanttContainer.css")]);
