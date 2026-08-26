@@ -28,6 +28,19 @@ tags:
   - first-mount-race
 ---
 
+## Standing note (2026-08-26) — mitigation, not settled cause
+
+The recurrences from 2026-08-17 onward (eight instances, three symptom shapes, two
+tests) supersede this resolution's **finality**: the specific-header readiness gate
+below is still in the spec and remains a standing mitigation, but the recorded
+symptom is now that **no click lands after the gate passes**, so the gate did not
+settle the cause and the deferred post-click hardening (option 1 below) is not the
+fix. The diagnosis capability, pre-registered classification rules, and the
+on-recurrence procedure live in
+`docs/reports/2026-08-26-001-reliability-column-sort-diagnosis.md`; the cause is
+`open — no traced recurrence` until an organic CI failure supplies a classifiable
+trace.
+
 ## Resolution (2026-06-29)
 
 The flake crossed the "~1-in-3 CI runs" merge-tax threshold below (~50% by PR #181),
