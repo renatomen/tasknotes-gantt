@@ -335,8 +335,8 @@ export function estimateWorstCaseRecordBudget(): ColumnSortRecordBudget {
     // svar-ready and other view hook sites during this journey (no zoom/scroll).
     otherProductHooks: 20,
     // Every mount charged at the seam's full per-mount DOM lifecycle cap,
-    // plus its one capped-marker record.
-    domLifecycle: 5 * (SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT + 1),
+    // plus its one capped-marker and one observing-marker record.
+    domLifecycle: 5 * (SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT + 2),
   };
   const total = Object.values(breakdown).reduce((sum, records) => sum + records, 0);
   return {
@@ -384,6 +384,13 @@ export interface ColumnSortDomLifecycleSummary {
   barAdded: number;
   barRemoved: number;
   cappedMounts: number;
+  /**
+   * Mounts whose observer actually attached (the seam's health marker). Zero
+   * means the DOM lifecycle was never observed — a zeroed summary is then
+   * absence of observation, not evidence of survival, and control matching
+   * fail-closes on it.
+   */
+  observedMounts: number;
 }
 
 /** The slice of a collector record the DOM lifecycle summary consumes. */
@@ -418,10 +425,13 @@ export function summarizeDomLifecycle(
     barAdded: 0,
     barRemoved: 0,
     cappedMounts: 0,
+    observedMounts: 0,
   };
   for (const record of records) {
     if (record.event === 'dom-lifecycle-capped') {
       summary.cappedMounts += 1;
+    } else if (record.event === 'dom-lifecycle-observing') {
+      summary.observedMounts += 1;
     } else if (record.event === 'dom-lifecycle') {
       tallyDomLifecycleChange(summary, record.facts?.kind, record.facts?.change);
     }
@@ -563,6 +573,8 @@ export function areColumnSortControlsEquivalent(
     b.diagnosticCommandFailures === 0 &&
     a.domLifecycle.cappedMounts === 0 &&
     b.domLifecycle.cappedMounts === 0 &&
+    a.domLifecycle.observedMounts > 0 &&
+    b.domLifecycle.observedMounts > 0 &&
     a.armed &&
     b.armed &&
     !a.overflow &&
@@ -590,6 +602,8 @@ export function columnSortControlCoversBoundary(
     !control.overflow &&
     !control.collectorFailure &&
     control.diagnosticCommandFailures === 0 &&
+    control.domLifecycle.cappedMounts === 0 &&
+    control.domLifecycle.observedMounts > 0 &&
     control.allRootsLiveOwners &&
     failureJourney.length > 0 &&
     (control.journey === failureJourney || control.journey.startsWith(`${failureJourney}|`))

@@ -594,6 +594,16 @@ describe('createGanttLifecycleDiagnostics', () => {
       expect(observer.observed[0].options).toEqual({ childList: true, subtree: true });
     });
 
+    it('records the observing health marker at attach so an unobserved mount is distinguishable', () => {
+      attachObservedRoot();
+      const markers = capturedRecords().filter(
+        (record) => record.event === 'dom-lifecycle-observing',
+      );
+      expect(markers).toHaveLength(1);
+      expect(markers[0].mountToken).toBe(7);
+      expect(markers[0].facts).toMatchObject({ domRecordCap: SEAM_DOM_LIFECYCLE_RECORDS_PER_MOUNT });
+    });
+
     it('a removed header without recreation yields removal facts joinable by mount token and sequence', () => {
       const { observer } = attachObservedRoot();
       observer.deliver([mutation([], [headerElement('note.due')])]);

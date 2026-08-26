@@ -718,6 +718,12 @@ export function createGanttLifecycleDiagnostics(
       }
     });
     observer.observe(root, { childList: true, subtree: true });
+    // Health marker: distinguishes "observed, no removals" from "never
+    // observed" — a summary without it is absence of observation, not
+    // evidence of survival.
+    captureLifecycle('dom-lifecycle-observing', {
+      domRecordCap: MAX_DOM_LIFECYCLE_RECORDS_PER_MOUNT,
+    });
     return () => observer.disconnect();
   }
 
