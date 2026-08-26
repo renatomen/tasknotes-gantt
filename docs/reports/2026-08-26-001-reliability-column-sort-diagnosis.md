@@ -1,7 +1,7 @@
 # Column-sort reliability diagnosis — capability armed, no traced recurrence yet
 
 **Date:** 2026-08-26
-**Measured at:** spec-side probe `6833a691` (U1 squash merge, PR #457); the seam DOM lifecycle observation (U2) and this report land together in the same PR
+**Measured at:** spec-side probe `6833a69c4d433ca7e2ff9a850c64f501cdbc1393` (U1 squash merge, PR #457); the seam DOM lifecycle observation (U2) and this report land together in the same PR
 **Commission:** U4 of [the column-sort diagnosis plan](../plans/2026-08-25-001-chore-reliability-column-sort-diagnosis-plan.md), following the rank-3 entry of [the reliability re-diagnosis](2026-08-19-001-reliability-rediagnosis.md)
 
 The diagnostic capability for the `gantt-column-sort.e2e.ts` flake is built, verified, and armed in every ordinary CI execution of the spec. No organic recurrence has produced a trace since the probe armed, so the outcome is **`open — no traced recurrence`**: the rank-3 entry stays open, no cause class is excluded, and no fix is commissioned. This outcome is non-terminal — the probe stays armed and the pre-registered on-recurrence procedure below turns the next organic failure into a classifiable trace.
