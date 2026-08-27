@@ -148,7 +148,7 @@ The honest degraded form of a recurring row at zoom levels where per-instance pi
 ## Column sort
 
 ### Ephemeral column sort
-A display-time ordering applied by clicking a grid column header, held only in the view and never written to the Base or any note. It survives data refreshes by being re-asserted after each sync, is cleared by the sort cycle's third click or the reset pill (restoring the Base order), and yields entirely on a bulk reseed. Distinct from the Base's own sort, which is data the view receives.
+A display-time ordering applied by clicking a grid column header, held only in the view and never written to the Base or any note. It survives data refreshes — including a bulk reseed — by being re-asserted after each sync, is cleared by the sort cycle's third click or the reset pill (restoring the Base order), and yields when the Base's own sort changes: that clear drops the override without replaying the old order, letting the new Base order land. Distinct from the Base's own sort, which is data the view receives.
 
 ## Governing docs
 
