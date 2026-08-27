@@ -98,7 +98,7 @@ export function createGanttSyncOrchestrator(
    * (verified vs `@svar-ui/gantt-store` 2.7.0), so reach the data store
    * directly — the same internal-but-reachable class as the gridWidth
    * recompute workaround. Centralised here so a SVAR upgrade that renames
-   * `_sort`/`setState` has a single site to fix.
+   * `_sort`/`setState` has a single call site to fix.
    */
   function clearSvarSortArrow(): void {
     access.api?.getStores?.().data?.setState?.({ _sort: null });
