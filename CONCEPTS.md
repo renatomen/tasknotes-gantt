@@ -145,6 +145,11 @@ The inverse of a ghost run: a contiguous run of days a recurring series actually
 ### Series spine
 The honest degraded form of a recurring row at zoom levels where per-instance pieces cannot tile faithfully: a dashed line spanning first-to-last instance, asserting only the series' extent — never a solid bar, which would claim continuous occupancy.
 
+## Column sort
+
+### Ephemeral column sort
+A display-time ordering applied by clicking a grid column header, held only in the view and never written to the Base or any note. It survives data refreshes — including a bulk reseed — by being re-asserted after each sync, is cleared by the sort cycle's third click or the reset pill (restoring the Base order), and yields when the Base's own sort changes: that clear drops the override without replaying the old order, letting the new Base order land. Distinct from the Base's own sort, which is data the view receives.
+
 ## Governing docs
 
 ### Engineering charter

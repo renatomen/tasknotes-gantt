@@ -44,7 +44,6 @@
     buildSvarTasks,
     buildTreatmentTaskTypes,
     buildInstanceCueTaskTypes,
-    planReorder,
     baseSortDescriptor,
     echoTaskPatch,
     shouldBulkReseed,
@@ -57,13 +56,16 @@
     applyIncrementalGanttSync,
     createAppliedGanttSyncState,
     createGanttSeedSnapshot,
-    ganttOrderFingerprint,
     isGanttSyncNoop,
     planGanttSync,
     replaceAppliedGanttData,
     type AppliedGanttSyncState,
     type GanttSyncPlan,
   } from './ganttSyncCoordinator';
+  import {
+    createGanttSyncOrchestrator,
+    type SyncOrchestratorAccess,
+  } from './ganttSyncOrchestrator';
   import { createSvarGanttAdapter } from './svarGanttAdapter';
   import {
     classifyUpdateEvent,
@@ -1097,12 +1099,6 @@
     });
   }
 
-  function clearEphemeralSortForBaseChange(baseSortChanged: boolean): void {
-    if (!ephemeralSort || !baseSortChanged) return;
-    ephemeralSort = null;
-    clearSvarSortArrow();
-  }
-
   function applyBulkReseedIfNeeded(d: GanttData, plan: GanttSyncPlan): boolean {
     const { taskPlan, linkPlan } = plan;
     if (!shouldBulkReseed(taskPlan, linkPlan)) return false;
@@ -1114,7 +1110,7 @@
     syncing = true;
     try {
       // Clear a stale override first so the reseed cannot reassert it.
-      clearEphemeralSortForBaseChange(plan.baseSortChanged);
+      syncOrchestrator.clearEphemeralSortForBaseChange(plan.baseSortChanged);
       reseedSeedsFromData(d);
       applyPersistedGridWidth();
     } finally {
@@ -1150,10 +1146,10 @@
         state: appliedSyncState,
         ephemeralSort: {
           isActive: () => ephemeralSort !== null,
-          reassert: reassertEphemeralSort,
+          reassert: syncOrchestrator.reassertEphemeralSort,
           clear: () => {
             ephemeralSort = null;
-            clearSvarSortArrow();
+            syncOrchestrator.clearSvarSortArrow();
           },
         },
         onTaskAndLinkChangesApplied: () => {
@@ -1182,72 +1178,6 @@
     }
     if (applyBulkReseedIfNeeded(d, plan)) return;
     applyIncrementalSync(plan);
-  }
-
-  /**
-   * Re-apply the active ephemeral column sort over SVAR's current rows (R8).
-   * Echo-guarded (`OG_ECHO_SOURCE`) so it never re-enters the `sort-tasks`
-   * recording interceptor (U2). A no-op when no ephemeral sort is active or the
-   * api isn't ready. Called from the data-only sync branch (synchronously, inside
-   * the `syncing` block) and, deferred a tick, after a reseed remount (see
-   * `reseedSeedsFromData`).
-   */
-  function reassertEphemeralSort(): void {
-    if (!ephemeralSort || !api?.exec) return;
-    api.exec('sort-tasks', {
-      key: ephemeralSort.column,
-      order: ephemeralSort.direction,
-      eventSource: OG_ECHO_SOURCE,
-    });
-  }
-
-  /**
-   * Clear SVAR's lit column-header sort arrow by nulling its internal `_sort`
-   * state. There is no `sort-tasks` payload that resets `_sort` to null (verified
-   * vs `@svar-ui/gantt-store` 2.7.0), so reach the data store directly — the same
-   * internal-but-reachable class as the gridWidth recompute workaround. Centralised
-   * here so a SVAR upgrade that renames `_sort`/`setState` has a single site to fix.
-   */
-  function clearSvarSortArrow(): void {
-    api?.getStores?.().data?.setState?.({ _sort: null });
-  }
-
-  /**
-   * Restore the Base row order after an ephemeral sort is cleared (plan
-   * 2026-06-22-002, U2 third click + U3 reset button). SVAR's `tree.sort` mutated
-   * the row order in place, so this resets `_sort` (drops the lit header arrow)
-   * then replays the Base-order `move-task` steps so the rows return to the Base
-   * order. Echo-guarded + `syncing`-wrapped so the moves don't re-enter our
-   * interceptors. Does NOT touch `ephemeralSort` — the caller sets it null first
-   * (so the reset pill hides immediately).
-   */
-  function restoreBaseOrder(): void {
-    if (!api?.exec) return;
-    syncing = true;
-    try {
-      clearSvarSortArrow();
-      const next = buildSvarTasks(toInputs(get(data)));
-      for (const m of planReorder(next)) {
-        api.exec('move-task', { id: m.id, target: m.after, mode: 'after', eventSource: OG_ECHO_SOURCE });
-      }
-      appliedSyncState.orderKey = ganttOrderFingerprint(next);
-    } catch {
-      /* a move-task threw mid-restore (e.g. store torn down); the stale
-         applied order key forces the next sync to replay the full reorder */
-    } finally {
-      syncing = false;
-    }
-  }
-
-  /**
-   * Shared clear path for the floating reset pill (U3): drop the ephemeral sort
-   * and restore the Base order. The third-click cancel (U2) clears inline instead
-   * (it must return falsy to cancel SVAR's toggle), but funnels into the same
-   * `restoreBaseOrder`.
-   */
-  function clearEphemeralSort(): void {
-    ephemeralSort = null;
-    restoreBaseOrder();
   }
 
   /**
@@ -1302,7 +1232,7 @@
         if (!ephemeralSort) return;
         syncing = true;
         try {
-          reassertEphemeralSort();
+          syncOrchestrator.reassertEphemeralSort();
         } catch {
           /* exec threw on a torn-down / freshly-remounted store — skip */
         } finally {
@@ -1892,6 +1822,36 @@
   /** [OGDBG #161] monotonic SVAR (re)init counter — re-init storm detector. */
   let dbgInitCount = 0;
 
+  // The ephemeral-sort coordination cluster lives in the sync-orchestrator
+  // seam. It crosses the same live-accessor bridge as the interceptors: bare
+  // getter/setter properties closed over this component's scope, never copied
+  // values, so the module's `syncing` bracket and override writes are visible
+  // to every handler and effect, and an api re-bind is seen by the next call.
+  const syncOrchestratorAccess: SyncOrchestratorAccess = {
+    get syncing() {
+      return syncing;
+    },
+    set syncing(value) {
+      syncing = value;
+    },
+    get ephemeralSort() {
+      return ephemeralSort;
+    },
+    set ephemeralSort(value) {
+      ephemeralSort = value;
+    },
+    get api() {
+      return api;
+    },
+  };
+  // Constructed before `interceptorDeps` so `restoreBaseOrder` crosses as a
+  // stable direct reference.
+  const syncOrchestrator = createGanttSyncOrchestrator(syncOrchestratorAccess, {
+    echoSource: OG_ECHO_SOURCE,
+    currentTasks: () => buildSvarTasks(toInputs(get(data))),
+    appliedSyncState,
+  });
+
   // Every mutable binding crosses the interceptor seam as a live accessor
   // property closed over this component's scope — never a copied value — so a
   // handler's write is visible to the next handler, the sync coordinator, and
@@ -1930,7 +1890,7 @@
   };
   const interceptorDeps: SvarInterceptorDeps = {
     echoSource: OG_ECHO_SOURCE,
-    restoreBaseOrder,
+    restoreBaseOrder: syncOrchestrator.restoreBaseOrder,
     activateBar,
     notePathOf: (rowId: string) => instances.find((i) => i.id === rowId)?.calendarItem?.notePath,
     // Reads the live `api` binding, not a wiring-time parameter: a stale
@@ -2610,7 +2570,7 @@
         <div class="zoom-controls">
           <button
             class="zoom-btn reset-sort"
-            onclick={clearEphemeralSort}
+            onclick={syncOrchestrator.clearEphemeralSort}
             aria-label="Reset to Base sort"
             title="Reset to Base sort"
           >
