@@ -97,11 +97,12 @@ describe('perPrLines', () => {
     { path: 'src/bases/register.ts', rank: 2 },
   ];
 
-  it('prints the +/- counts and the cite-rank line for a touched ranked file', () => {
+  it('prints the +/- counts, the cite-rank line, and the improvement-claim prompt for a touched ranked file', () => {
     const lines = perPrLines([{ path: 'src/bases/GanttContainer.svelte', added: 7, removed: 2 }], ranked);
     expect(lines).toEqual([
       '  +7/-2 src/bases/GanttContainer.svelte',
       '  ranked file touched — cite rank 1 in the PR description',
+      '  growth states its reason, a shrink its improvement claim; metric deltas are bookkeeping — a source-level relocation is not a seam extraction (2026-08-27 Farley alignment audit)',
     ]);
   });
 

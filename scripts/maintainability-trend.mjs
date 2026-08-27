@@ -141,7 +141,11 @@ export function perPrLines(numstatRows, rankedFiles) {
       `  ranked file touched — cite rank ${rank} in the PR description`,
     );
   }
-  return lines.length > 0 ? lines : ['  0 ranked files touched'];
+  if (lines.length === 0) return ['  0 ranked files touched'];
+  lines.push(
+    '  growth states its reason, a shrink its improvement claim; metric deltas are bookkeeping — a source-level relocation is not a seam extraction (2026-08-27 Farley alignment audit)',
+  );
+  return lines;
 }
 
 /** @param {string[]} changedPaths */

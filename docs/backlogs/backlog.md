@@ -890,7 +890,7 @@ Source: docs/plans/2026-08-27-001-refactor-ganttcontainer-style-extraction-plan.
 
 ## Campaign method: add a testability-pressure input to the maintainability ranking (2026-08-27)
 
-From the Modern Software Engineering alignment audit run against the book: the ranking
+From the Modern Software Engineering alignment audit (docs/reports/2026-08-27-001-farley-alignment-audit.md): the ranking
 (churn × concerns × complexity pressure) lacks the book's primary early quality signal —
 how hard a file is to test. The repo already names the proxy (principle 5: a behavior
 reachable only through a >5-minute loop is a design defect): count behaviors per ranked
@@ -901,7 +901,7 @@ Source: docs/plans/2026-08-27-001-refactor-ganttcontainer-style-extraction-plan.
 
 ## Campaign method: tie one trend-report success claim to an outcome class (2026-08-27)
 
-Same audit: trend reports claim success via structural deltas (line counts, concern
+Same audit (docs/reports/2026-08-27-001-farley-alignment-audit.md): trend reports claim success via structural deltas (line counts, concern
 counts, at-ceiling counts). The book's yardstick is stability/throughput — tie at least
 one claim per future trend report to an outcome class: incident cost, measured flake
 instances, or false-greens surfaced. Needs a maintainer ruling at the next re-measure.
