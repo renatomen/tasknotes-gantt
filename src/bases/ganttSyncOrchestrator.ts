@@ -130,7 +130,7 @@ export function createGanttSyncOrchestrator(
       }
       deps.appliedSyncState.orderKey = ganttOrderFingerprint(next);
     } catch {
-      /* a move-task threw mid-restore (e.g. store torn down); the stale
+      /* a move-task threw synchronously mid-restore (e.g. store torn down); the stale
          applied order key forces the next sync to replay the full reorder */
     } finally {
       access.syncing = false;

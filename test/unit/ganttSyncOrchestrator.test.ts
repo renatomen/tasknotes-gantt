@@ -72,8 +72,14 @@ interface FixtureOptions {
   tasks?: SvarTask[];
   /** Api starts unbound (the pre-init window). */
   withoutApi?: boolean;
-  /** Throw from the exec whose ordinal (1-based, per action) matches. */
+  /** Throw synchronously from the exec whose ordinal (1-based) matches. */
   throwOnExecNumber?: number;
+  /**
+   * Every exec returns a rejected Promise (the real SVAR failure shape: exec
+   * is async, so a failing action rejects rather than throwing). Rejections
+   * are pre-swallowed inside the fake so jest sees no unhandled rejection.
+   */
+  execsReject?: boolean;
 }
 
 function makeFixture(options: FixtureOptions = {}) {
@@ -89,7 +95,7 @@ function makeFixture(options: FixtureOptions = {}) {
   let execCount = 0;
 
   const makeApi = (label: string): SyncOrchestratorApi => ({
-    exec(action: string, payload: object): void {
+    exec(action: string, payload: object): unknown {
       execCount += 1;
       events.push({
         kind: 'exec',
@@ -101,6 +107,12 @@ function makeFixture(options: FixtureOptions = {}) {
       if (armedThrow > 0 && execCount === armedThrow) {
         throw new Error(`exec ${execCount} refused`);
       }
+      if (options.execsReject) {
+        const rejection = Promise.reject(new Error(`exec ${execCount} rejected`));
+        rejection.catch(() => {});
+        return rejection;
+      }
+      return Promise.resolve();
     },
     getStores: () => ({
       data: {
@@ -216,7 +228,16 @@ describe('restoreBaseOrder', () => {
     expect(f.appliedSyncState.orderKey).toBe(INITIAL_ORDER_KEY);
   });
 
-  it('leaves the order key stale but still releases syncing when a move throws mid-replay', () => {
+  it('never reads ephemeralSort during a replay — the override belongs to its callers', () => {
+    const f = makeFixture();
+
+    f.orchestrator.restoreBaseOrder();
+
+    expect(f.execEvents().length).toBeGreaterThanOrEqual(1);
+    expect(f.reads.ephemeralSort).toBe(0);
+  });
+
+  it('leaves the order key stale but still releases syncing when a move throws synchronously mid-replay', () => {
     const f = makeFixture({ throwOnExecNumber: 2 });
 
     f.orchestrator.restoreBaseOrder();
@@ -226,7 +247,7 @@ describe('restoreBaseOrder', () => {
     expect(f.backing.syncing).toBe(false);
   });
 
-  it('replays the full reorder on a later call over unchanged data after a failed replay', () => {
+  it('replays the full reorder on a later call over unchanged data after a synchronous-throw replay failure', () => {
     const f = makeFixture({ throwOnExecNumber: 2 });
     f.orchestrator.restoreBaseOrder();
     const execsBefore = f.execEvents().length;
@@ -236,6 +257,17 @@ describe('restoreBaseOrder', () => {
 
     expect(f.execEvents().length - execsBefore).toBe(2);
     expect(f.appliedSyncState.orderKey).toBe('>a|>b|>c');
+  });
+
+  it('treats rejected exec promises as outside the catch-path recovery contract: every move attempted, order key advanced, syncing released', () => {
+    const f = makeFixture({ execsReject: true });
+
+    f.orchestrator.restoreBaseOrder();
+
+    expect(f.execEvents().map((e) => e.action)).toEqual(['move-task', 'move-task']);
+    expect(f.appliedSyncState.orderKey).toBe('>a|>b|>c');
+    expect(f.syncingWrites).toEqual([true, false]);
+    expect(f.backing.syncing).toBe(false);
   });
 });
 
@@ -282,6 +314,16 @@ describe('clearEphemeralSortForBaseChange', () => {
 
     expect(f.events).toEqual([]);
   });
+
+  it('unchanged base sort: reads the override, never the api, and never calls the override setter', () => {
+    const f = makeFixture({ ephemeralSort: activeSort });
+
+    f.orchestrator.clearEphemeralSortForBaseChange(false);
+
+    expect(f.reads.ephemeralSort).toBeGreaterThanOrEqual(1);
+    expect(f.reads.api).toBe(0);
+    expect(f.events.filter((e) => e.kind === 'set-ephemeral-sort')).toEqual([]);
+  });
 });
 
 describe('reassertEphemeralSort', () => {
@@ -307,6 +349,24 @@ describe('reassertEphemeralSort', () => {
     expect(f.events).toEqual([]);
   });
 
+  it('never writes syncing on a standalone call — callers own the bracket', () => {
+    const f = makeFixture({ ephemeralSort: activeSort });
+
+    f.orchestrator.reassertEphemeralSort();
+
+    expect(f.execEvents()).toHaveLength(1);
+    expect(f.syncingWrites).toEqual([]);
+  });
+
+  it('guards on the override first: the no-override short-circuit never reads the api', () => {
+    const f = makeFixture({ ephemeralSort: null });
+
+    f.orchestrator.reassertEphemeralSort();
+
+    expect(f.reads.ephemeralSort).toBeGreaterThanOrEqual(1);
+    expect(f.reads.api).toBe(0);
+  });
+
   it('is a no-op when the api is not bound', () => {
     const f = makeFixture({ ephemeralSort: activeSort, withoutApi: true });
 
@@ -324,6 +384,15 @@ describe('clearSvarSortArrow', () => {
     expect(f.events).toEqual([
       expect.objectContaining({ kind: 'set-state', state: { _sort: null } }),
     ]);
+  });
+
+  it('never writes syncing on a standalone call — callers own the bracket', () => {
+    const f = makeFixture();
+
+    f.orchestrator.clearSvarSortArrow();
+
+    expect(f.events).toHaveLength(1);
+    expect(f.syncingWrites).toEqual([]);
   });
 
   it('tolerates an api without getStores', () => {
