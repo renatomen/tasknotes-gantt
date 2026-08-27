@@ -102,7 +102,7 @@ describe('perPrLines', () => {
     expect(lines).toEqual([
       '  +7/-2 src/bases/GanttContainer.svelte',
       '  ranked file touched — cite rank 1 in the PR description',
-      '  state the improvement claim in the PR body; metric deltas are bookkeeping — a source-level relocation is not a seam extraction (2026-08-27 Farley alignment audit)',
+      '  growth states its reason, a shrink its improvement claim; metric deltas are bookkeeping — a source-level relocation is not a seam extraction (2026-08-27 Farley alignment audit)',
     ]);
   });
 

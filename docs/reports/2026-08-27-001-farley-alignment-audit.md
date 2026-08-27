@@ -28,7 +28,7 @@ What Farley actually gives as *instruments*, distinct from exhortation:
 | Stopping rule against over-decomposition | Aligned | `ganttSync.ts` verdict ("would optimize line count over cohesion") and the "Not debt" endpoints (a 1,109-line stable file kept whole) make the sweet-spot warning falsifiable |
 | Working incrementally | Aligned | Per-unit landing cadence, behavior-preserving slices with receipts, abort-to-green |
 | Separation of concerns ("and" test) | Aligned | Concern enumerations with line anchors in the rediagnosis report |
-| Measure outcomes, not proxies | Partial | Churn is still a proxy (a hot-feature file churns without being badly factored); defused by requiring churn x concerns x pressure to coincide. Outcome-class evidence: adjustment (b) |
+| Measure outcomes, not proxies | Partial | Churn is still a proxy (a hot-feature file churns without being badly factored); defused by requiring high churn and enumerated concerns to coincide, with complexity pressure as added evidence where present. Outcome-class evidence: adjustment (b) |
 | Testability as a ranking input | Partial | Principle 5 names the proxy and the fix shape is extract-and-test, but the ranking formula does not consume a testability signal: adjustment (a) |
 
 ## Verdicts — the style-block slice (PR #459), as the worked example
