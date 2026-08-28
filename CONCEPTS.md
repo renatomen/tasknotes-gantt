@@ -53,6 +53,17 @@ The pre-drag position a halted cascade leaves behind so its unpaid displacement 
 ### Settled facts
 The authored values a write is known to have persisted, remembered per source because the plugin suppresses its own recompute and the rows it reads therefore still show pre-write values. A settled fact overlays a stale row only until a vault re-read that began after the write has delivered; a read that merely reuses cached tasks proves nothing and cannot retire it.
 
+## Diff-sync
+
+### Diff-sync
+The refresh strategy in which the chart's store is seeded once and every later data change is applied as the minimal set of targeted store actions computed by an id-keyed diff against the last-applied state — chosen so the user's zoom, scroll, and selection survive every refresh. Its two blind spots are named and owned: a pure reorder is expressed as explicit move steps, because an id-keyed diff cannot reorder existing rows; and a wholesale resultset swing routes through a Bulk reseed.
+
+### Echo-suppression window
+The bracket during which the view pushes its own programmatic store actions, marked by a flag that every interceptor with user-facing side effects must consult, so programmatic echoes are never handled as user gestures. The flag is a boolean, not a counter: two call conventions coexist by design — a path already inside the window re-asserts bare, while an independently scheduled callback raises and releases its own bracket — and unifying them would drop the window mid-pass. The flag itself never crosses a seam by value; a snapshot of it stops suppressing the moment it changes.
+
+### Bulk reseed
+The deliberate escape hatch for a diff too structurally large to apply incrementally: past a structural-op threshold (adds, deletes, moves, and link ops count; in-place updates never do), the seed props are reassigned so the store re-initializes once, virtualized, instead of applying thousands of per-instance mutations. It intentionally spends zoom and scroll — acceptable only on a swing where the view was changing unrecognizably anyway — and is the deliberate inverse of Diff-sync's default preference for targeted actions: match the store operation to the size of the change.
+
 ## Extraction seams
 
 ### Live accessor bridge

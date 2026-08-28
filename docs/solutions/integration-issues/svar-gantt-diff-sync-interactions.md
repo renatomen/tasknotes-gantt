@@ -1,7 +1,7 @@
 ---
 title: "SVAR Gantt diff-sync interactions: programmatic events, live reorder, and per-view settings"
 date: 2026-06-22
-last_updated: 2026-06-28
+last_updated: 2026-08-29
 category: docs/solutions/integration-issues
 module: bases-gantt
 problem_type: integration_issue
@@ -69,8 +69,11 @@ the chart on toggle, that architecture exposed four coupled defects:
 
 ## Solution
 
-**1. Guard the selection/editor interceptors with `syncing`** (`src/bases/GanttContainer.svelte`).
-Both now bail when the event is a programmatic echo from a reseed:
+**1. Guard the selection/editor interceptors with `syncing`** (originally inline in
+`GanttContainer.svelte`; the interceptors have since moved behind the seam in
+`src/bases/svarInterceptors.ts` — PR #427 — where the guard reads the live flag through the
+interceptor access bridge, same semantics). Both bail when the event is a programmatic echo
+from a reseed:
 
 ```ts
 api.intercept("show-editor", ({ id }) => {
@@ -101,9 +104,10 @@ const sorted = [...tasks].sort((a, b) => {
 ```
 
 **2b. Apply live reorder via `move-task`.** A pure helper `planReorder(next)` in `ganttSync.ts`
-computes per-branch move chains (place each child after its previous sibling).
-`GanttContainer` tracks a row-order fingerprint and, when it changes, execs the moves **inside
-the `syncing` block**:
+computes per-branch move chains (place each child after its previous sibling). A row-order
+fingerprint is tracked and, when it changes, the moves exec **inside the `syncing` block**
+(this replay now lives in `src/bases/ganttSyncCoordinator.ts` / `ganttSyncOrchestrator.ts`
+since the diff-sync extraction, PRs #461–#463; originally inline in `GanttContainer.svelte`):
 
 ```ts
 // ganttSync.ts — group by parent, then within each branch move ids[i] after ids[i-1]
@@ -208,7 +212,11 @@ export function shouldBulkReseed(plan, linkPlan, threshold = BULK_RESEED_OP_THRE
 }
 ```
 
-`GanttContainer.syncToGantt`, after the content-noop guard, branches before the per-instance diff:
+`syncToGantt` (since the diff-sync extraction, PR #463, in `src/bases/ganttSyncOrchestrator.ts`;
+originally in `GanttContainer.svelte`), after the content-noop guard, branches before the
+per-instance diff — the ephemeral clear below is now the orchestrator's
+`clearEphemeralSortForBaseChange`, and the `_sort` reset is centralized as its
+`clearSvarSortArrow`, same semantics:
 
 ```ts
 if (shouldBulkReseed(taskPlan, linkPlan)) {
@@ -262,6 +270,10 @@ cheap in-place path no matter how many rows it touches.
 
 ## Related Issues
 
+- [../architecture-patterns/live-accessor-bridge-extraction-recipe.md](../architecture-patterns/live-accessor-bridge-extraction-recipe.md)
+  — the extraction recipe that moved this doc's inline code behind the interceptor and
+  sync-orchestrator seams (PRs #427, #461–#463) while preserving every behavior documented here;
+  read it for where the mechanisms live now and how the `syncing` flag crosses the seams live.
 - [gantt-theme-toggle-bases-refresh-loop.md](gantt-theme-toggle-bases-refresh-loop.md) — same
   Bases reseed / `onDataUpdated` surface; that doc guards no-op `config.set` writes to break a
   refresh loop, while this one guards the `syncing` flag so reseeds don't fire the
