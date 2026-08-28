@@ -107,9 +107,9 @@ const sorted = [...tasks].sort((a, b) => {
 computes per-branch move chains (place each child after its previous sibling). A row-order
 fingerprint is tracked and, when it changes, the moves exec **inside the `syncing` block** —
 when the Base order owns the display; with an ephemeral column sort active, reorder
-reconciliation instead follows the coordinator's pinned ephemeral-sort contract (reassert
-while the Base sort descriptor is unchanged, clear on a descriptor change; the coordinator
-unit suite owns those branch semantics — see also the ephemeral-sort note under fix 4)
+reconciliation instead follows the pinned ephemeral-sort contract, whose branch semantics
+(reassert vs clear, per reconciliation path) are owned by the coordinator and orchestrator
+unit suites rather than restated here — see the ephemeral-sort note under fix 4
 (this replay now lives in `src/bases/ganttSyncCoordinator.ts` / `ganttSyncOrchestrator.ts`
 since the diff-sync extraction, PRs #461–#463; originally inline in `GanttContainer.svelte`):
 
