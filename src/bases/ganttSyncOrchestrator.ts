@@ -114,7 +114,7 @@ export function toSvarTaskInputs(d: GanttSyncSource, live: SvarTaskLiveInputs): 
     arrowMode: d.arrowMode,
     // Read on the stable instance set so the replicated cue counts only VISIBLE
     // instances: when on, the display-filtered alsoTopLevel twin is excluded from
-    // the count (#161). Toggling this re-runs the task shaping via the store →
+    // the count. Toggling this re-runs the task shaping via the store →
     // sync path and diffs update-only, so the hatch flips live without churning.
     hideTopLevelSubtasks: d.hideTopLevelSubtasks ?? false,
     propertyValues: d.propertyValues,
