@@ -105,7 +105,10 @@ const sorted = [...tasks].sort((a, b) => {
 
 **2b. Apply live reorder via `move-task`.** A pure helper `planReorder(next)` in `ganttSync.ts`
 computes per-branch move chains (place each child after its previous sibling). A row-order
-fingerprint is tracked and, when it changes, the moves exec **inside the `syncing` block**
+fingerprint is tracked and, when it changes, the moves exec **inside the `syncing` block** —
+unless an ephemeral column sort is active with the Base sort unchanged, in which case the
+override is reasserted instead and the Base-order replay waits until it clears (see the
+ephemeral-sort note under fix 4)
 (this replay now lives in `src/bases/ganttSyncCoordinator.ts` / `ganttSyncOrchestrator.ts`
 since the diff-sync extraction, PRs #461–#463; originally inline in `GanttContainer.svelte`):
 
