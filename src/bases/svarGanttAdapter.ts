@@ -4,8 +4,9 @@ import type { GanttSyncPort } from './ganttSyncPort';
 
 // Structural: only what the port drives. Every exec result is discarded, so
 // the vendor's typed `Promise` return is not required of a caller-supplied
-// api slice (the orchestrator seam passes its own structural slice).
-type SvarGanttCommandApi = {
+// api slice. Exported as the single declaration of this command surface —
+// the orchestrator seam's api type composes it rather than re-declaring it.
+export type SvarGanttCommandApi = {
   exec(action: string, payload: object): unknown;
   getTask?: (id: string) => unknown;
 };

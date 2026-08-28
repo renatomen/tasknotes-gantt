@@ -50,7 +50,7 @@ import {
 } from './ganttSyncCoordinator';
 import type { GridColumn } from './gridColumns';
 import type { EphemeralSort } from './sortCycle';
-import { createSvarGanttAdapter } from './svarGanttAdapter';
+import { createSvarGanttAdapter, type SvarGanttCommandApi } from './svarGanttAdapter';
 import type { GanttData } from './types/gantt-view-data';
 
 /**
@@ -128,14 +128,12 @@ export function toSvarTaskInputs(d: GanttSyncSource, live: SvarTaskLiveInputs): 
 }
 
 /**
- * The slice of the SVAR Gantt api the orchestrator drives. Structural (not the
- * vendor type) because the `_sort` reset reaches the internal data store via
- * `getStores` — internal-but-reachable, beyond the published declarations.
- * `getTask` is the sync port's row-presence probe (delete-path guard).
+ * The slice of the SVAR Gantt api the orchestrator drives: the sync port's
+ * command surface (exec, plus the row-presence probe `getTask`) plus the
+ * `_sort` reset's reach into the internal data store via `getStores` —
+ * internal-but-reachable, beyond the published declarations.
  */
-export interface SyncOrchestratorApi {
-  exec(action: string, payload: object): unknown;
-  getTask?(id: string): unknown;
+export interface SyncOrchestratorApi extends SvarGanttCommandApi {
   getStores?(): { data?: { setState?(state: object): void } };
 }
 
