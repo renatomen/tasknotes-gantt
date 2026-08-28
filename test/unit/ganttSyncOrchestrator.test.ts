@@ -256,7 +256,8 @@ function makeFixture(options: FixtureOptions = {}) {
   const applyPersistedGridWidth = jest.fn((): void => {
     events.push({ kind: 'apply-persisted-grid-width', syncingDuring: backing.syncing });
   });
-  const cellEditColumnIds = jest.fn(() => options.cellEditColumnIds ?? []);
+  let liveCellEditColumnIds: string[] = options.cellEditColumnIds ?? [];
+  const cellEditColumnIds = jest.fn(() => liveCellEditColumnIds);
   const getSort = jest.fn(() => options.baseSort);
   const init: SyncOrchestratorInit = {
     columnsKey: 'cols-v1',
@@ -281,6 +282,9 @@ function makeFixture(options: FixtureOptions = {}) {
   const disarmThrow = (): void => {
     armedThrow = 0;
   };
+  const setCellEditColumnIds = (ids: string[]): void => {
+    liveCellEditColumnIds = ids;
+  };
   return {
     orchestrator,
     events,
@@ -293,6 +297,7 @@ function makeFixture(options: FixtureOptions = {}) {
     applyPersistedGridWidth,
     makeApi,
     disarmThrow,
+    setCellEditColumnIds,
     execEvents: () => events.filter((e) => e.kind === 'exec'),
     gridWidthAsserts: () => events.filter((e) => e.kind === 'apply-persisted-grid-width'),
   };
@@ -639,6 +644,18 @@ describe('reseed family', () => {
       expect(f.orchestrator.reseedColumnsIfNeeded(reseedSource())).toBe(true);
 
       expect(f.execEvents()).toEqual([]);
+      expect(f.backing.columns).toHaveLength(2);
+      expect(f.gridWidthAsserts()).toHaveLength(1);
+      expect(f.orchestrator.reseedColumnsIfNeeded(reseedSource())).toBe(false);
+    });
+
+    it('reads the editor-attach set live: a supplier change between calls triggers the reseed', () => {
+      const f = makeFixture();
+      expect(f.orchestrator.reseedColumnsIfNeeded(reseedSource())).toBe(false);
+
+      f.setCellEditColumnIds(['status']);
+
+      expect(f.orchestrator.reseedColumnsIfNeeded(reseedSource())).toBe(true);
       expect(f.backing.columns).toHaveLength(2);
       expect(f.gridWidthAsserts()).toHaveLength(1);
       expect(f.orchestrator.reseedColumnsIfNeeded(reseedSource())).toBe(false);
