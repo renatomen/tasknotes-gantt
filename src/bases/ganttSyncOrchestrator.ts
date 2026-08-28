@@ -17,9 +17,28 @@
  *
  * @module bases/ganttSyncOrchestrator
  */
-import { planReorder, type SvarTask } from './ganttSync';
-import { ganttOrderFingerprint, type AppliedGanttSyncState } from './ganttSyncCoordinator';
+import type { RenderLink } from '../controller/InstanceExpansion';
+import { dlog } from '../debugLog';
+import { baseSortDescriptor, planReorder, type BaseSortEntry, type SvarTask } from './ganttSync';
+import {
+  createGanttSeedSnapshot,
+  ganttOrderFingerprint,
+  replaceAppliedGanttData,
+  type AppliedGanttSyncState,
+} from './ganttSyncCoordinator';
+import type { GridColumn } from './gridColumns';
 import type { EphemeralSort } from './sortCycle';
+import type { GanttData } from './types/gantt-view-data';
+
+/**
+ * The slice of {@link GanttData} the reseed family reads. Narrower than the
+ * full store payload so the module states its actual data coupling and unit
+ * fixtures build only what the code consumes.
+ */
+export type GanttReseedSource = Pick<
+  GanttData,
+  'gridColumnsKey' | 'gridWidth' | 'gridColumns' | 'links'
+>;
 
 /**
  * The slice of the SVAR Gantt api the orchestrator drives. Structural (not the
@@ -39,15 +58,37 @@ export interface SyncOrchestratorApi {
  * view's interceptors, effects, and template, and an api re-bind is visible to
  * the next call (and to a timer callback firing after a remount).
  */
-export interface SyncOrchestratorAccess {
+export interface SyncOrchestratorAccess<TColumn = unknown> {
   /** The view's echo-suppression flag — a plain component `let`, never copied. */
   syncing: boolean;
   ephemeralSort: EphemeralSort | null;
   readonly api: SyncOrchestratorApi | undefined;
+  /**
+   * SVAR grid-column seed prop — written only on a column-config reseed
+   * (reassigning it re-inits SVAR's store). The element type is the view's
+   * private SVAR column shape; the orchestrator only pipes `buildSvarColumns`'
+   * result through, so it stays generic rather than coupling to that shape.
+   */
+  columns: TColumn[];
+  /** SVAR task seed prop — rewritten only by an explicit reseed. */
+  initialTasks: SvarTask[];
+  /** SVAR link seed prop — rewritten only by an explicit reseed. */
+  initialLinks: RenderLink[];
+}
+
+/**
+ * The factory's immutable mount-time baseline for the module-private applied
+ * keys. Passed by value at construction — never read through live accessors,
+ * which would break the bridge's no-eager-dereference contract.
+ */
+export interface SyncOrchestratorInit {
+  readonly columnsKey: string;
+  readonly editorAttachKey: string;
+  readonly gridWidth: number | undefined;
 }
 
 /** Stable collaborators the orchestrator calls but never assigns. */
-export interface SyncOrchestratorDeps {
+export interface SyncOrchestratorDeps<TColumn = unknown> {
   /** The echo tag our own programmatic execs carry (`OG_ECHO_SOURCE`). */
   echoSource: string;
   /**
@@ -61,21 +102,49 @@ export interface SyncOrchestratorDeps {
    * is what the next sync diffs against.
    */
   appliedSyncState: AppliedGanttSyncState;
+  /** Turn config-derived descriptors into fresh SVAR columns (view closure). */
+  buildSvarColumns(descriptors: GridColumn[]): TColumn[];
+  /**
+   * Re-assert the persisted divider width after a column recompute. Stays in
+   * the view (dual-homed: `initGantt` and the host callback also call it) and
+   * owns its own deferral; it crosses the seam as a plain call.
+   */
+  applyPersistedGridWidth(): void;
+  /** Live editor-attach set (a view `$derived`), read at call time. */
+  cellEditColumnIds(): ReadonlyArray<string>;
+  /** The Base toolbar sort supplier (`config.getSort()`), read at call time. */
+  getSort(): ReadonlyArray<BaseSortEntry> | undefined;
 }
 
-/** The ephemeral-sort coordination surface the view's staying hooks call. */
+/** The diff-sync coordination surface the view's staying hooks call. */
 export interface GanttSyncOrchestrator {
   reassertEphemeralSort(): void;
   clearSvarSortArrow(): void;
   restoreBaseOrder(): void;
   clearEphemeralSort(): void;
   clearEphemeralSortForBaseChange(baseSortChanged: boolean): void;
+  reseedColumnsIfNeeded(d: GanttReseedSource): boolean;
+  applyChangedGridWidth(d: GanttReseedSource): void;
+  reseedSeedsFromData(d: GanttReseedSource): void;
 }
 
-export function createGanttSyncOrchestrator(
-  access: SyncOrchestratorAccess,
-  deps: SyncOrchestratorDeps,
+export function createGanttSyncOrchestrator<TColumn>(
+  access: SyncOrchestratorAccess<TColumn>,
+  deps: SyncOrchestratorDeps<TColumn>,
+  init: SyncOrchestratorInit,
 ): GanttSyncOrchestrator {
+  // Last-applied column-config fingerprint; a change triggers a column reseed.
+  let appliedColumnsKey = init.columnsKey;
+  // Last-applied editor-attach set. Which columns CARRY an editor/getter is
+  // decided at column-build time, so an editability change with an unchanged
+  // column config (e.g. a newly registered TaskNotes field) also needs a column
+  // reseed — otherwise the new editor never attaches (or a dead one lingers).
+  let appliedEditorAttachKey = init.editorAttachKey;
+  // The effective width last applied to SVAR, tracked so a settings-panel edit
+  // of "Table width (px)" (which changes only `d.gridWidth` — tasks/columns
+  // unchanged, so the sync takes the content-NOOP path) still re-asserts the
+  // new width live instead of waiting for a resize/reseed/remount.
+  let appliedGridWidth = init.gridWidth;
   /**
    * Re-apply the active ephemeral column sort over SVAR's current rows.
    * Echo-tagged so it never re-enters the `sort-tasks` recording interceptor.
@@ -154,11 +223,108 @@ export function createGanttSyncOrchestrator(
     clearSvarSortArrow();
   }
 
+  /**
+   * Reseed the SVAR column/task/link seeds when the column config or the
+   * editor-attach set changed since the last apply. Returns `true` when the
+   * reseed ran (the caller's sync pass is done — a reseed replaces the whole
+   * store, so no diff follows).
+   */
+  function reseedColumnsIfNeeded(d: GanttReseedSource): boolean {
+    const editorAttachKey = deps.cellEditColumnIds().join('|');
+    const columnsChanged =
+      d.gridColumnsKey !== appliedColumnsKey
+      || editorAttachKey !== appliedEditorAttachKey;
+    if (!columnsChanged) return false;
+
+    dlog(`[OGDBG] sync RESEED columns "${appliedColumnsKey}" -> "${d.gridColumnsKey}"`);
+    appliedGridWidth = d.gridWidth;
+    appliedEditorAttachKey = editorAttachKey;
+    reseedForColumnChange(d);
+    return true;
+  }
+
+  /**
+   * Re-assert a changed effective grid width on the content-NOOP path (a
+   * settings-panel "Table width" edit changes only `d.gridWidth`).
+   */
+  function applyChangedGridWidth(d: GanttReseedSource): void {
+    if (d.gridWidth === appliedGridWidth) return;
+    appliedGridWidth = d.gridWidth;
+    deps.applyPersistedGridWidth();
+  }
+
+  /**
+   * Reseed the SVAR `columns`/`tasks`/`links` props from the current data on a
+   * column-config change, and resync the applied maps so the next incremental
+   * diff is a no-op. Reassigning these `$state` seeds re-inits SVAR's store once
+   * (the only correct way to change the column set).
+   */
+  function reseedForColumnChange(d: GanttReseedSource): void {
+    appliedColumnsKey = d.gridColumnsKey;
+    access.columns = deps.buildSvarColumns(d.gridColumns);
+
+    reseedSeedsFromData(d);
+
+    // The re-init triggers the column recompute (gridWidth → column-sum); re-
+    // assert the user's persisted divider width afterward so a column-config
+    // change doesn't silently reset it.
+    deps.applyPersistedGridWidth();
+  }
+
+  /**
+   * Refresh the `<Gantt>` seed props (tasks/links) from the current data and
+   * resync the applied-state maps so the next incremental diff is a no-op.
+   * Shared by the column-config reseed and the theme-flip reseed: a theme flip
+   * remounts the <Gantt> (the view's dark/light swap), which re-reads these
+   * seeds — without this the post-flip chart would show the stale mount-time
+   * seed instead of the current data.
+   */
+  function reseedSeedsFromData(d: GanttReseedSource): void {
+    const seed = createGanttSeedSnapshot({
+      tasks: deps.currentTasks(),
+      links: d.links,
+      cellEditColumnIds: deps.cellEditColumnIds(),
+    });
+    access.initialTasks = seed.tasks;
+    access.initialLinks = seed.links;
+    replaceAppliedGanttData(deps.appliedSyncState, seed);
+    // The reseed re-inits SVAR from `tasks` (already in Base order), so the
+    // applied order key tracks it — the next diff won't re-issue reorder moves.
+    // Re-baseline the Base sort descriptor too (symmetry with the order key): a
+    // reseed coinciding with a toolbar-sort change must not leave the next sync
+    // comparing against a stale descriptor.
+    deps.appliedSyncState.baseSortKey = baseSortDescriptor(deps.getSort());
+
+    // A reseed re-inits the store in Base order and wipes SVAR's `_sort`. If an
+    // ephemeral column sort is active, re-apply it once the store's column
+    // recompute settles — deferred a tick like applyPersistedGridWidth, since a
+    // theme-flip reseed remounts <Gantt> (fresh api/store). Raw scheduling by
+    // design: no handle, no cancellation, no destroy gate — the fire-time
+    // override guard and the catch are the staleness mechanism, and the
+    // deferred exec deliberately lands on the re-bound api after a remount.
+    if (access.ephemeralSort) {
+      setTimeout(() => {
+        if (!access.ephemeralSort) return;
+        access.syncing = true;
+        try {
+          reassertEphemeralSort();
+        } catch {
+          /* exec threw on a torn-down / freshly-remounted store — skip */
+        } finally {
+          access.syncing = false;
+        }
+      }, 0);
+    }
+  }
+
   return {
     reassertEphemeralSort,
     clearSvarSortArrow,
     restoreBaseOrder,
     clearEphemeralSort,
     clearEphemeralSortForBaseChange,
+    reseedColumnsIfNeeded,
+    applyChangedGridWidth,
+    reseedSeedsFromData,
   };
 }
