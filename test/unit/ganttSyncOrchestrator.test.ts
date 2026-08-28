@@ -99,6 +99,12 @@ interface Backing {
   columns: TestColumn[];
   initialTasks: SvarTask[];
   initialLinks: RenderLink[];
+  /**
+   * Component-side teardown state. Deliberately NOT exposed through the access
+   * bridge: the module's raw scheduling carries no destroy gate, so the
+   * teardown test pins that a pending timer ignores this flag entirely.
+   */
+  destroyed: boolean;
 }
 
 interface FixtureOptions {
@@ -146,6 +152,7 @@ function makeFixture(options: FixtureOptions = {}) {
     columns: [],
     initialTasks: [],
     initialLinks: [],
+    destroyed: false,
   };
   const reads = {
     syncing: 0,
@@ -779,6 +786,18 @@ describe('reseed family', () => {
       expect(jest.getTimerCount()).toBe(2);
       jest.runAllTimers();
       expect(f.execEvents().filter((e) => e.action === 'sort-tasks')).toHaveLength(2);
+    });
+
+    it('fires without throwing after component teardown while the api stays assigned — no destroy gate', () => {
+      const f = makeFixture({ ephemeralSort: activeSort });
+      f.orchestrator.reseedSeedsFromData(reseedSource());
+
+      f.backing.destroyed = true;
+
+      expect(() => jest.runAllTimers()).not.toThrow();
+      expect(f.execEvents().map((e) => e.action)).toEqual(['sort-tasks']);
+      expect(f.syncingWrites).toEqual([true, false]);
+      expect(f.backing.syncing).toBe(false);
     });
   });
 });
