@@ -53,6 +53,17 @@ The pre-drag position a halted cascade leaves behind so its unpaid displacement 
 ### Settled facts
 The authored values a write is known to have persisted, remembered per source because the plugin suppresses its own recompute and the rows it reads therefore still show pre-write values. A settled fact overlays a stale row only until a vault re-read that began after the write has delivered; a read that merely reuses cached tasks proves nothing and cannot retire it.
 
+## Diff-sync
+
+### Diff-sync
+The refresh strategy in which the chart's store is seeded once and every later data change is applied as targeted store actions computed by an id-keyed diff against the last-applied state — chosen so the user's zoom and scroll survive an incremental refresh. Explicit reseeds are the exemptions that deliberately re-initialize the store instead: the Bulk reseed, and the column-config and theme-flip reseeds that rewrite the seeds for reasons no targeted action can express. Its two blind spots are named and owned: a pure reorder is expressed as an explicit per-branch replay of move steps (a whole-branch chain keyed on an order fingerprint, deliberately simple rather than a minimal move set), because an id-keyed diff cannot reorder existing rows; and a structurally large diff routes through a Bulk reseed.
+
+### Echo-suppression window
+The bracket during which the view pushes its own programmatic store actions, marked by a flag that every interceptor with user-facing side effects must consult, so a synchronous programmatic echo is not handled as a user gesture. Events a store re-init emits asynchronously after the window closes are outside its cover — one reason targeted store actions are preferred over re-inits in the first place. The flag is a boolean, not a counter: two call conventions coexist by design — a path already inside the window re-asserts bare, while an independently scheduled callback raises and releases its own bracket — and unifying them would drop the window mid-pass. The flag is never retained across a seam as a snapshot: a wiring-time or held capture stops suppressing the moment the flag changes. Reading it at event time and passing that same-event value to a synchronous classifier is fine — the value is consumed within the event it was read in.
+
+### Bulk reseed
+The deliberate escape hatch for a diff too structurally large to apply incrementally: past a structural-op threshold (adds, deletes, reparenting moves, and link ops count; in-place updates and the sibling-reorder replay never do, so a pure reorder of unchanged rows never trips the threshold, however large — whether a given refresh replays the Base order, reasserts an ephemeral override, or does neither is the reorder-reconciliation contract owned and pinned by the coordinator's unit suite, not restated here), the seed props are reassigned so the store re-initializes once, virtualized, instead of applying thousands of per-instance mutations. The threshold is absolute, chosen from the incremental path's cost ceiling, not a proportional wholesale-change test — so it intentionally spends zoom and scroll whenever it trips, which usually but not necessarily coincides with a view changing beyond recognition. The deliberate inverse of Diff-sync's default preference for targeted actions: match the store operation to the size of the change.
+
 ## Extraction seams
 
 ### Live accessor bridge
