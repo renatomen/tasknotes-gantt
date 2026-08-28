@@ -219,7 +219,7 @@ it('replays the live current data read at call time, not a wiring-time capture',
 
 - `CONCEPTS.md` § Extraction seams — the canonical "live accessor bridge" vocabulary this doc elaborates.
 - `docs/solutions/workflow-issues/run-behavior-neutral-refactoring-as-releasable-reviewed-slices.md` — the campaign process (slicing, landing cadence, characterization-first) this recipe's PRs followed; that doc covers *how units land*, this one covers *the bridge mechanics inside a unit*.
-- `docs/solutions/integration-issues/svar-gantt-diff-sync-interactions.md` — the behavioral contract of the moved diff-sync code (echo semantics, bulk-reseed branch); note its code-location citations predate the extractions.
+- `docs/solutions/integration-issues/svar-gantt-diff-sync-interactions.md` — the behavioral contract of the moved diff-sync code (echo semantics, bulk-reseed branch); its code-location citations carry annotations pointing at the post-extraction seam locations.
 - `docs/solutions/architecture-patterns/resolve-config-defaults-at-one-seam.md` — the adjacent one-seam philosophy for config resolution.
 - GitHub issue #354 — the Farley-aligned remediation campaign umbrella these extractions descend from (closed).
 - Exemplars in source: `src/bases/svarInterceptors.ts` (PR #427), `src/bases/ganttSyncOrchestrator.ts` (PRs #461–#463), `test/unit/ganttSyncOrchestrator.test.ts`, `test/unit/ganttSyncEffectShape.test.ts`.
