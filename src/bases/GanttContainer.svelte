@@ -58,7 +58,6 @@
     createGanttSeedSnapshot,
     isGanttSyncNoop,
     planGanttSync,
-    replaceAppliedGanttData,
     type AppliedGanttSyncState,
     type GanttSyncPlan,
   } from './ganttSyncCoordinator';
@@ -382,7 +381,7 @@
    */
   function maybeReseedForThemeFlip(nextMode: ThemeMode, nextDark: boolean): void {
     if (isEffectiveDark(nextMode, nextDark) !== isEffectiveDark(mode, obsidianIsDark)) {
-      reseedSeedsFromData(get(data));
+      syncOrchestrator.reseedSeedsFromData(get(data));
     }
   }
 
@@ -940,13 +939,10 @@
   // SVAR's own Resizer; we capture it to persist (see wireGridWidthPersistence).
   const initialGridWidth: number | undefined = initialData.gridWidth;
   // The last width we know about (mount-persisted, then updated on each drag) —
-  // what we re-assert after a column recompute.
+  // what we re-assert after a column recompute. The effective width last
+  // APPLIED to SVAR is tracked separately, module-private in the sync
+  // orchestrator (seeded from the factory's init argument below).
   let lastGridWidth: number | undefined = initialGridWidth;
-  // The effective width last applied to SVAR, tracked so a settings-panel edit
-  // of "Table width (px)" (which changes only `d.gridWidth` — tasks/columns
-  // unchanged, so syncToGantt takes the content-NOOP path) still re-asserts the
-  // new width live instead of waiting for a resize/reseed/remount.
-  let appliedGridWidth: number | undefined = initialGridWidth;
 
   // Registered custom task-type superset (date-status flag + every color-treatment
   // class), derived from BOTH palettes (status + priority) plus the og-parent theme
@@ -1070,26 +1066,6 @@
     if (api) applyDisplayFilters();
   });
 
-  function reseedColumnsIfNeeded(d: GanttData): boolean {
-    const editorAttachKey = cellEditColumnIds.join('|');
-    const columnsChanged =
-      d.gridColumnsKey !== appliedColumnsKey
-      || editorAttachKey !== appliedEditorAttachKey;
-    if (!columnsChanged) return false;
-
-    dlog(`[OGDBG] sync RESEED columns "${appliedColumnsKey}" -> "${d.gridColumnsKey}"`);
-    appliedGridWidth = d.gridWidth;
-    appliedEditorAttachKey = editorAttachKey;
-    reseedForColumnChange(d);
-    return true;
-  }
-
-  function applyChangedGridWidth(d: GanttData): void {
-    if (d.gridWidth === appliedGridWidth) return;
-    appliedGridWidth = d.gridWidth;
-    applyPersistedGridWidth();
-  }
-
   function planSyncFromData(d: GanttData): GanttSyncPlan {
     return planGanttSync({
       next: buildSvarTasks(toInputs(d)),
@@ -1111,7 +1087,7 @@
     try {
       // Clear a stale override first so the reseed cannot reassert it.
       syncOrchestrator.clearEphemeralSortForBaseChange(plan.baseSortChanged);
-      reseedSeedsFromData(d);
+      syncOrchestrator.reseedSeedsFromData(d);
       applyPersistedGridWidth();
     } finally {
       syncing = false;
@@ -1168,8 +1144,8 @@
   }
 
   function syncToGantt(d: GanttData): void {
-    if (reseedColumnsIfNeeded(d)) return;
-    applyChangedGridWidth(d);
+    if (syncOrchestrator.reseedColumnsIfNeeded(d)) return;
+    syncOrchestrator.applyChangedGridWidth(d);
 
     const plan = planSyncFromData(d);
     if (isGanttSyncNoop(plan, appliedSyncState)) {
@@ -1178,68 +1154,6 @@
     }
     if (applyBulkReseedIfNeeded(d, plan)) return;
     applyIncrementalSync(plan);
-  }
-
-  /**
-   * Reseed the SVAR `columns`/`tasks`/`links` props from the current data on a
-   * column-config change, and resync the applied maps so the next incremental
-   * diff is a no-op. Reassigning these `$state` seeds re-inits SVAR's store once
-   * (the only correct way to change the column set).
-   */
-  function reseedForColumnChange(d: GanttData): void {
-    appliedColumnsKey = d.gridColumnsKey;
-    columns = buildSvarColumns(d.gridColumns);
-
-    reseedSeedsFromData(d);
-
-    // The re-init triggers the column recompute (gridWidth → column-sum); re-
-    // assert the user's persisted divider width afterward so a column-config
-    // change doesn't silently reset it.
-    applyPersistedGridWidth();
-  }
-
-  /**
-   * Refresh the `<Gantt>` seed props (tasks/links) from the current data and
-   * resync the applied-state maps so the next incremental diff is a no-op.
-   * Shared by the column-config reseed and the theme-flip reseed: a theme flip
-   * remounts the <Gantt> (the {#if effectiveIsDark} swap), which re-reads these
-   * seeds — without this the post-flip chart would show the stale mount-time
-   * seed instead of the current data.
-   */
-  function reseedSeedsFromData(d: GanttData): void {
-    const seed = createGanttSeedSnapshot({
-      tasks: buildSvarTasks(toInputs(d)),
-      links: d.links,
-      cellEditColumnIds,
-    });
-    initialTasks = seed.tasks;
-    initialLinks = seed.links;
-    replaceAppliedGanttData(appliedSyncState, seed);
-    // The reseed re-inits SVAR from `tasks` (already in Base order), so the
-    // applied order key tracks it — the next diff won't re-issue reorder moves.
-    // Re-baseline the Base sort descriptor too (symmetry with the order key): a
-    // reseed coinciding with a toolbar-sort change must not leave the next sync
-    // comparing against a stale descriptor.
-    appliedSyncState.baseSortKey = baseSortDescriptor(config?.getSort?.());
-
-    // A reseed re-inits the store in Base order and wipes SVAR's `_sort`. If an
-    // ephemeral column sort is active (plan 2026-06-22-002, R8), re-apply it once
-    // the store's column recompute settles — deferred a tick like
-    // applyPersistedGridWidth, since a theme-flip reseed remounts <Gantt> (fresh
-    // api/store). Echo-guarded inside reassertEphemeralSort.
-    if (ephemeralSort) {
-      setTimeout(() => {
-        if (!ephemeralSort) return;
-        syncing = true;
-        try {
-          syncOrchestrator.reassertEphemeralSort();
-        } catch {
-          /* exec threw on a torn-down / freshly-remounted store — skip */
-        } finally {
-          syncing = false;
-        }
-      }, 0);
-    }
   }
 
   // The slice of SVAR's `update-task` event payload the drag/resize persistence
@@ -1712,14 +1626,6 @@
   }
 
   let columns: SvarGridColumn[] = $state(buildSvarColumns(initialData.gridColumns));
-  // Last-applied column-config fingerprint; a change triggers a reseed (see the
-  // diff-sync $effect). Plain `let` — read/written only inside the effect.
-  let appliedColumnsKey = initialData.gridColumnsKey;
-  // Last-applied editor-attach set. Which columns CARRY an editor/getter is
-  // decided at column-build time, so an editability change with an unchanged
-  // column config (e.g. a newly registered TaskNotes field) also needs a column
-  // reseed — otherwise the new editor never attaches (or a dead one lingers).
-  let appliedEditorAttachKey = initialEditorColumnIds.join('|');
 
   // NOTE: there is intentionally no toolbar. The only items it ever held were
   // Zoom In/Out, which are redundant with the floating +/- controls at the
@@ -1822,12 +1728,13 @@
   /** [OGDBG #161] monotonic SVAR (re)init counter — re-init storm detector. */
   let dbgInitCount = 0;
 
-  // The ephemeral-sort coordination cluster lives in the sync-orchestrator
-  // seam. It crosses the same live-accessor bridge as the interceptors: bare
-  // getter/setter properties closed over this component's scope, never copied
-  // values, so the module's `syncing` bracket and override writes are visible
-  // to every handler and effect, and an api re-bind is seen by the next call.
-  const syncOrchestratorAccess: SyncOrchestratorAccess = {
+  // The ephemeral-sort coordination cluster and the reseed family live in the
+  // sync-orchestrator seam. They cross the same live-accessor bridge as the
+  // interceptors: bare getter/setter properties closed over this component's
+  // scope, never copied values, so the module's `syncing` bracket, override
+  // writes, and seed reassignments are visible to every handler and effect,
+  // and an api re-bind is seen by the next call.
+  const syncOrchestratorAccess: SyncOrchestratorAccess<SvarGridColumn> = {
     get syncing() {
       return syncing;
     },
@@ -1843,14 +1750,45 @@
     get api() {
       return api;
     },
+    get columns() {
+      return columns;
+    },
+    set columns(value) {
+      columns = value;
+    },
+    get initialTasks() {
+      return initialTasks;
+    },
+    set initialTasks(value) {
+      initialTasks = value;
+    },
+    get initialLinks() {
+      return initialLinks;
+    },
+    set initialLinks(value) {
+      initialLinks = value;
+    },
   };
   // Constructed before `interceptorDeps` so `restoreBaseOrder` crosses as a
-  // stable direct reference.
-  const syncOrchestrator = createGanttSyncOrchestrator(syncOrchestratorAccess, {
-    echoSource: OG_ECHO_SOURCE,
-    currentTasks: () => buildSvarTasks(toInputs(get(data))),
-    appliedSyncState,
-  });
+  // stable direct reference. The init argument carries the mount-time applied
+  // keys by value (the module may not read live accessors at construction).
+  const syncOrchestrator = createGanttSyncOrchestrator(
+    syncOrchestratorAccess,
+    {
+      echoSource: OG_ECHO_SOURCE,
+      currentTasks: () => buildSvarTasks(toInputs(get(data))),
+      appliedSyncState,
+      buildSvarColumns,
+      applyPersistedGridWidth,
+      cellEditColumnIds: () => cellEditColumnIds,
+      getSort: () => config?.getSort?.(),
+    },
+    {
+      columnsKey: initialData.gridColumnsKey,
+      editorAttachKey: initialEditorColumnIds.join('|'),
+      gridWidth: initialGridWidth,
+    },
+  );
 
   // Every mutable binding crosses the interceptor seam as a live accessor
   // property closed over this component's scope — never a copied value — so a

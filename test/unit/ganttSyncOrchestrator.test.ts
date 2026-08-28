@@ -6,14 +6,18 @@
  * clear-vs-replay ordering, echo tagging, the `syncing` bracket, and accessor
  * liveness are all provable without Obsidian or a mounted component.
  */
-import { describe, expect, it, jest } from '@jest/globals';
+import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals';
 import {
   createGanttSyncOrchestrator,
+  type GanttReseedSource,
   type SyncOrchestratorAccess,
   type SyncOrchestratorApi,
+  type SyncOrchestratorInit,
 } from '../../src/bases/ganttSyncOrchestrator';
-import type { SvarTask } from '../../src/bases/ganttSync';
+import type { BaseSortEntry, SvarTask } from '../../src/bases/ganttSync';
 import type { AppliedGanttSyncState } from '../../src/bases/ganttSyncCoordinator';
+import type { GridColumn } from '../../src/bases/gridColumns';
+import type { RenderLink } from '../../src/controller/InstanceExpansion';
 import type { EphemeralSort } from '../../src/bases/sortCycle';
 
 const ECHO = 'og-self';
@@ -44,6 +48,17 @@ function task(id: string, parent?: string): SvarTask {
   };
 }
 
+function link(id: string, source: string, target: string): RenderLink {
+  return {
+    id,
+    source,
+    target,
+    type: 'e2s',
+    reltype: 'FINISHTOSTART',
+    gap: null,
+  };
+}
+
 /**
  * One entry per observable emission, in call order: SVAR execs, the internal
  * `_sort` reset, and every `ephemeralSort` setter write share a single log so
@@ -52,19 +67,44 @@ function task(id: string, parent?: string): SvarTask {
  * moment the api call landed.
  */
 interface LoggedEvent {
-  kind: 'exec' | 'set-state' | 'set-ephemeral-sort';
+  kind:
+    | 'exec'
+    | 'set-state'
+    | 'set-ephemeral-sort'
+    | 'set-columns'
+    | 'set-initial-tasks'
+    | 'set-initial-links'
+    | 'apply-persisted-grid-width';
   apiLabel?: string;
   action?: string;
   payload?: Record<string, unknown>;
   state?: Record<string, unknown>;
   value?: EphemeralSort | null;
+  columnsValue?: TestColumn[];
+  tasksValue?: SvarTask[];
+  linksValue?: RenderLink[];
   syncingDuring?: boolean;
+}
+
+/** The opaque column shape crossing the generic seam in these tests. */
+interface TestColumn {
+  id: string;
+  builtFrom: string;
 }
 
 interface Backing {
   syncing: boolean;
   ephemeralSort: EphemeralSort | null;
   api: SyncOrchestratorApi | undefined;
+  columns: TestColumn[];
+  initialTasks: SvarTask[];
+  initialLinks: RenderLink[];
+  /**
+   * Component-side teardown state. Deliberately NOT exposed through the access
+   * bridge: the module's raw scheduling carries no destroy gate, so the
+   * teardown test pins that a pending timer ignores this flag entirely.
+   */
+  destroyed: boolean;
 }
 
 interface FixtureOptions {
@@ -80,6 +120,27 @@ interface FixtureOptions {
    * are pre-swallowed inside the fake so jest sees no unhandled rejection.
    */
   execsReject?: boolean;
+  /** Live editor-attach set the `cellEditColumnIds` dep supplies. */
+  cellEditColumnIds?: string[];
+  /** What the `getSort` supplier returns (the Base toolbar sort). */
+  baseSort?: BaseSortEntry[];
+  /** Overrides for the factory's immutable mount-time init argument. */
+  init?: Partial<SyncOrchestratorInit>;
+}
+
+function gridColumn(id: string): GridColumn {
+  return { id, propId: id, header: id, width: 140, align: 'left', isName: id === 'text' };
+}
+
+/** The 4-field GanttData slice the reseed family reads; defaults match the fixture's init. */
+function reseedSource(overrides: Partial<GanttReseedSource> = {}): GanttReseedSource {
+  return {
+    gridColumnsKey: 'cols-v1',
+    gridWidth: 400,
+    gridColumns: [gridColumn('text'), gridColumn('status')],
+    links: [],
+    ...overrides,
+  };
 }
 
 function makeFixture(options: FixtureOptions = {}) {
@@ -88,8 +149,19 @@ function makeFixture(options: FixtureOptions = {}) {
     syncing: false,
     ephemeralSort: options.ephemeralSort ?? null,
     api: undefined,
+    columns: [],
+    initialTasks: [],
+    initialLinks: [],
+    destroyed: false,
   };
-  const reads = { syncing: 0, ephemeralSort: 0, api: 0 };
+  const reads = {
+    syncing: 0,
+    ephemeralSort: 0,
+    api: 0,
+    columns: 0,
+    initialTasks: 0,
+    initialLinks: 0,
+  };
   const syncingWrites: boolean[] = [];
   let armedThrow = options.throwOnExecNumber ?? 0;
   let execCount = 0;
@@ -130,7 +202,7 @@ function makeFixture(options: FixtureOptions = {}) {
 
   if (!options.withoutApi) backing.api = makeApi('primary');
 
-  const access: SyncOrchestratorAccess = {
+  const access: SyncOrchestratorAccess<TestColumn> = {
     get syncing() {
       reads.syncing += 1;
       return backing.syncing;
@@ -151,6 +223,30 @@ function makeFixture(options: FixtureOptions = {}) {
       reads.api += 1;
       return backing.api;
     },
+    get columns() {
+      reads.columns += 1;
+      return backing.columns;
+    },
+    set columns(value) {
+      events.push({ kind: 'set-columns', columnsValue: value, syncingDuring: backing.syncing });
+      backing.columns = value;
+    },
+    get initialTasks() {
+      reads.initialTasks += 1;
+      return backing.initialTasks;
+    },
+    set initialTasks(value) {
+      events.push({ kind: 'set-initial-tasks', tasksValue: value, syncingDuring: backing.syncing });
+      backing.initialTasks = value;
+    },
+    get initialLinks() {
+      reads.initialLinks += 1;
+      return backing.initialLinks;
+    },
+    set initialLinks(value) {
+      events.push({ kind: 'set-initial-links', linksValue: value, syncingDuring: backing.syncing });
+      backing.initialLinks = value;
+    },
   };
 
   const appliedSyncState: AppliedGanttSyncState = {
@@ -160,14 +256,41 @@ function makeFixture(options: FixtureOptions = {}) {
     baseSortKey: 'initial-base-sort',
   };
   const currentTasks = jest.fn(() => options.tasks ?? [task('a'), task('b'), task('c')]);
-  const orchestrator = createGanttSyncOrchestrator(access, {
-    echoSource: ECHO,
-    currentTasks,
-    appliedSyncState,
+  const buildSvarColumns = jest.fn(
+    (descriptors: ReadonlyArray<GridColumn>): TestColumn[] =>
+      descriptors.map((c) => ({ id: c.id, builtFrom: c.propId })),
+  );
+  const applyPersistedGridWidth = jest.fn((): void => {
+    events.push({ kind: 'apply-persisted-grid-width', syncingDuring: backing.syncing });
   });
+  let liveCellEditColumnIds: string[] = options.cellEditColumnIds ?? [];
+  const cellEditColumnIds = jest.fn(() => liveCellEditColumnIds);
+  const getSort = jest.fn(() => options.baseSort);
+  const init: SyncOrchestratorInit = {
+    columnsKey: 'cols-v1',
+    editorAttachKey: (options.cellEditColumnIds ?? []).join('|'),
+    gridWidth: 400,
+    ...options.init,
+  };
+  const orchestrator = createGanttSyncOrchestrator(
+    access,
+    {
+      echoSource: ECHO,
+      currentTasks,
+      appliedSyncState,
+      buildSvarColumns,
+      applyPersistedGridWidth,
+      cellEditColumnIds,
+      getSort,
+    },
+    init,
+  );
 
   const disarmThrow = (): void => {
     armedThrow = 0;
+  };
+  const setCellEditColumnIds = (ids: string[]): void => {
+    liveCellEditColumnIds = ids;
   };
   return {
     orchestrator,
@@ -177,9 +300,13 @@ function makeFixture(options: FixtureOptions = {}) {
     syncingWrites,
     appliedSyncState,
     currentTasks,
+    buildSvarColumns,
+    applyPersistedGridWidth,
     makeApi,
     disarmThrow,
+    setCellEditColumnIds,
     execEvents: () => events.filter((e) => e.kind === 'exec'),
+    gridWidthAsserts: () => events.filter((e) => e.kind === 'apply-persisted-grid-width'),
   };
 }
 
@@ -433,5 +560,244 @@ describe('accessor liveness', () => {
     f.orchestrator.reassertEphemeralSort();
 
     expect(f.events).toEqual([]);
+  });
+});
+
+describe('reseed family', () => {
+  beforeEach(() => {
+    jest.useFakeTimers({ doNotFake: ['performance'] });
+  });
+  afterEach(() => {
+    jest.useRealTimers();
+  });
+
+  describe('factory construction', () => {
+    it('reads no accessors at construction — applied keys come only from the immutable init argument', () => {
+      const f = makeFixture();
+
+      expect(f.reads).toEqual({
+        syncing: 0,
+        ephemeralSort: 0,
+        api: 0,
+        columns: 0,
+        initialTasks: 0,
+        initialLinks: 0,
+      });
+      expect(f.events).toEqual([]);
+    });
+  });
+
+  describe('reseedColumnsIfNeeded', () => {
+    it('returns false and touches nothing when columns key and editor-attach set match the applied keys', () => {
+      const f = makeFixture();
+
+      expect(f.orchestrator.reseedColumnsIfNeeded(reseedSource())).toBe(false);
+
+      expect(f.events).toEqual([]);
+      expect(f.buildSvarColumns).not.toHaveBeenCalled();
+      expect(f.currentTasks).not.toHaveBeenCalled();
+    });
+
+    it('a width-only change is not a column reseed', () => {
+      const f = makeFixture();
+
+      expect(f.orchestrator.reseedColumnsIfNeeded(reseedSource({ gridWidth: 512 }))).toBe(false);
+
+      expect(f.events).toEqual([]);
+    });
+
+    it('columns-key change: fresh columns from the dep, seeds rewritten, width re-asserted, no diff execs', () => {
+      const f = makeFixture();
+      const d = reseedSource({ gridColumnsKey: 'cols-v2', links: [link('a-b', 'a', 'b')] });
+
+      expect(f.orchestrator.reseedColumnsIfNeeded(d)).toBe(true);
+
+      expect(f.execEvents()).toEqual([]);
+      expect(f.buildSvarColumns).toHaveBeenCalledWith(d.gridColumns);
+      expect(f.backing.columns).toEqual([
+        { id: 'text', builtFrom: 'text' },
+        { id: 'status', builtFrom: 'status' },
+      ]);
+      expect(f.backing.initialTasks.map((t) => t.id)).toEqual(['a', 'b', 'c']);
+      expect(f.backing.initialLinks).toBe(d.links);
+      expect(f.gridWidthAsserts()).toHaveLength(1);
+    });
+
+    it('advances all applied keys: repeating the same changed data is a no-op', () => {
+      const f = makeFixture();
+      const d = reseedSource({ gridColumnsKey: 'cols-v2', gridWidth: 512 });
+      f.orchestrator.reseedColumnsIfNeeded(d);
+      const eventCount = f.events.length;
+
+      expect(f.orchestrator.reseedColumnsIfNeeded(d)).toBe(false);
+
+      expect(f.events).toHaveLength(eventCount);
+    });
+
+    it('adopts the incoming grid width before reseeding: a follow-up width check does not re-assert', () => {
+      const f = makeFixture();
+      const d = reseedSource({ gridColumnsKey: 'cols-v2', gridWidth: 512 });
+      f.orchestrator.reseedColumnsIfNeeded(d);
+      const widthAsserts = f.gridWidthAsserts().length;
+
+      f.orchestrator.applyChangedGridWidth(d);
+
+      expect(f.gridWidthAsserts()).toHaveLength(widthAsserts);
+    });
+
+    it('an editor-attach change alone (columns key unchanged) triggers the same column reseed', () => {
+      const f = makeFixture({ cellEditColumnIds: [], init: { editorAttachKey: 'status' } });
+
+      expect(f.orchestrator.reseedColumnsIfNeeded(reseedSource())).toBe(true);
+
+      expect(f.execEvents()).toEqual([]);
+      expect(f.backing.columns).toHaveLength(2);
+      expect(f.gridWidthAsserts()).toHaveLength(1);
+      expect(f.orchestrator.reseedColumnsIfNeeded(reseedSource())).toBe(false);
+    });
+
+    it('reads the editor-attach set live: a supplier change between calls triggers the reseed', () => {
+      const f = makeFixture();
+      expect(f.orchestrator.reseedColumnsIfNeeded(reseedSource())).toBe(false);
+
+      f.setCellEditColumnIds(['status']);
+
+      expect(f.orchestrator.reseedColumnsIfNeeded(reseedSource())).toBe(true);
+      expect(f.backing.columns).toHaveLength(2);
+      expect(f.gridWidthAsserts()).toHaveLength(1);
+      expect(f.orchestrator.reseedColumnsIfNeeded(reseedSource())).toBe(false);
+    });
+  });
+
+  describe('applyChangedGridWidth', () => {
+    it('is a no-op when the incoming width equals the applied width', () => {
+      const f = makeFixture();
+
+      f.orchestrator.applyChangedGridWidth(reseedSource());
+
+      expect(f.applyPersistedGridWidth).not.toHaveBeenCalled();
+    });
+
+    it('re-asserts through the dep on a width change, then adopts it: a repeat is a no-op', () => {
+      const f = makeFixture();
+      const d = reseedSource({ gridWidth: 512 });
+
+      f.orchestrator.applyChangedGridWidth(d);
+      f.orchestrator.applyChangedGridWidth(d);
+
+      expect(f.applyPersistedGridWidth).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('reseedSeedsFromData', () => {
+    it('flows one seed snapshot to both the seed setters and the applied baseline (no-clone identity)', () => {
+      const f = makeFixture();
+      const stateBefore = f.appliedSyncState;
+      const tasksMapBefore = f.appliedSyncState.tasks;
+      const linksMapBefore = f.appliedSyncState.links;
+      const seedLink = link('a-b', 'a', 'b');
+      const d = reseedSource({ links: [seedLink] });
+
+      f.orchestrator.reseedSeedsFromData(d);
+
+      expect(f.appliedSyncState).toBe(stateBefore);
+      expect(f.appliedSyncState.tasks).toBe(tasksMapBefore);
+      expect(f.appliedSyncState.links).toBe(linksMapBefore);
+      expect(f.backing.initialTasks.map((t) => t.id)).toEqual(['a', 'b', 'c']);
+      expect(f.appliedSyncState.tasks.get('a')).toBe(f.backing.initialTasks[0]);
+      expect(f.backing.initialLinks).toBe(d.links);
+      expect(f.appliedSyncState.links.get('a-b')).toBe(seedLink);
+      expect(f.appliedSyncState.orderKey).toBe('>a|>b|>c');
+    });
+
+    it('re-baselines the Base sort descriptor from the getSort supplier', () => {
+      const f = makeFixture({ baseSort: [{ property: 'due', direction: 'ASC' }] });
+
+      f.orchestrator.reseedSeedsFromData(reseedSource());
+
+      expect(f.appliedSyncState.baseSortKey).toBe('due:ASC');
+    });
+
+    it('schedules no reassert when no ephemeral sort is active', () => {
+      const f = makeFixture();
+
+      f.orchestrator.reseedSeedsFromData(reseedSource());
+
+      expect(jest.getTimerCount()).toBe(0);
+    });
+  });
+
+  describe('post-reseed reassert timer', () => {
+    it('defers the reassert and wraps it in its own syncing raise (true during, false after)', () => {
+      const f = makeFixture({ ephemeralSort: activeSort });
+
+      f.orchestrator.reseedSeedsFromData(reseedSource());
+      expect(f.execEvents()).toEqual([]);
+      jest.runAllTimers();
+
+      expect(f.execEvents()).toEqual([
+        expect.objectContaining({
+          action: 'sort-tasks',
+          payload: { key: 'text', order: 'asc', eventSource: ECHO },
+          syncingDuring: true,
+        }),
+      ]);
+      expect(f.syncingWrites).toEqual([true, false]);
+      expect(f.backing.syncing).toBe(false);
+    });
+
+    it('fire-time guard: an override cleared before fire produces no exec and no syncing raise', () => {
+      const f = makeFixture({ ephemeralSort: activeSort });
+
+      f.orchestrator.reseedSeedsFromData(reseedSource());
+      f.backing.ephemeralSort = null;
+      jest.runAllTimers();
+
+      expect(f.execEvents()).toEqual([]);
+      expect(f.syncingWrites).toEqual([]);
+    });
+
+    it('lands on the api bound at fire time after a remount swap — no cancellation added', () => {
+      const f = makeFixture({ ephemeralSort: activeSort });
+
+      f.orchestrator.reseedSeedsFromData(reseedSource());
+      f.backing.api = f.makeApi('rebound');
+      jest.runAllTimers();
+
+      expect(f.execEvents().map((e) => e.apiLabel)).toEqual(['rebound']);
+    });
+
+    it('swallows a reassert throw at fire time and still releases syncing', () => {
+      const f = makeFixture({ ephemeralSort: activeSort, throwOnExecNumber: 1 });
+
+      f.orchestrator.reseedSeedsFromData(reseedSource());
+
+      expect(() => jest.runAllTimers()).not.toThrow();
+      expect(f.syncingWrites).toEqual([true, false]);
+      expect(f.backing.syncing).toBe(false);
+    });
+
+    it('keeps raw scheduling: back-to-back reseeds leave both pending reasserts to fire', () => {
+      const f = makeFixture({ ephemeralSort: activeSort });
+
+      f.orchestrator.reseedSeedsFromData(reseedSource());
+      f.orchestrator.reseedSeedsFromData(reseedSource());
+
+      expect(jest.getTimerCount()).toBe(2);
+      jest.runAllTimers();
+      expect(f.execEvents().filter((e) => e.action === 'sort-tasks')).toHaveLength(2);
+    });
+
+    it('fires without throwing after component teardown while the api stays assigned — no destroy gate', () => {
+      const f = makeFixture({ ephemeralSort: activeSort });
+      f.orchestrator.reseedSeedsFromData(reseedSource());
+
+      f.backing.destroyed = true;
+
+      expect(() => jest.runAllTimers()).not.toThrow();
+      expect(f.execEvents().map((e) => e.action)).toEqual(['sort-tasks']);
+      expect(f.syncingWrites).toEqual([true, false]);
+      expect(f.backing.syncing).toBe(false);
+    });
   });
 });
