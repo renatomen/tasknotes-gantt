@@ -133,6 +133,23 @@ function instancesOf(ids: string[], sourcePath: string): number {
   return ids.filter((id) => id.startsWith(sourcePath)).length;
 }
 
+/** Click Project A's grid chevron (the real collapse/expand gesture). */
+async function clickProjectAChevron(): Promise<boolean> {
+  return browser.execute(() => {
+    const root = document.querySelector(".og-bases-gantt");
+    const strip = (v: string): string => (v.startsWith(":") ? v.slice(1) : v);
+    const row = Array.from(root?.querySelectorAll<HTMLElement>(".wx-table [data-id]") ?? []).find(
+      (el) => strip(el.getAttribute("data-id") ?? "") === "Project A.md",
+    );
+    const chevron = row?.querySelector<HTMLElement>(".wx-toggle-icon");
+    if (!chevron) return false;
+    chevron.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
+    chevron.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true, button: 0 }));
+    chevron.dispatchEvent(new window.MouseEvent("click", { bubbles: true, button: 0 }));
+    return true;
+  });
+}
+
 /** Names whose rendered instance count doesn't match the Show-all expectation. */
 function missingNames(ids: string[]): string[] {
   return Object.entries(EXPECTED_INSTANCES)
@@ -376,33 +393,78 @@ describe("Gantt (OG) companion expansion + sorting", () => {
     expect(missingNames((await readGanttState()).ids)).toEqual([]); // parent stayed expanded
 
     // The chevron still toggles: collapse hides Project A's subtree...
-    const clickChevron = async (): Promise<boolean> =>
-      browser.execute(() => {
-        const root = document.querySelector(".og-bases-gantt");
-        const strip = (v: string): string => (v.startsWith(":") ? v.slice(1) : v);
-        const row = Array.from(root?.querySelectorAll<HTMLElement>(".wx-table [data-id]") ?? []).find(
-          (el) => strip(el.getAttribute("data-id") ?? "") === "Project A.md",
-        );
-        const chevron = row?.querySelector<HTMLElement>(".wx-toggle-icon");
-        if (!chevron) return false;
-        chevron.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 }));
-        chevron.dispatchEvent(new window.MouseEvent("mouseup", { bubbles: true, button: 0 }));
-        chevron.dispatchEvent(new window.MouseEvent("click", { bubbles: true, button: 0 }));
-        return true;
-      });
-
-    expect(await clickChevron()).toBe(true);
+    expect(await clickProjectAChevron()).toBe(true);
     await browser.waitUntil(
       async () => instancesOf((await readGanttState()).ids, "Sub A1.md") === 0,
       { timeout: 10000, timeoutMsg: "Chevron click did not collapse Project A" },
     );
 
     // ...and expand restores every instance (also restores the suite invariant).
-    expect(await clickChevron()).toBe(true);
+    expect(await clickProjectAChevron()).toBe(true);
     await browser.waitUntil(
       async () => missingNames((await readGanttState()).ids).length === 0,
       { timeout: 10000, timeoutMsg: "Chevron click did not re-expand Project A" },
     );
+  });
+
+  it("keeps a UI-toggled collapse across a theme-flip reseed", async () => {
+    // Collapse Project A through its chevron (the real UI gesture).
+    expect(await clickProjectAChevron()).toBe(true);
+    await browser.waitUntil(
+      async () => instancesOf((await readGanttState()).ids, "Sub A1.md") === 0,
+      { timeout: 10000, timeoutMsg: "Chevron click did not collapse Project A" },
+    );
+
+    // Flip the effective theme: toggling Obsidian's body theme class drives the
+    // view's theme subscription, which reseeds the SVAR store from current data
+    // and remounts <Gantt> — the path where the seeds recompute `open` from the
+    // live collapsed set across the orchestrator's access bridge.
+    const wasDark = await browser.execute(() => {
+      const dark = document.body.classList.contains("theme-dark");
+      document.body.classList.toggle("theme-dark");
+      return dark;
+    });
+    try {
+      // Positive control: the dark theme wrapper appears only when the flip
+      // actually remounted the chart — without it the collapse assertion would
+      // pass vacuously against the pre-flip render.
+      let remounted = false;
+      await waitUntilOrExplain(
+        async () => {
+          await activateBaseLeaf();
+          remounted = await browser.execute(
+            (expectDark: boolean) =>
+              !!document.querySelector(
+                expectDark
+                  ? ".og-bases-gantt .wx-willow-dark-theme"
+                  : ".og-bases-gantt .wx-willow-theme",
+              ),
+            !wasDark,
+          );
+          const ids = (await readGanttState()).ids;
+          return remounted && instancesOf(ids, "Project A.md") === 1;
+        },
+        () => `Theme flip did not remount the chart (remounted=${remounted})`,
+        { timeout: 15000 },
+      );
+
+      // The reseeded chart keeps the collapse: the parent renders, its subtree
+      // stays hidden. The wait above established existence only, never this.
+      const ids = (await readGanttState()).ids;
+      expect(instancesOf(ids, "Project A.md")).toBe(1);
+      expect(instancesOf(ids, "Sub A1.md")).toBe(0);
+      expect(instancesOf(ids, "Sub A1a.md")).toBe(0);
+    } finally {
+      // Restore the theme and the suite invariant (all six instances rendered).
+      await browser.execute((dark: boolean) => {
+        document.body.classList.toggle("theme-dark", dark);
+      }, wasDark);
+      await clickProjectAChevron();
+      await browser.waitUntil(
+        async () => missingNames((await readGanttState()).ids).length === 0,
+        { timeout: 10000, timeoutMsg: "Collapse did not restore after the theme-flip test" },
+      );
+    }
   });
 });
 

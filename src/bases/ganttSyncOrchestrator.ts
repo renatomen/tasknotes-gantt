@@ -1,11 +1,12 @@
 /**
  * Diff-sync orchestration seam, extracted from `GanttContainer.svelte` so the
- * coordination logic is provable in jest. This module currently owns two
- * concerns: the ephemeral-sort coordination cluster — reassert, the SVAR
- * sort-arrow reset, the Base-order restore, and the two clear paths — and the
- * reseed family — column-config reseed, the content-NOOP grid-width re-assert,
- * and the seed-snapshot refresh with its deferred reassert — whose applied
- * keys are module-private, seeded from the factory's init argument.
+ * coordination logic is provable in jest. This module owns three concerns: the
+ * ephemeral-sort coordination cluster — reassert, the SVAR sort-arrow reset,
+ * the Base-order restore, and the two clear paths — the reseed family —
+ * column-config reseed, the content-NOOP grid-width re-assert, and the
+ * seed-snapshot refresh with its deferred reassert — and the sync
+ * orchestration itself: `syncToGantt` with its plan/apply branches, driven by
+ * the view's sync $effect through one thin call.
  *
  * The view owns every piece of mutable state. The orchestrator reaches it only
  * through {@link SyncOrchestratorAccess} — live getter/setter properties closed
@@ -13,43 +14,126 @@
  * would silently stop bracketing echo suppression the moment the flag changes,
  * and a wiring-time api capture would exec into a torn-down store after a
  * remount. Reads stay branch-scoped: no accessor is dereferenced outside the
- * branch that needs it.
+ * branch that needs it (the NOOP branch performs zero `ephemeralSort` reads —
+ * widening the read set changes when the view's effect re-runs). Every
+ * dependency-establishing read on the synchronous sync path executes within
+ * the sync entry point's call frame; only the timer callbacks read lazily at
+ * fire time, by design.
  *
  * The pure planning core stays in `ganttSyncCoordinator.ts`; what belongs here
- * is the orchestration that carries api access and view-state reads.
+ * is the orchestration that carries timers, api access, and view-state reads.
  *
  * @module bases/ganttSyncOrchestrator
  */
 import type { RenderLink } from '../controller/InstanceExpansion';
+import type { CalendarItemFamily } from '../datasource/calendarItems';
 import { dlog } from '../debugLog';
-import { baseSortDescriptor, planReorder, type BaseSortEntry, type SvarTask } from './ganttSync';
 import {
+  baseSortDescriptor,
+  buildSvarTasks,
+  planReorder,
+  shouldBulkReseed,
+  structuralOpCount,
+  type BaseSortEntry,
+  type SvarTask,
+  type SvarTaskInputs,
+} from './ganttSync';
+import {
+  applyIncrementalGanttSync,
   createGanttSeedSnapshot,
   ganttOrderFingerprint,
+  isGanttSyncNoop,
+  planGanttSync,
   replaceAppliedGanttData,
   type AppliedGanttSyncState,
+  type GanttSyncPlan,
 } from './ganttSyncCoordinator';
 import type { GridColumn } from './gridColumns';
 import type { EphemeralSort } from './sortCycle';
+import { createSvarGanttAdapter, type SvarGanttCommandApi } from './svarGanttAdapter';
 import type { GanttData } from './types/gantt-view-data';
 
 /**
- * The slice of {@link GanttData} the reseed family reads. Narrower than the
- * full store payload so the module states its actual data coupling and unit
+ * The slice of {@link GanttData} the sync orchestration reads: the task-shaping
+ * inputs plus the reseed family's column/width facts. Narrower than the full
+ * store payload so the module states its actual data coupling and unit
  * fixtures build only what the code consumes.
  */
-export type GanttReseedSource = Pick<
+export type GanttSyncSource = Pick<
   GanttData,
-  'gridColumnsKey' | 'gridWidth' | 'gridColumns' | 'links'
+  | 'instances'
+  | 'links'
+  | 'statusColors'
+  | 'priorityColors'
+  | 'barFillSource'
+  | 'barStripSource'
+  | 'calendarPalette'
+  | 'calendarBySource'
+  | 'barIcon'
+  | 'showDateIndicators'
+  | 'arrowMode'
+  | 'hideTopLevelSubtasks'
+  | 'propertyValues'
+  | 'cellRenders'
+  | 'managedPaths'
+  | 'gridColumnsKey'
+  | 'gridWidth'
+  | 'gridColumns'
 >;
 
 /**
- * The slice of the SVAR Gantt api the orchestrator drives. Structural (not the
- * vendor type) because the `_sort` reset reaches the internal data store via
- * `getStores` — internal-but-reachable, beyond the published declarations.
+ * The live per-call view state folded into the task-shaping inputs beside the
+ * store payload: the switcher's hidden families and the collapsed-instance
+ * set. Threaded as one argument so the seed, the id-keyed diff, and any reseed
+ * all compute `open` and occupancy geometry from the same source of truth.
  */
-export interface SyncOrchestratorApi {
-  exec(action: string, payload: object): unknown;
+export interface SvarTaskLiveInputs {
+  hiddenSources: ReadonlySet<CalendarItemFamily> | undefined;
+  collapsedIds: ReadonlySet<string>;
+}
+
+/**
+ * Project the dynamic render data into the pure SVAR-task builder inputs.
+ * Exported for the view's mount-time seed (built before the orchestrator
+ * factory can run — the applied-state baseline it feeds is itself a factory
+ * dependency); the orchestrator wraps it with its own bridge reads for every
+ * later call, so there is exactly one projection.
+ */
+export function toSvarTaskInputs(d: GanttSyncSource, live: SvarTaskLiveInputs): SvarTaskInputs {
+  return {
+    instances: d.instances,
+    links: d.links,
+    statusColors: d.statusColors ?? [],
+    priorityColors: d.priorityColors ?? [],
+    barFillSource: d.barFillSource ?? 'default',
+    barStripSource: d.barStripSource ?? 'none',
+    calendarPalette: d.calendarPalette ?? [],
+    calendarBySource: d.calendarBySource,
+    barIconSource: d.barIcon ?? 'none',
+    showDateIndicators: d.showDateIndicators ?? true,
+    arrowMode: d.arrowMode,
+    // Read on the stable instance set so the replicated cue counts only VISIBLE
+    // instances: when on, the display-filtered alsoTopLevel twin is excluded from
+    // the count. Toggling this re-runs the task shaping via the store →
+    // sync path and diffs update-only, so the hatch flips live without churning.
+    hideTopLevelSubtasks: d.hideTopLevelSubtasks ?? false,
+    propertyValues: d.propertyValues,
+    cellRenders: d.cellRenders,
+    managedPaths: d.managedPaths,
+    hiddenSources: live.hiddenSources,
+    // The live collapsed set — threaded here so the seed, the id-keyed diff,
+    // and any reseed all compute `open` from the same source of truth.
+    collapsedIds: live.collapsedIds,
+  };
+}
+
+/**
+ * The slice of the SVAR Gantt api the orchestrator drives: the sync port's
+ * command surface (exec, plus the row-presence probe `getTask`) plus the
+ * `_sort` reset's reach into the internal data store via `getStores` —
+ * internal-but-reachable, beyond the published declarations.
+ */
+export interface SyncOrchestratorApi extends SvarGanttCommandApi {
   getStores?(): { data?: { setState?(state: object): void } };
 }
 
@@ -77,6 +161,12 @@ export interface SyncOrchestratorAccess<TColumn = unknown> {
   initialTasks: SvarTask[];
   /** SVAR link seed prop — rewritten only by an explicit reseed. */
   initialLinks: RenderLink[];
+  /**
+   * The view's collapsed-instance set (view `$state`), read synchronously by
+   * the task shaping inside every sync call frame — the read that makes a
+   * collapse change re-trigger the view's sync effect.
+   */
+  readonly collapsedIds: ReadonlySet<string>;
 }
 
 /**
@@ -95,10 +185,11 @@ export interface SyncOrchestratorDeps<TColumn = unknown> {
   /** The echo tag our own programmatic execs carry (`OG_ECHO_SOURCE`). */
   echoSource: string;
   /**
-   * Current tasks in Base order — the view's closure over its task-shaping
-   * pipeline, read at call time so a restore always replays the live data.
+   * The live store payload, read at call time — the Base-order restore has no
+   * data argument of its own (its callers are UI gestures), so it re-derives
+   * the current rows from this supplier at each call.
    */
-  currentTasks(): ReadonlyArray<SvarTask>;
+  currentData(): GanttSyncSource;
   /**
    * The view's applied diff-sync state, aliased — the same reference the
    * incremental sync and the echo baseline mutate, so an order-key write here
@@ -113,8 +204,16 @@ export interface SyncOrchestratorDeps<TColumn = unknown> {
    * owns its own deferral; it crosses the seam as a plain call.
    */
   applyPersistedGridWidth(): void;
+  /**
+   * Re-apply the view's composed row-visibility display filter. Stays in the
+   * view (its own effect also drives it); the post-bulk deferral that restores
+   * it after a reseed re-init is module-owned.
+   */
+  applyDisplayFilters(): void;
   /** Live editor-attach set (a view `$derived`), read at call time. */
   cellEditColumnIds(): ReadonlyArray<string>;
+  /** The switcher's session-hidden source families, read per sync call. */
+  hiddenSources(): ReadonlySet<CalendarItemFamily> | undefined;
   /** The Base toolbar sort supplier (`config.getSort()`), read at call time. */
   getSort(): ReadonlyArray<BaseSortEntry> | undefined;
 }
@@ -126,9 +225,10 @@ export interface GanttSyncOrchestrator {
   restoreBaseOrder(): void;
   clearEphemeralSort(): void;
   clearEphemeralSortForBaseChange(baseSortChanged: boolean): void;
-  reseedColumnsIfNeeded(d: GanttReseedSource): boolean;
-  applyChangedGridWidth(d: GanttReseedSource): void;
-  reseedSeedsFromData(d: GanttReseedSource): void;
+  reseedColumnsIfNeeded(d: GanttSyncSource): boolean;
+  applyChangedGridWidth(d: GanttSyncSource): void;
+  reseedSeedsFromData(d: GanttSyncSource): void;
+  syncToGantt(d: GanttSyncSource): void;
 }
 
 export function createGanttSyncOrchestrator<TColumn>(
@@ -148,6 +248,20 @@ export function createGanttSyncOrchestrator<TColumn>(
   // unchanged, so the sync takes the content-NOOP path) still re-asserts the
   // new width live instead of waiting for a resize/reseed/remount.
   let appliedGridWidth = init.gridWidth;
+
+  /** The task-shaping inputs for `d`, with the live bridge reads folded in. */
+  function toInputs(d: GanttSyncSource): SvarTaskInputs {
+    return toSvarTaskInputs(d, {
+      hiddenSources: deps.hiddenSources(),
+      collapsedIds: access.collapsedIds,
+    });
+  }
+
+  /** The rows the live store payload implies right now (restore replays these). */
+  function currentTasks(): SvarTask[] {
+    return buildSvarTasks(toInputs(deps.currentData()));
+  }
+
   /**
    * Re-apply the active ephemeral column sort over SVAR's current rows.
    * Echo-tagged so it never re-enters the `sort-tasks` recording interceptor.
@@ -191,7 +305,7 @@ export function createGanttSyncOrchestrator<TColumn>(
     access.syncing = true;
     try {
       clearSvarSortArrow();
-      const next = deps.currentTasks();
+      const next = currentTasks();
       for (const m of planReorder(next)) {
         access.api.exec('move-task', {
           id: m.id,
@@ -232,7 +346,7 @@ export function createGanttSyncOrchestrator<TColumn>(
    * reseed ran (the caller's sync pass is done — a reseed replaces the whole
    * store, so no diff follows).
    */
-  function reseedColumnsIfNeeded(d: GanttReseedSource): boolean {
+  function reseedColumnsIfNeeded(d: GanttSyncSource): boolean {
     const editorAttachKey = deps.cellEditColumnIds().join('|');
     const columnsChanged =
       d.gridColumnsKey !== appliedColumnsKey
@@ -250,7 +364,7 @@ export function createGanttSyncOrchestrator<TColumn>(
    * Re-assert a changed effective grid width on the content-NOOP path (a
    * settings-panel "Table width" edit changes only `d.gridWidth`).
    */
-  function applyChangedGridWidth(d: GanttReseedSource): void {
+  function applyChangedGridWidth(d: GanttSyncSource): void {
     if (d.gridWidth === appliedGridWidth) return;
     appliedGridWidth = d.gridWidth;
     deps.applyPersistedGridWidth();
@@ -262,7 +376,7 @@ export function createGanttSyncOrchestrator<TColumn>(
    * diff is a no-op. Reassigning these `$state` seeds re-inits SVAR's store once
    * (the only correct way to change the column set).
    */
-  function reseedForColumnChange(d: GanttReseedSource): void {
+  function reseedForColumnChange(d: GanttSyncSource): void {
     appliedColumnsKey = d.gridColumnsKey;
     access.columns = deps.buildSvarColumns(d.gridColumns);
 
@@ -275,16 +389,17 @@ export function createGanttSyncOrchestrator<TColumn>(
   }
 
   /**
-   * Refresh the `<Gantt>` seed props (tasks/links) from the current data and
-   * resync the applied-state maps so the next incremental diff is a no-op.
-   * Shared by the column-config reseed and the theme-flip reseed: a theme flip
-   * remounts the <Gantt> (the view's dark/light swap), which re-reads these
-   * seeds — without this the post-flip chart would show the stale mount-time
-   * seed instead of the current data.
+   * Refresh the `<Gantt>` seed props (tasks/links) from the data argument —
+   * rows and links both derive from the same `d`, so a reseed can never mix
+   * two payload generations — and resync the applied-state maps so the next
+   * incremental diff is a no-op. Shared by the column-config reseed and the
+   * theme-flip reseed: a theme flip remounts the <Gantt> (the view's
+   * dark/light swap), which re-reads these seeds — without this the post-flip
+   * chart would show the stale mount-time seed instead of the current data.
    */
-  function reseedSeedsFromData(d: GanttReseedSource): void {
+  function reseedSeedsFromData(d: GanttSyncSource): void {
     const seed = createGanttSeedSnapshot({
-      tasks: deps.currentTasks(),
+      tasks: buildSvarTasks(toInputs(d)),
       links: d.links,
       cellEditColumnIds: deps.cellEditColumnIds(),
     });
@@ -320,6 +435,108 @@ export function createGanttSyncOrchestrator<TColumn>(
     }
   }
 
+  /** Diff the incoming payload against the applied baseline (pure planning). */
+  function planSyncFromData(d: GanttSyncSource): GanttSyncPlan {
+    return planGanttSync({
+      next: buildSvarTasks(toInputs(d)),
+      links: d.links,
+      applied: deps.appliedSyncState,
+      baseSortKey: baseSortDescriptor(deps.getSort()),
+    });
+  }
+
+  /**
+   * Replace the whole store when the diff is structurally too large to apply
+   * incrementally. Returns `true` when the reseed ran (the sync pass is done).
+   */
+  function applyBulkReseedIfNeeded(d: GanttSyncSource, plan: GanttSyncPlan): boolean {
+    const { taskPlan, linkPlan } = plan;
+    if (!shouldBulkReseed(taskPlan, linkPlan)) return false;
+
+    dlog(
+      `[OGDBG] sync BULK-RESEED ops=${structuralOpCount(taskPlan, linkPlan)}` +
+        ` (adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length} moves=${taskPlan.moves.length} linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length})`,
+    );
+    access.syncing = true;
+    try {
+      // Clear a stale override first so the reseed cannot reassert it.
+      clearEphemeralSortForBaseChange(plan.baseSortChanged);
+      reseedSeedsFromData(d);
+      deps.applyPersistedGridWidth();
+    } finally {
+      access.syncing = false;
+    }
+    // SVAR clears its display filter during reinit, after Svelte's synchronous
+    // data effect can run, so restore the filter after the reseed settles.
+    setTimeout(() => deps.applyDisplayFilters(), 0);
+    return true;
+  }
+
+  /** Apply a small diff as targeted SVAR actions (zoom/scroll survive). */
+  function applyIncrementalSync(plan: GanttSyncPlan): void {
+    const api = access.api;
+    if (!api) return;
+    const { taskPlan, linkPlan } = plan;
+    dlog(
+      `[OGDBG] sync DIFF moves=${taskPlan.moves.length} updates=${taskPlan.updates.length}` +
+        ` adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length}` +
+        ` linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length}` +
+        ` orderChanged=${plan.orderKey !== deps.appliedSyncState.orderKey} baseSortChanged=${plan.baseSortChanged}`,
+    );
+
+    const syncPort = createSvarGanttAdapter(api, {
+      echoSource: deps.echoSource,
+      cellEditColumnIds: deps.cellEditColumnIds(),
+    });
+    access.syncing = true;
+    const tSyncStart = performance.now();
+    let tAfterExec = tSyncStart;
+    try {
+      const { reorderMoves } = applyIncrementalGanttSync({
+        plan,
+        port: syncPort,
+        state: deps.appliedSyncState,
+        ephemeralSort: {
+          isActive: () => access.ephemeralSort !== null,
+          reassert: reassertEphemeralSort,
+          clear: () => {
+            access.ephemeralSort = null;
+            clearSvarSortArrow();
+          },
+        },
+        onTaskAndLinkChangesApplied: () => {
+          tAfterExec = performance.now();
+        },
+      });
+      const now = performance.now();
+      dlog(
+        `[OGDBG] sync applied in ${Math.round(now - tSyncStart)}ms` +
+          ` (exec=${Math.round(tAfterExec - tSyncStart)}ms reorder=${Math.round(now - tAfterExec)}ms` +
+          ` reorderMoves=${reorderMoves})`,
+      );
+    } finally {
+      access.syncing = false;
+    }
+  }
+
+  /**
+   * One full sync pass over the current payload: column reseed short-circuit,
+   * content-NOOP width re-assert, then plan and apply — bulk reseed or
+   * incremental diff. The view's sync $effect is a guard plus this one call.
+   */
+  function syncToGantt(d: GanttSyncSource): void {
+    if (reseedColumnsIfNeeded(d)) return;
+    applyChangedGridWidth(d);
+
+    const plan = planSyncFromData(d);
+    if (isGanttSyncNoop(plan, deps.appliedSyncState)) {
+      dlog('[OGDBG] sync NOOP');
+      return;
+    }
+    if (applyBulkReseedIfNeeded(d, plan)) return;
+    applyIncrementalSync(plan);
+  }
+
   return {
     reassertEphemeralSort,
     clearSvarSortArrow,
@@ -329,5 +546,6 @@ export function createGanttSyncOrchestrator<TColumn>(
     reseedColumnsIfNeeded,
     applyChangedGridWidth,
     reseedSeedsFromData,
+    syncToGantt,
   };
 }

@@ -1,8 +1,13 @@
-import type { IApi, ILink, TMethodsConfig } from '@svar-ui/svelte-gantt';
+import type { ILink, TMethodsConfig } from '@svar-ui/svelte-gantt';
 import { withAlignedFlatKeys } from './cellEditCommit';
 import type { GanttSyncPort } from './ganttSyncPort';
 
-type SvarGanttCommandApi = Pick<IApi, 'exec'> & {
+// Structural: only what the port drives. Every exec result is discarded, so
+// the vendor's typed `Promise` return is not required of a caller-supplied
+// api slice. Exported as the single declaration of this command surface —
+// the orchestrator seam's api type composes it rather than re-declaring it.
+export type SvarGanttCommandApi = {
+  exec(action: string, payload: object): unknown;
   getTask?: (id: string) => unknown;
 };
 
