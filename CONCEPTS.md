@@ -58,6 +58,19 @@ The authored values a write is known to have persisted, remembered per source be
 ### Live accessor bridge
 The seam by which logic extracted out of the view keeps reading and writing the view's own mutable state: the view hands the extracted module an object of getter/setter properties closed over its component scope, so every read and write crosses live and the state never moves or gets copied. It exists because a value handed across a seam is a snapshot — a snapshot of a flag like the echo-suppression guard silently stops tracking the view the moment it changes — and because reactive state cannot leave the component without losing its reactivity. Members the extracted logic only reads are getter-only; a write made through the bridge is immediately visible to the view's effects, template, and every other handler.
 
+When the bridged module's entry point is called from a reactive effect, the module's reads are the effect's dependencies, and three rules keep that tracking correct: every dependency-establishing read executes synchronously within the entry point's call frame; no accessor is dereferenced outside the branch that needs it, because widening the read set changes when the effect re-runs; and the module reads nothing through the bridge at construction — mount-time baselines cross by value in a separate immutable init argument. Timer callbacks are the deliberate carve-out: they capture nothing at schedule time and re-read the bridge lazily at fire time, which is what lets a deferred action land on a re-bound handle after a remount. Each seam owns its own bridge literal; access surfaces are never merged across seams, so no seam holds members it does not need.
+
+### Read census
+The proof of a bridged module's dependency set, taken at the bridge itself: a test fixture whose getters count and whose setters record, so what the module read within one call frame — and on which branch — is directly assertable. Because the module's synchronous reads are exactly what the calling effect depends on, a census assertion is a reactive-dependency proof, not a mock-interaction detail. A census only counts honestly when it is scoped per call: construction-time reads are zeroed out before counting, or an implementation that eagerly reads and caches satisfies the count without any live read.
+
+### Liveness pin
+A test that proves a seam reads current state rather than a capture, by mutating the live supplier or backing state between two calls and asserting the second call observed the new value. A fixture whose initial wiring merely differs from the asserted value is not a liveness pin — that shape tolerates an implementation that cached a read at the right moment. The call–mutate–call rhythm is the defining feature.
+
+### Source-shape pin
+A structural test that reads a source file as text and pins a contract no runtime test can observe — that an access literal's properties are bare reads and assignments with no capture or caching, that a calling effect's body is exactly a guard plus one call, that a moved concern has not been re-inlined. It targets its subject by name, since a file can legitimately hold several similar surfaces, and it carries mutation self-tests: planted drift must trip the matchers, proving the pin can fail. Ordinary behavior tests stay green across exactly the drift a source-shape pin exists to catch.
+
+Its threat model is accidental drift, shared with the compiler (the type system already rejects members a typed literal does not declare); deliberately crafted evasion is code review's to catch, and hardening the pin against it trades a simple tripwire for a bespoke parser guarding an imagined threat.
+
 ## Review gate
 
 ### Review receipt

@@ -371,7 +371,9 @@ function makeFixture(options: FixtureOptions = {}) {
     buildSvarColumns,
     applyPersistedGridWidth,
     applyDisplayFilters,
+    cellEditColumnIds,
     hiddenSources,
+    getSort,
     makeApi,
     disarmThrow,
     setCellEditColumnIds,
@@ -673,6 +675,11 @@ describe('reseed family', () => {
       expect(f.events).toEqual([]);
       expect(f.currentData).not.toHaveBeenCalled();
       expect(f.hiddenSources).not.toHaveBeenCalled();
+      expect(f.cellEditColumnIds).not.toHaveBeenCalled();
+      expect(f.getSort).not.toHaveBeenCalled();
+      expect(f.buildSvarColumns).not.toHaveBeenCalled();
+      expect(f.applyPersistedGridWidth).not.toHaveBeenCalled();
+      expect(f.applyDisplayFilters).not.toHaveBeenCalled();
     });
   });
 
