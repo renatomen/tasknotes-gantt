@@ -48,6 +48,17 @@ function task(id: string, parent?: string): SvarTask {
   };
 }
 
+function link(id: string, source: string, target: string): RenderLink {
+  return {
+    id,
+    source,
+    target,
+    type: 'e2s',
+    reltype: 'FINISHTOSTART',
+    gap: null,
+  };
+}
+
 /**
  * One entry per observable emission, in call order: SVAR execs, the internal
  * `_sort` reset, and every `ephemeralSort` setter write share a single log so
@@ -585,7 +596,7 @@ describe('reseed family', () => {
 
     it('columns-key change: fresh columns from the dep, seeds rewritten, width re-asserted, no diff execs', () => {
       const f = makeFixture();
-      const d = reseedSource({ gridColumnsKey: 'cols-v2' });
+      const d = reseedSource({ gridColumnsKey: 'cols-v2', links: [link('a-b', 'a', 'b')] });
 
       expect(f.orchestrator.reseedColumnsIfNeeded(d)).toBe(true);
 
@@ -596,6 +607,7 @@ describe('reseed family', () => {
         { id: 'status', builtFrom: 'status' },
       ]);
       expect(f.backing.initialTasks.map((t) => t.id)).toEqual(['a', 'b', 'c']);
+      expect(f.backing.initialLinks).toBe(d.links);
       expect(f.gridWidthAsserts()).toHaveLength(1);
     });
 
@@ -659,14 +671,18 @@ describe('reseed family', () => {
       const stateBefore = f.appliedSyncState;
       const tasksMapBefore = f.appliedSyncState.tasks;
       const linksMapBefore = f.appliedSyncState.links;
+      const seedLink = link('a-b', 'a', 'b');
+      const d = reseedSource({ links: [seedLink] });
 
-      f.orchestrator.reseedSeedsFromData(reseedSource());
+      f.orchestrator.reseedSeedsFromData(d);
 
       expect(f.appliedSyncState).toBe(stateBefore);
       expect(f.appliedSyncState.tasks).toBe(tasksMapBefore);
       expect(f.appliedSyncState.links).toBe(linksMapBefore);
       expect(f.backing.initialTasks.map((t) => t.id)).toEqual(['a', 'b', 'c']);
       expect(f.appliedSyncState.tasks.get('a')).toBe(f.backing.initialTasks[0]);
+      expect(f.backing.initialLinks).toBe(d.links);
+      expect(f.appliedSyncState.links.get('a-b')).toBe(seedLink);
       expect(f.appliedSyncState.orderKey).toBe('>a|>b|>c');
     });
 

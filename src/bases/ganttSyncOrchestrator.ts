@@ -1,8 +1,11 @@
 /**
  * Diff-sync orchestration seam, extracted from `GanttContainer.svelte` so the
- * coordination logic is provable in jest. This module currently owns the
- * ephemeral-sort coordination cluster: reassert, the SVAR sort-arrow reset,
- * the Base-order restore, and the two clear paths.
+ * coordination logic is provable in jest. This module currently owns two
+ * concerns: the ephemeral-sort coordination cluster — reassert, the SVAR
+ * sort-arrow reset, the Base-order restore, and the two clear paths — and the
+ * reseed family — column-config reseed, the content-NOOP grid-width re-assert,
+ * and the seed-snapshot refresh with its deferred reassert — whose applied
+ * keys are module-private, seeded from the factory's init argument.
  *
  * The view owns every piece of mutable state. The orchestrator reaches it only
  * through {@link SyncOrchestratorAccess} — live getter/setter properties closed
