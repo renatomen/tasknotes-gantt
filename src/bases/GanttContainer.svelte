@@ -46,26 +46,19 @@
     buildInstanceCueTaskTypes,
     baseSortDescriptor,
     echoTaskPatch,
-    shouldBulkReseed,
-    structuralOpCount,
     type SvarTask,
-    type SvarTaskInputs,
   } from './ganttSync';
   import {
     applyEchoToBaseline,
-    applyIncrementalGanttSync,
     createAppliedGanttSyncState,
     createGanttSeedSnapshot,
-    isGanttSyncNoop,
-    planGanttSync,
     type AppliedGanttSyncState,
-    type GanttSyncPlan,
   } from './ganttSyncCoordinator';
   import {
     createGanttSyncOrchestrator,
+    toSvarTaskInputs,
     type SyncOrchestratorAccess,
   } from './ganttSyncOrchestrator';
-  import { createSvarGanttAdapter } from './svarGanttAdapter';
   import {
     classifyUpdateEvent,
     classifyUpdateGesture,
@@ -398,7 +391,7 @@
   // Bar color/icon treatments (U5/U7), store-driven so the options are LIVE
   // toggles (no remount) — same treatment as showDateIndicators/showToolbar.
   // These feed the generated treatment stylesheet; the icon source flows through
-  // toInputs → buildSvarTasks (per-task), so it needs no standalone derived here.
+  // the orchestrator's task shaping (per-task), so it needs no standalone derived here.
   const priorityColors = $derived($data.priorityColors ?? []);
   const barFillSource = $derived($data.barFillSource ?? 'default');
   const barStripSource = $derived($data.barStripSource ?? 'none');
@@ -633,8 +626,9 @@
       return;
     }
     // Set `syncing` BEFORE mutating collapsedIds: the sync $effect tracks
-    // collapsedIds (via toInputs), so the write schedules it — raising the guard
-    // first ensures any resulting diff treats our open-task execs as echoes.
+    // collapsedIds (the orchestrator's task shaping reads it through the access
+    // bridge), so the write schedules it — raising the guard first ensures any
+    // resulting diff treats our open-task execs as echoes.
     // Apply live via SVAR's own open-task action (tagged so the open-task
     // intercept skips re-persisting). The reactive seed/diff keeps `open`
     // consistent on any later reseed; this just reflects the change immediately.
@@ -845,35 +839,6 @@
   // `api.exec` actions. Only explicit column, bulk, and theme reseeds replace
   // the seed arrays; `svarReadonly` remains fixed for the mount.
 
-  /** Project the dynamic render data into the pure SVAR-task builder inputs. */
-  function toInputs(d: GanttData): SvarTaskInputs {
-    return {
-      instances: d.instances,
-      links: d.links,
-      statusColors: d.statusColors ?? [],
-      priorityColors: d.priorityColors ?? [],
-      barFillSource: d.barFillSource ?? 'default',
-      barStripSource: d.barStripSource ?? 'none',
-      calendarPalette: d.calendarPalette ?? [],
-      calendarBySource: d.calendarBySource,
-      barIconSource: d.barIcon ?? 'none',
-      showDateIndicators: d.showDateIndicators ?? true,
-      arrowMode: d.arrowMode,
-      // Read on the stable instance set so the replicated cue counts only VISIBLE
-      // instances: when on, the display-filtered alsoTopLevel twin is excluded from
-      // the count (#161). Toggling this re-runs buildSvarTasks via the $data → sync
-      // path and diffs update-only, so the hatch flips live without churning.
-      hideTopLevelSubtasks: d.hideTopLevelSubtasks ?? false,
-      propertyValues: d.propertyValues,
-      cellRenders: d.cellRenders,
-      managedPaths: d.managedPaths,
-      hiddenSources: sourceSwitcher?.hiddenSources(),
-      // The live collapsed set (U7) — read here so the seed, the id-keyed diff,
-      // and any reseed all compute `open` from the same source of truth.
-      collapsedIds,
-    };
-  }
-
   const initialData = get(data);
   // Weekend shading (availability seam): the weekend set resolves ONCE at mount
   // from the assembly pass's display-locale snapshot — session-constant, the
@@ -896,7 +861,8 @@
   // without an app restart).
   setContext(GRID_DATE_LOCALE_CONTEXT_KEY, initialData.dateLocale);
   // Collapsed instance ids (U7) — EPHEMERAL session state, not persisted. Drives
-  // the collapse-all toggle's icon/decision and seeds SVAR's `open` via toInputs
+  // the collapse-all toggle's icon/decision and seeds SVAR's `open` through the
+  // orchestrator's task shaping (via the access bridge)
   // so a collapse survives data refreshes/reseeds within the session. Starts
   // empty (all expanded) on every mount; the user re-adjusts with the toggle or
   // the row chevrons. Updated by the `open-task` intercept and toggleAllCollapse.
@@ -914,8 +880,16 @@
     shippedEditorKinds(initialData.cellEditors),
   );
   // The same canonical objects seed both SVAR and the applied-state baseline.
+  // The projection is the orchestrator seam's `toSvarTaskInputs` — the mount
+  // seed runs before the orchestrator factory can (the applied-state baseline
+  // it feeds is itself a factory dependency), so the live reads pass inline.
   const initialSeed = createGanttSeedSnapshot({
-    tasks: buildSvarTasks(toInputs(initialData)),
+    tasks: buildSvarTasks(
+      toSvarTaskInputs(initialData, {
+        hiddenSources: sourceSwitcher?.hiddenSources(),
+        collapsedIds,
+      }),
+    ),
     links: initialData.links,
     cellEditColumnIds: initialEditorColumnIds,
   });
@@ -1004,7 +978,7 @@
     const d = $data; // reactive dependency: re-run on every store update
     void switcherRevision; // re-shape recurring geometry when its source is hidden/shown
     if (!api) return;
-    syncToGantt(d);
+    syncOrchestrator.syncToGantt(d);
   });
 
   /**
@@ -1065,96 +1039,6 @@
     void switcherRevision; // re-run when a source is hidden/shown in the switcher
     if (api) applyDisplayFilters();
   });
-
-  function planSyncFromData(d: GanttData): GanttSyncPlan {
-    return planGanttSync({
-      next: buildSvarTasks(toInputs(d)),
-      links: d.links,
-      applied: appliedSyncState,
-      baseSortKey: baseSortDescriptor(config?.getSort?.()),
-    });
-  }
-
-  function applyBulkReseedIfNeeded(d: GanttData, plan: GanttSyncPlan): boolean {
-    const { taskPlan, linkPlan } = plan;
-    if (!shouldBulkReseed(taskPlan, linkPlan)) return false;
-
-    dlog(
-      `[OGDBG] sync BULK-RESEED ops=${structuralOpCount(taskPlan, linkPlan)}` +
-        ` (adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length} moves=${taskPlan.moves.length} linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length})`,
-    );
-    syncing = true;
-    try {
-      // Clear a stale override first so the reseed cannot reassert it.
-      syncOrchestrator.clearEphemeralSortForBaseChange(plan.baseSortChanged);
-      syncOrchestrator.reseedSeedsFromData(d);
-      applyPersistedGridWidth();
-    } finally {
-      syncing = false;
-    }
-    // SVAR clears its display filter during reinit, after Svelte's synchronous
-    // data effect can run, so restore the filter after the reseed settles.
-    setTimeout(() => applyDisplayFilters(), 0);
-    return true;
-  }
-
-  function applyIncrementalSync(plan: GanttSyncPlan): void {
-    if (!api) return;
-    const { taskPlan, linkPlan } = plan;
-    dlog(
-      `[OGDBG] sync DIFF moves=${taskPlan.moves.length} updates=${taskPlan.updates.length}` +
-        ` adds=${taskPlan.adds.length} deletes=${taskPlan.deletes.length}` +
-        ` linkAdds=${linkPlan.adds.length} linkDeletes=${linkPlan.deletes.length}` +
-        ` orderChanged=${plan.orderKey !== appliedSyncState.orderKey} baseSortChanged=${plan.baseSortChanged}`,
-    );
-
-    const syncPort = createSvarGanttAdapter(api, {
-      echoSource: OG_ECHO_SOURCE,
-      cellEditColumnIds,
-    });
-    syncing = true;
-    const tSyncStart = performance.now();
-    let tAfterExec = tSyncStart;
-    try {
-      const { reorderMoves } = applyIncrementalGanttSync({
-        plan,
-        port: syncPort,
-        state: appliedSyncState,
-        ephemeralSort: {
-          isActive: () => ephemeralSort !== null,
-          reassert: syncOrchestrator.reassertEphemeralSort,
-          clear: () => {
-            ephemeralSort = null;
-            syncOrchestrator.clearSvarSortArrow();
-          },
-        },
-        onTaskAndLinkChangesApplied: () => {
-          tAfterExec = performance.now();
-        },
-      });
-      const now = performance.now();
-      dlog(
-        `[OGDBG] sync applied in ${Math.round(now - tSyncStart)}ms` +
-          ` (exec=${Math.round(tAfterExec - tSyncStart)}ms reorder=${Math.round(now - tAfterExec)}ms` +
-          ` reorderMoves=${reorderMoves})`,
-      );
-    } finally {
-      syncing = false;
-    }
-  }
-
-  function syncToGantt(d: GanttData): void {
-    if (syncOrchestrator.reseedColumnsIfNeeded(d)) return;
-    syncOrchestrator.applyChangedGridWidth(d);
-
-    const plan = planSyncFromData(d);
-    if (isGanttSyncNoop(plan, appliedSyncState)) {
-      dlog('[OGDBG] sync NOOP');
-      return;
-    }
-    if (applyBulkReseedIfNeeded(d, plan)) return;
-    applyIncrementalSync(plan);
-  }
 
   // The slice of SVAR's `update-task` event payload the drag/resize persistence
   // path reads. `inProgress` marks mid-gesture frames; `eventSource` carries our
@@ -1768,6 +1652,9 @@
     set initialLinks(value) {
       initialLinks = value;
     },
+    get collapsedIds() {
+      return collapsedIds;
+    },
   };
   // Constructed before `interceptorDeps` so `restoreBaseOrder` crosses as a
   // stable direct reference. The init argument carries the mount-time applied
@@ -1776,11 +1663,13 @@
     syncOrchestratorAccess,
     {
       echoSource: OG_ECHO_SOURCE,
-      currentTasks: () => buildSvarTasks(toInputs(get(data))),
+      currentData: () => get(data),
       appliedSyncState,
       buildSvarColumns,
       applyPersistedGridWidth,
+      applyDisplayFilters,
       cellEditColumnIds: () => cellEditColumnIds,
+      hiddenSources: () => sourceSwitcher?.hiddenSources(),
       getSort: () => config?.getSort?.(),
     },
     {
