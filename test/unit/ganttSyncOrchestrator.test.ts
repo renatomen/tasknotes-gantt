@@ -672,6 +672,7 @@ describe('reseed family', () => {
       });
       expect(f.events).toEqual([]);
       expect(f.currentData).not.toHaveBeenCalled();
+      expect(f.hiddenSources).not.toHaveBeenCalled();
     });
   });
 
@@ -931,6 +932,10 @@ describe('syncToGantt', () => {
 
   it('reads collapsedIds and the hidden-sources supplier synchronously within the sync call frame', () => {
     const f = makeFixture();
+    // Zero the construction-time log first: a factory that eagerly read and
+    // cached these would otherwise satisfy the counts without any per-call
+    // read, silently breaking the effect's dependency tracking.
+    f.clearLog();
 
     f.orchestrator.syncToGantt(syncSource());
 
