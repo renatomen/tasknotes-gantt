@@ -40,7 +40,7 @@ Inside the 54 AST-coupled files: **541 lines actually name a third-party symbol;
 | PRIVATE_METHOD | 782 | 18.9% |
 | PUBLIC_METHOD | 664 | 16.0% |
 
-`CLOSURE_LOCAL + PRIVATE_METHOD` = **1,666 lines reachable only by casting past encapsulation**. And 2,374 of the 4,145 framework-free lines are stateless — a move-and-export refactor with no design work.
+`CLOSURE_LOCAL + PRIVATE_METHOD` = **1,666 lines behind an encapsulation barrier**. *(Corrected 2026-08-30: this read “reachable only by casting past encapsulation”, which is wrong in both directions and merges two opposite barriers. **PRIVATE_METHOD** is genuinely cast-reachable — TypeScript's `private` is erased, so `as unknown as` reaches it at runtime. **CLOSURE_LOCAL is not.** A closure local that escapes is already public and needs no cast: `createMountTokenLifecycle` returns its local `advance` as `beginMount` and `invalidate` (`src/bases/register.ts:282-293`), so `createMountTokenLifecycle().beginMount()` executes it directly. One that does not escape cannot be reached by a cast at all, because a cast adds no runtime property. The two demand opposite work — an escaping local needs no extraction, a non-escaping one needs it unavoidably — so re-derive with escaping and non-escaping closure locals separated before sizing any slice from this number.)* And 2,374 of the 4,145 framework-free lines are stateless — a move-and-export refactor with no design work.
 
 > They are not entangled with Obsidian; they are hidden behind it. The seam already exists, it has not been cut.
 
