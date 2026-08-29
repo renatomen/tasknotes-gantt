@@ -283,7 +283,7 @@ flowchart TB
   3. Call the real assembler; delete `assembleGanttData`'s parallel construction.
 - **Test scenarios:**
   - The harness's assembled result satisfies the same complete-field-set pin U3 uses, so a field the generator forgets fails rather than passes.
-  - A perf run's assembled `GanttData` is equal, field for field, to the production assembler's output for the same synthetic input — the pin that makes "measures the same thing" checkable rather than asserted.
+  - **Adapter parity, against an independently built expectation.** After U4 the harness *calls* the production assembler, so comparing its result with that assembler's output is a self-comparison and guards nothing. What can still be wrong is the **adapters the harness supplies**. Build the expected value independently from the generator's synthetic input — a fixture, never a second assembly — and assert the assembled result's **stable data fields** against it. `GanttData`'s function-valued fields (`deriveEstimate` `:134`, `deriveSpan` `:151`, `refreshGeneration` `:165`, `getInferredDragMode` `:258`) are created fresh per assembly and unequal by identity: exercise each **by behavior** — call it with a known input, assert the returned value — never by comparison. List the excluded fields explicitly, so a later reader can tell a deliberate exclusion from an omission.
   - Mutation check: reintroduce one hardcoded default on purpose, observe red, revert.
 - **Verification:** `npm run lint`, `npm run typecheck`, full `npx jest` bare; `npm run perf:isolated` green, and its headline numbers reported before and after — a change in measured cost here is a *finding about the previous numbers*, not a regression, and is recorded as such.
 
