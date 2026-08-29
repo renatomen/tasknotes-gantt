@@ -2,7 +2,7 @@
 
 Durable engineering charter — the process counterpart to the architecture principles in `docs/architecture/`. It defines how we build: philosophy, practices, and governance tests. Written project-agnostic so it transfers to other projects; the final section binds it to this repo.
 
-**Lineage.** Dave Farley's *Modern Software Engineering* corpus (channel transcripts, 2020–2025, reviewed thematically across testing, CI/CD, design, process, and AI), synthesized with compound engineering — the plan/review/learning workflow this project is built with. Where we diverge from or extend Farley, the divergence is named and argued in its own section; nothing is smuggled. His own epistemic rule governs this document too: *opinionated, never dogmatic — changed by evidence.*
+**Lineage.** Dave Farley's *Modern Software Engineering: Doing What Works to Build Better Software Faster* (Addison-Wesley, 2021) and his channel corpus (2020–2025, reviewed thematically across testing, CI/CD, design, process, and AI), synthesized with compound engineering — the plan/review/learning workflow this project is built with. Where we diverge from or extend Farley, the divergence is named and argued in its own section; nothing is smuggled. His own epistemic rule governs this document too: *opinionated, never dogmatic — changed by evidence.*
 
 **Format.** Each practice: the principle → our mechanism → a governance test — a concrete recognition rule checkable by direct inspection, without re-deriving design intent.
 
