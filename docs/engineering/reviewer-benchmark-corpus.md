@@ -1,8 +1,9 @@
 # Reviewer benchmark corpus
 
 The durable record E11 (`practices.md` § Repo divergences) accumulates. Each entry is one **adjudicated**
-disagreement between two review passes over unchanged text. E11's governance test — *"is X a better reviewer
-than Y?" must be answerable with a number* — is answered from this file by counting `kind` per reviewer.
+disagreement between two review passes over unchanged text.
+
+**What this file is not.** It is a *disagreement log*, not the benchmark itself, and **rates cannot be computed from it**: it records only errors, with no denominator. Counting entries would rank a reviewer that ran a hundred times and missed twice below one that ran once and missed once. E11's benchmark is a fixed set of *known defects* that candidate reviewers are run against, scoring TP/FP/FN/TN and cost; this log's contribution is the **ground truth** — it is where adjudicated real defects and adjudicated reviewer errors are recorded, which is what such a set is assembled from. Building the set, and recording evaluation opportunities so a denominator exists, is still outstanding under E11.
 
 **Why it exists as a file.** Review artifacts (`peer-review-*.md`) are gitignored and vanish with the working
 tree. A rule that says "log it" without a logged location records nothing.
