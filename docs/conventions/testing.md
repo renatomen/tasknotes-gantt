@@ -14,7 +14,7 @@ Core testing principles for the plugin. Test-first, behavior-focused, isolated.
 - **Jest** for unit and integration tests.
 - File naming: `*.test.ts` for unit tests, `*.integration.test.ts` for integration tests.
 - E2E runs through **WebdriverIO** against a real Obsidian instance (`test/specs/*.e2e.ts`, fixtures under `test/vaults/`).
-- Mock external dependencies via **dependency injection** (pass collaborators in, don't reach for globals) — this is what makes the Obsidian API mockable.
+- Fake external dependencies via **dependency injection** (pass collaborators in, don't reach for globals) — the injected collaborator is a facade we own, so the fake is ours too (see § Obsidian-Specific).
 - Group related tests in `describe` blocks with clear names.
 
 ## Running e2e (a first-class gate — run it, don't punt)
@@ -47,6 +47,7 @@ Describe **what** the system does from the caller's perspective, not **how** it 
 
 ## Obsidian-Specific
 
-- Mock Obsidian APIs (`TFile`, `Vault`, etc.) — inject them so unit tests need no running app.
+- **Mock Obsidian APIs via dependency injection** (`TFile`, `Vault`, …) so unit tests need no running app. This is the charter's named **E9 divergence** (`docs/engineering/practices.md` § Repo divergences, ruled 2026-08-14): E9's general rule is that third-party code is wrapped behind facades we own, and the ruling records why Obsidian is the exception — a full facade would wrap the very surface the plugin exists to serve, since the plugin surface *is* the platform API. The SVAR library is **not** covered by that exception and stays behind the repository's SVAR-first rules.
+- **The divergence carries a revisit trigger: “if mock drift causes escaped defects.”** One drift instance is on record — the `BasesView` stub in `test/__mocks__/obsidian.ts` invents a wiring rule the published `QueryController` does not contain, and a test asserts against the invention (2026-08-29 audit). No escaped defect has been attributed to it, so the divergence stands; record further drift against the trigger rather than re-arguing the rule.
 - Cover error handling and edge cases explicitly (missing/partial dates, undated tasks, invalid config).
-- For the Bases view path, exercise the real filtered-entry → field-mapping → render chain in e2e rather than mocking it away.
+- The Bases view path splits by who owns the answer. Its **decisions** — filtered-entry → field-mapping → render-data assembly — belong in Jest, with `GanttData` as the measurement point. Note what that point cannot see: `GanttData` is a *result* pin, and the assembly is not yet side-effect free — `buildCalendarShading` calls `calendarWatch.syncKnownPaths` and `syncAssociations` and writes `lastAssociationTaskPaths`. A refactor preserving `GanttData` while dropping those passes the pin, and the chart then stops refreshing when a marked calendar note is renamed. Assert such effects where they happen, never through the result. What e2e owns is the **host contract**: that Obsidian really delivers the entries, config and lifecycle callbacks our facades assume. Never fake the seam whose fidelity is the thing under test; never push a decision to e2e because its inputs arrive from Obsidian.

@@ -37,3 +37,17 @@ why-only" judgment is enforced at review.
 - Keep installation and setup instructions current.
 - Document architectural decisions (and link to `docs/solutions/` learnings where relevant).
 - Provide a troubleshooting section.
+
+## Quoting external works
+
+The engineering charter and several reports draw on Dave Farley's *Modern Software Engineering: Doing What Works to Build Better Software Faster* (Addison-Wesley, 2021). Quoting it to argue a design decision is the point — the charter names it as lineage — but quotation stays bounded and acknowledged.
+
+- **Cite the work, not just the chapter.** First reference in a document gives author, title and year; later ones may shorten to a chapter or section. Attribution is necessary but never sufficient: an unattributed quote is a defect, and attributing a long one does not make it acceptable — the length rules below still bind.
+- **Quote briefly, and for commentary.** Quote the sentence the argument turns on, then say what it means *for this codebase*. If a passage is being reproduced so a reader need not consult the book, it is too long — paraphrase and cite instead.
+- **Never commit the source text.** The book, transcripts, or any substantial excerpt of a third-party work do not enter this repository, in any file, including plans, reports and test fixtures. Agents that consult such a source carry the *conclusion* back, not the text.
+- **Name the work and the notes, never private storage.** Where a document records how a source was consulted, the permitted form is the maintainer’s book notes on the cited work — chapters, sections and page-level detail are fine. Public material never describes where a personal copy is kept: no vault, no directory, no filesystem path, in file content, commit messages or PR bodies alike.
+- **The same rule binds agent output.** A review, audit or plan produced by an agent is repository content: its quotations are held to the lines above, and a finding that reproduces long passages is rewritten before it lands.
+
+Measured at the 2026-08-29 audit: ~197 verbatim words across the whole repository, longest single quote 33 words, against a ~90,000-word book — brief quotation for commentary, each attributed. That is the intended order of magnitude; a PR that moves it materially says why.
+
+The same standard applies to any third-party work — SVAR's and Obsidian's documentation included.
