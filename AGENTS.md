@@ -30,7 +30,7 @@ This project uses the **compound-engineering** flow: brainstorm → plan → wor
 
 ## Always-apply standards
 
-**Testing** — Test-first (red→green→refactor). Jest unit tests (`*.test.ts`) AND **WebdriverIO e2e against real Obsidian — a first-class verification gate, not optional.** Run it with **`npm run e2e:local`**; for any change to e2e-observable behavior, **run the relevant spec rather than deferring it — never claim e2e is unrunnable** (only driving the full real production vault *through* WDIO is walled). Verify at the fastest reliable tier first (principle 5). Mock Obsidian APIs via dependency injection. One behavior per test, descriptive names, AAA. → [testing.md](docs/conventions/testing.md)
+**Testing** — Test-first (red→green→refactor). Jest unit tests (`*.test.ts`) AND **WebdriverIO e2e against real Obsidian — a first-class verification gate, not optional.** Run it with **`npm run e2e:local`**; for any change to e2e-observable behavior, **run the relevant spec rather than deferring it — never claim e2e is unrunnable** (only driving the full real production vault *through* WDIO is walled). Verify at the fastest reliable tier first (principle 5). **Obsidian's API is reached through thin facades we own and injected — fake our facade, never the `obsidian` module** (charter E9; the module-level mock is a recorded compromise, not the design). One behavior per test, descriptive names, AAA. → [testing.md](docs/conventions/testing.md)
 
 **TypeScript** — `strict` on, no `any`, interfaces for complex objects, barrel exports. Type Obsidian API interactions properly. → [typescript.md](docs/conventions/typescript.md)
 

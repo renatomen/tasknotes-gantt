@@ -14,7 +14,7 @@ Core testing principles for the plugin. Test-first, behavior-focused, isolated.
 - **Jest** for unit and integration tests.
 - File naming: `*.test.ts` for unit tests, `*.integration.test.ts` for integration tests.
 - E2E runs through **WebdriverIO** against a real Obsidian instance (`test/specs/*.e2e.ts`, fixtures under `test/vaults/`).
-- Mock external dependencies via **dependency injection** (pass collaborators in, don't reach for globals) — this is what makes the Obsidian API mockable.
+- Fake external dependencies via **dependency injection** (pass collaborators in, don't reach for globals) — the injected collaborator is a facade we own, so the fake is ours too (see § Obsidian-Specific).
 - Group related tests in `describe` blocks with clear names.
 
 ## Running e2e (a first-class gate — run it, don't punt)
@@ -47,6 +47,7 @@ Describe **what** the system does from the caller's perspective, not **how** it 
 
 ## Obsidian-Specific
 
-- Mock Obsidian APIs (`TFile`, `Vault`, etc.) — inject them so unit tests need no running app.
+- **Obsidian's API is reached through thin facades we own** (a `NoteReader`, a `ViewSettings`, …) and injected; unit tests fake **our** facade, never the `obsidian` module. This is charter E9 ("third-party code is wrapped behind thin facades we own, never mocked directly") and Modern Software Engineering Ch. 12 § *Isolate Third-Party Systems and Code* — Farley's own worked example (Ch. 14, Listings 14.6–14.8) mocks the `Display` interface he owns and leaves the `ConsoleDisplay` adapter untested, because an adapter carries no decisions.
+- The module-level `obsidian` mock in `jest.config.mjs` is a **recorded compromise** for code not yet behind a facade — Farley permits it ("if we really must, we can include the intransigent 'edge' code within the scope of our test… an unpleasant compromise, but workable") and names it a compromise, not a design. It is not the target: each new facade shrinks it. Mocking a module we do not own is the only way to write a green test that is evidence about our guess rather than about Obsidian — the `BasesView` stub already invents a wiring rule the published `QueryController` does not have.
 - Cover error handling and edge cases explicitly (missing/partial dates, undated tasks, invalid config).
-- For the Bases view path, exercise the real filtered-entry → field-mapping → render chain in e2e rather than mocking it away.
+- The Bases view path splits by who owns the answer. Its **decisions** — filtered-entry → field-mapping → render-data assembly — are a pure function of a snapshot and belong in Jest, with `GanttData` as the measurement point. What e2e owns is the **host contract**: that Obsidian really delivers the entries, config and lifecycle callbacks our facades assume. Never fake the seam whose fidelity is the thing under test; never push a decision to e2e because its inputs arrive from Obsidian.
