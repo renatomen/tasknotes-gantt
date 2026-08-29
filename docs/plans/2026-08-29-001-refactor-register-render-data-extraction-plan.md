@@ -14,7 +14,7 @@ execution: code
 
 - **Objective:** extract the render-data assembly concern (`buildGanttData`) out of `src/bases/register.ts` into owned, unit-testable modules — a behavior-preserving refactor that separates the essential complexity (projecting the render contract) from the accidental complexity (Obsidian vault/metadata reads, Bases config reads) and gives the projection the unit coverage it has never had. This opens the campaign's rank-2 file, which no campaign slice has touched.
 - **Authority hierarchy:** AGENTS.md and the engineering charter bind; this plan operationalizes them for this slice. Where this plan and current code disagree on an anchor, re-derive from code — baseline anchors in cited reports are stale by design, and § Measurement below records what was re-derived at HEAD `90b2470`.
-- **Execution profile:** one PR per unit (U1 → U2 → U3, dependency-ordered, leaves first), squash-merged on green; a session ends at its first merged PR. Test-first: each unit's module tests are written against current behavior before the register-side original is deleted — red/green brackets each move.
+- **Execution profile:** one PR per unit (U1 → U2 → U3 → U4, dependency-ordered, leaves first), squash-merged on green; a session ends at its first merged PR. Test-first: each unit's module tests are written against current behavior before the register-side original is deleted — red/green brackets each move.
 - **Stop conditions:** a red armed-spec CI run (`gantt-column-sort`, `gantt-calendar-items-sources`, `gantt-legend`) outranks this work — download the `og-lifecycle` envelope from the run's `e2e-artifacts` before any rerun, then follow `docs/reports/2026-08-26-001-reliability-column-sort-diagnosis.md`. A unit exceeding ~4 hours to shippable triggers re-slicing. Abort to the nearest green checkpoint on context compaction or state-class errors.
 
 ---
@@ -98,7 +98,7 @@ Move the render-data assembly out of the Bases view host into owned modules: the
 ### Scope Boundaries
 
 - **Deferred to follow-up work:** `mountGantt` (388 lines — the other named weld, its own plan); the `buildCalendarShading` separation-of-concerns finding recorded in § Measurement; `GanttController.ts`'s `selectSource` mapping block (rank 4's named first slice).
-- **Recommended follow-up unit, not promoted here (maintainer's call):** `test/perf/generator/buildGanttData.ts` exports `assembleGanttData` — a **second producer of the render contract**, i.e. a second mechanism for the job U3's module will own (principle 4). Its docstring records why it exists: the in-memory harness lacks the `app.vault` / `app.metadataCache` / `config.get` surface `buildGanttData` reaches for, so it populates only perf-load-bearing fields. U3 removes that reason — the harness can then supply in-memory adapters for the two ports and call the real assembler, taking producers from 2 to 1. Recorded by the 2026-08-29 audit's sequencer; its field-level counts are not re-derived here, so re-measure on promotion.
+- **Promoted to U4 (required, see Implementation Units):** `test/perf/generator/buildGanttData.ts` exports `assembleGanttData` — a **second producer of the render contract**, i.e. a second mechanism for the job U3's module will own (principle 4). Its docstring records why it exists: the in-memory harness lacks the `app.vault` / `app.metadataCache` / `config.get` surface `buildGanttData` reaches for, so it populates only perf-load-bearing fields. U3 removes that reason — the harness can then supply in-memory adapters for the two ports and call the real assembler, taking producers from 2 to 1. Recorded by the 2026-08-29 audit's sequencer; its field-level counts are not re-derived here, so re-measure on promotion.
 - **Stays in `register.ts` (crossed as deps or adapters, not moved):** `buildCalendarShading` and its cache, `computeEntrySignature`, the option-reader adapters over `viewOptions.ts`, `buildFieldMappings` / `getEffectiveMappings`, `getVisiblePropertyIds` / `getDisplayName` / `getColumnSize` / `getTableWidth`, `readExternalCalendarLegendFacts`, `getCalendarItemToggles`, the picker and switcher openers, every watch and lifecycle hook.
 - **Outside this slice's identity:** any behavior change; any reliability-campaign work (see below); decomposing `src/bases/ganttSync.ts` (principle 7 "Not debt" endpoint); any feature work (frozen until the quality campaigns end).
 - **Reliability-campaign boundary, stated explicitly.** `gantt-legend` is the reliability campaign's rank-1 defect, at a deliberate bounded stop whose stopping rule forbids new windows and speculative fixes. This plan opens no window, adds no probe, changes no behavior the legend spec observes, and does not edit `test/specs/gantt-legend.e2e.ts`. That U1 incidentally gives the legend's *inputs* deterministic Jest coverage is a maintainability consequence, not a reliability fix; no PR in this plan may be described as addressing the legend defect.
@@ -269,6 +269,24 @@ flowchart TB
 
 ---
 
+### U4. Retire the second render-contract producer
+
+- **Goal:** `test/perf/generator/buildGanttData.ts`'s `assembleGanttData` stops constructing its own partial `GanttData`; the perf harness supplies in-memory adapters for U3's two ports and calls the real assembler. Producers go from 2 to 1.
+- **Why required, not parked.** U3 *creates* this defect's final form: once the assembly sits behind ports, the harness's stated justification — that it lacks the `app.vault` / `app.metadataCache` / `config.get` surface — is gone, and what remains is a second mechanism for a job one already does (principle 4, and AGENTS.md's review checklist names it explicitly). A plan that ends at U3 completes by knowingly leaving the violation it just gained the means to remove. There is a measurement cost too, not only a purity one: a harness assembling a *different* object than production measures the wrong thing (Ch. 14, measurement points), and its hardcoded defaults drift silently as the real contract evolves.
+- **Requirements:** R6 (no second mechanism), R4 (behavior preserved), R5b (characterization binds).
+- **Dependencies:** U3. It cannot start earlier — the ports are what make it possible.
+- **Scope guard:** its own PR, per the landing cadence. It is **not** folded into U3, whose concern is the extraction itself; merging them would span two concerns without a cohesion reason.
+- **Files:** `test/perf/generator/buildGanttData.ts`, the perf harness's adapter wiring, `test/perf/` fixtures as needed.
+- **Approach:**
+  1. Re-derive the harness's field-level gap first — the audit's counts (hardcoded literals, absent fields) are its sequencer's, not re-measured, and R5b makes the characterization binding.
+  2. Implement in-memory adapters for the view-options port and the file-meta port over the generator's existing synthetic data.
+  3. Call the real assembler; delete `assembleGanttData`'s parallel construction.
+- **Test scenarios:**
+  - The harness's assembled result satisfies the same complete-field-set pin U3 uses, so a field the generator forgets fails rather than passes.
+  - A perf run's assembled `GanttData` is equal, field for field, to the production assembler's output for the same synthetic input — the pin that makes "measures the same thing" checkable rather than asserted.
+  - Mutation check: reintroduce one hardcoded default on purpose, observe red, revert.
+- **Verification:** `npm run lint`, `npm run typecheck`, full `npx jest` bare; `npm run perf:isolated` green, and its headline numbers reported before and after — a change in measured cost here is a *finding about the previous numbers*, not a regression, and is recorded as such.
+
 ## Verification Contract
 
 | Gate | Command / check | Applies |
@@ -294,6 +312,7 @@ No new e2e spec or assertion is added by this plan (§ Key decisions). No screen
 - Each PR body states the improvement claim per the drift-guard — the host-coupling cut into named ports plus unit coverage where none existed — with metric deltas as bookkeeping, any pure relocation annotated as such, and **no complexity-relief claim** (§ Measurement Finding 5).
 - The new and edited unit suites carry the behavior pins listed per unit; the liveness pins mutate their backing state between calls and zero their counters after construction; the mutation checks named per unit have been run — break the guarded behavior on purpose, observe red, revert, and print the applied change as the evidence.
 - Any pre-existing defect surfaced during characterization is recorded in `docs/backlogs/backlog.md` and parked, not silently fixed. The `buildCalendarShading` separation-of-concerns finding is parked at U1.
+- **The render contract has exactly one producer.** U4 has landed and `test/perf/generator/buildGanttData.ts` no longer assembles its own `GanttData`. The plan is not complete at U3: U3 removes the harness's justification for existing separately, so stopping there would close the plan on a known principle-4 violation it had just gained the means to remove.
 - A dated trend report lands under `docs/reports/` at plan close, re-enumerating rank 2's metrics as the evidence for the statement above (charter dated-report obligation).
 - No abandoned experimental code in any diff; volatile-ref comment fragments reworded, not carried.
 
