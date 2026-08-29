@@ -268,7 +268,7 @@ flowchart TB
 | Lint (boundary closure + complexity ≤ 15, new modules included) | `npm run lint` | every unit |
 | Typecheck | `npm run typecheck` | every unit |
 | Full unit suite, bare (never piped — a pipeline exits with the last command's status) | `npx jest` | every unit, before every push |
-| Behavior-observing e2e (regression check, not the proof tier) | `npm run e2e:local -- --spec <the unit's owning spec>` (park any `_local-*.e2e.ts` probes first) | U2, U3 |
+| Behavior-observing e2e (regression check, not the proof tier) | `npm run e2e:local -- --spec <the unit's owning spec>` (park any `_local-*.e2e.ts` probes first) — U1 `gantt-legend`, U2 `gantt-markdown-cells`, U3 `gantt-legend` | **U1**, U2, U3 |
 | Guard tests | `test/unit/ganttLifecycleSeam.test.ts`, `test/unit/maintainabilityBoundaryConfig.test.ts`, and the boundary mutation harness pass unchanged | every unit |
 | Review receipts | `check-review-receipts.mjs record ce-code-review`, then `cross-model-peer-review.sh main <out> --record` with `PATH="/c/ProgramData/PowerShell7:$PATH"` | every push |
 | Trend measurement | read `maintainability-trend.mjs` per-PR output; PR body answers its ranked-file prompt and cites rank 2 | every PR |
