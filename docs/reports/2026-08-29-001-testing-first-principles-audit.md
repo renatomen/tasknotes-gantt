@@ -44,7 +44,7 @@ Inside the 54 AST-coupled files: **541 lines actually name a third-party symbol;
 
 > They are not entangled with Obsidian; they are hidden behind it. The seam already exists, it has not been cut.
 
-Sharpest single instance: `src/datasource/TaskNotesSource.ts` (1,193 lines) imports `obsidian` **type-only** and dereferences `app` at exactly **one line** — `:961`, `this.app.metadataCache.getFirstLinkpathDest`. That one line puts 32 decision methods behind a class that must be handed an `App`.
+Sharpest single instance: `src/datasource/TaskNotesSource.ts` (1,193 lines) imports `obsidian` **type-only** and touches `app` in **two** places — `:961` `this.app.metadataCache.getFirstLinkpathDest`, and `:444` `(app as unknown as { plugins?: PluginsRegistry }).plugins` inside `resolveApi`, which the public `apiIdentity(app)` reaches. Both must move for the class to stop needing an `App`; together they put 32 decision methods behind one. *(Corrected 2026-08-30: this said “exactly one line”. The second dereference is written through a type assertion, so a scan for `app.<member>` cannot see it — this report's own warning against proxy measurement, incurred by this report. Re-derive before sizing a slice from this file.)*
 
 ## Measurement 2 — the X-ray count was wrong
 
