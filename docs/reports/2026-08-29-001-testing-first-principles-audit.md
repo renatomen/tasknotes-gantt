@@ -30,7 +30,7 @@ Mechanical AST classification over 185 code files / 44,716 lines, using the repo
 
 Inside the 54 AST-coupled files: **541 lines actually name a third-party symbol; 6,459 are logic.** A 12:1 ratio of decision to translation, inside the files that exist to translate.
 
-**The finding that reframes the problem.** Of 3,678 trapped decision lines, only **567** are genuinely interleaved with third-party calls. The other **3,289 are whole framework-free functions** (260 of them) sitting on the wrong side of an access modifier or a closure:
+**The finding that reframes the problem.** Of 3,678 trapped decision lines, only **567** are genuinely interleaved with third-party calls. The other **3,289 are whole framework-free functions** (260 of them) sitting on the wrong side of an access modifier or a closure. *(Arithmetic flagged 2026-08-30: 567 + 3,289 = 3,856, not 3,678 — the split and the total come from different passes and do not reconcile. The shape of the finding stands — most trapped lines are whole framework-free functions rather than interleaved code — but re-derive the counts before any of them sizes work.)*
 
 | Reachability | Lines | Share |
 |---|---|---|
@@ -53,6 +53,8 @@ The audit was triggered partly by "134 `as unknown as` casts in the unit suite."
 - **106** are ordinary test-double construction against third-party nominal types — exactly what Ch. 12 prescribes. Not a smell.
 - **24** are type-system friction with no encapsulation content.
 - **5** are genuine encapsulation breaks, naming **8 production members in 2 files**, every one inside an Obsidian-facing class.
+
+*(Arithmetic flagged 2026-08-30: 106 + 24 + 5 = 135 against the 134 this section reclassifies — off by one. The verdict is unaffected: 5 genuine encapsulation breaks, not 134. Re-derive before citing the sub-counts.)*
 
 Corroborated independently: 0.054 `jest.fn()` per test, one `jest.mock()` across 176 files, one file reaching past `private`. **Any remediation premised on "the repo is over-mocked" or "we X-ray everything" would spend effort where no defect exists.**
 
