@@ -50,6 +50,8 @@ import type { PriorityColor, StatusColor } from '../../src/datasource/types';
 import type { TypedValue } from '../../src/bases/propertyValues';
 import type { CellRender } from '../../src/bases/cellRender';
 import type { IncomingDep } from '../../src/bases/dependencyTooltip';
+import type { IconSpec } from '../../src/bases/barTreatment';
+import type { OccupancyRunSpan } from '../../src/render/segmentLayout';
 
 /** Minimal RenderInstance factory with sane defaults. */
 function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
@@ -1156,13 +1158,16 @@ describe('taskStateKey', () => {
  * see a value the fingerprint reads off some other object; `changes` verifies
  * only that the named perturbation moves the key, not that the key encodes the
  * field faithfully; and a composite field is perturbed into EXISTENCE, so the
- * key moves on presence alone and the components inside it are guarded
- * separately (see the sub-key census below).
+ * key moves on presence alone and NOTHING here requires a component inside it
+ * to reach the key. Every composite folded through a per-element helper has its
+ * own component census below — `barIcon`, `ghostRuns`, `occupancyRuns`,
+ * `incomingDeps`, and `cellRenders` (via its mode census). The one uncovered
+ * remainder is the map STRUCTURE of `propertiesKey`/`cellRendersKey`: the
+ * property key half, element order and the separators are guarded by nothing.
  */
 type FieldCensus<T> =
   | { effect: 'changes'; perturb: (t: T) => T }
-  | { effect: 'ignored'; why: string; perturb: (t: T) => T }
-  | { effect: 'delegated'; why: string };
+  | { effect: 'ignored'; why: string; perturb: (t: T) => T };
 
 describe('taskStateKey — folded-field census', () => {
   const baseTask = (): SvarTask => buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }))[0]!;
@@ -1170,13 +1175,15 @@ describe('taskStateKey — folded-field census', () => {
     (over: Partial<SvarTask['custom']>) =>
     (t: SvarTask): SvarTask => ({ ...t, custom: { ...t.custom, ...over } });
 
-  const TOP_LEVEL: Record<keyof SvarTask, FieldCensus<SvarTask>> = {
+  // `custom` is excluded from the key set, not recorded as an exempt entry: it is
+  // delegated to CUSTOM by construction, so no field can opt out of an assertion
+  // by declaring itself covered elsewhere.
+  const TOP_LEVEL: Record<Exclude<keyof SvarTask, 'custom'>, FieldCensus<SvarTask>> = {
     id: {
       effect: 'ignored',
       why: 'the diff keys ON id — a different id is a different row, not a changed one',
       perturb: (t) => ({ ...t, id: 'other' }),
     },
-    custom: { effect: 'delegated', why: 'covered field-by-field by CUSTOM below' },
     text: { effect: 'changes', perturb: (t) => ({ ...t, text: `${t.text} renamed` }) },
     start: { effect: 'changes', perturb: (t) => ({ ...t, start: new Date(2030, 0, 1) }) },
     end: { effect: 'changes', perturb: (t) => ({ ...t, end: new Date(2030, 0, 2) }) },
@@ -1292,10 +1299,6 @@ describe('taskStateKey — folded-field census', () => {
     ): entry is [string, Extract<FieldCensus<SvarTask>, { effect: E }>] =>
       entry[1].effect === effect;
 
-  it('carries one entry per declared field', () => {
-    expect(census).toHaveLength(Object.keys(TOP_LEVEL).length + Object.keys(CUSTOM).length);
-  });
-
   it.each(census.filter(withEffect('changes')))(
     're-issues the row when %s changes',
     (_field, entry) => {
@@ -1335,7 +1338,10 @@ describe('taskStateKey — cell-render modes', () => {
 
   it.each(Object.entries(MODES))(
     're-issues the row when a %s cell body changes',
-    (_mode, [before, after]) => {
+    (mode, [before, after]) => {
+      // Both members must BE the mode the case is named for: a pair edited to
+      // vary the mode instead would still move the key while testing neither.
+      expect([before.mode, after.mode]).toEqual([mode, mode]);
       expect(taskStateKey(withRenders({ t: before }))).not.toBe(
         taskStateKey(withRenders({ t: after })),
       );
@@ -1349,9 +1355,15 @@ describe('taskStateKey — cell-render modes', () => {
  * The field census above gives a composite field a value where the base task had
  * none, so the key moves on presence alone and no component is required to reach
  * it. Measured, not assumed: dropping `days` from `ghostRunsKey` and
- * `predecessorName` + `reltype` from `incomingDepsKey` left all 3,983 tests
- * green. Both member lists are keyed on the component TYPE, so a new member of
- * either shape does not compile until a decision is recorded here.
+ * `predecessorName` + `reltype` from `incomingDepsKey` left the whole suite
+ * green. Every member list is keyed on the component TYPE, so a new member of
+ * any of these shapes does not compile until a decision is recorded here.
+ *
+ * A `Record<keyof Shape, [Shape, Shape]>` forces one pair per component but not
+ * that the pair differs IN that component — a pair edited to vary something else
+ * would still move the key and stay green while its named component became
+ * droppable again. So each case asserts its own isolation first: the two members
+ * must differ in exactly the component the case is named for.
  *
  * Same bound as the field census: this proves the component reaches the key, not
  * that the key encodes it faithfully.
@@ -1361,6 +1373,21 @@ describe('taskStateKey — composite sub-key components', () => {
   const withCustom =
     (over: Partial<SvarTask['custom']>) =>
     (t: SvarTask): SvarTask => ({ ...t, custom: { ...t.custom, ...over } });
+
+  const differingKeys = <T extends object>(a: T, b: T): string[] =>
+    [...new Set([...Object.keys(a), ...Object.keys(b)])]
+      .filter((k) => a[k as keyof T] !== b[k as keyof T])
+      .sort();
+
+  /** Asserts the pair isolates `component`, then that the component reaches the key. */
+  const expectComponentFolded = <T extends object>(
+    component: string,
+    [before, after]: [T, T],
+    fold: (value: T) => SvarTask,
+  ): void => {
+    expect(differingKeys(before, after)).toEqual([component]);
+    expect(taskStateKey(fold(before))).not.toBe(taskStateKey(fold(after)));
+  };
 
   type GhostRun = NonNullable<SvarTask['custom']['ghostRuns']>[number];
 
@@ -1379,9 +1406,57 @@ describe('taskStateKey — composite sub-key components', () => {
 
   it.each(Object.entries(GHOST_RUN))(
     're-issues the row when a ghost run %s changes',
-    (_component, [before, after]) => {
-      expect(taskStateKey(withCustom({ ghostRuns: [before] })(baseTask()))).not.toBe(
-        taskStateKey(withCustom({ ghostRuns: [after] })(baseTask())),
+    (component, pair) => {
+      expectComponentFolded(component, pair, (run) =>
+        withCustom({ ghostRuns: [run] })(baseTask()),
+      );
+    },
+  );
+
+  const run = (over: Partial<OccupancyRunSpan>): OccupancyRunSpan => ({
+    startDate: '2026-04-14',
+    days: 2,
+    ...over,
+  });
+
+  const OCCUPANCY_RUN: Record<keyof OccupancyRunSpan, [OccupancyRunSpan, OccupancyRunSpan]> = {
+    startDate: [run({ startDate: '2026-04-14' }), run({ startDate: '2026-04-15' })],
+    days: [run({ days: 2 }), run({ days: 3 })],
+    stateClass: [run({ stateClass: 'projected' }), run({ stateClass: 'completed' })],
+    // A materialized occurrence's backing note decides where a piece click lands;
+    // without this the piece keeps opening the note it used to point at.
+    notePath: [run({ notePath: 'a.md' }), run({ notePath: 'b.md' })],
+  };
+
+  it.each(Object.entries(OCCUPANCY_RUN))(
+    're-issues the row when an occupancy run %s changes',
+    (component, pair) => {
+      expectComponentFolded(component, pair, (span) =>
+        withCustom({ occupancyRuns: [span] })(baseTask()),
+      );
+    },
+  );
+
+  const icon = (over: Partial<IconSpec>): IconSpec => ({
+    kind: 'status',
+    color: '#c0392b',
+    ...over,
+  });
+
+  const BAR_ICON: Record<keyof IconSpec, [IconSpec, IconSpec]> = {
+    kind: [icon({ kind: 'status' }), icon({ kind: 'priority' })],
+    // A status keeping its kind and completion while its configured glyph or
+    // colour changes: without these the row keeps rendering the old chip.
+    iconName: [icon({ iconName: 'circle' }), icon({ iconName: 'square' })],
+    color: [icon({ color: '#c0392b' }), icon({ color: '#2980b9' })],
+    completed: [icon({ completed: true }), icon({ completed: undefined })],
+  };
+
+  it.each(Object.entries(BAR_ICON))(
+    're-issues the row when a bar icon %s changes',
+    (component, pair) => {
+      expectComponentFolded(component, pair, (spec) =>
+        withCustom({ barIcon: spec })(baseTask()),
       );
     },
   );
@@ -1399,15 +1474,18 @@ describe('taskStateKey — composite sub-key components', () => {
     gap: [dep({ gap: null }), dep({ gap: 'P1D' })],
     // Renaming a predecessor changes only the tooltip's wording; without this the
     // blocked row keeps showing the old name.
-    predecessorName: [dep({ predecessorName: 'Draft docs' }), dep({ predecessorName: 'Draft specs' })],
+    predecessorName: [
+      dep({ predecessorName: 'Draft docs' }),
+      dep({ predecessorName: 'Draft specs' }),
+    ],
     linkId: [dep({ linkId: 'l1' }), dep({ linkId: 'l2' })],
   };
 
   it.each(Object.entries(INCOMING_DEP))(
     're-issues the row when an incoming dependency %s changes',
-    (_component, [before, after]) => {
-      expect(taskStateKey(withCustom({ incomingDeps: [before] })(baseTask()))).not.toBe(
-        taskStateKey(withCustom({ incomingDeps: [after] })(baseTask())),
+    (component, pair) => {
+      expectComponentFolded(component, pair, (edge) =>
+        withCustom({ incomingDeps: [edge] })(baseTask()),
       );
     },
   );
