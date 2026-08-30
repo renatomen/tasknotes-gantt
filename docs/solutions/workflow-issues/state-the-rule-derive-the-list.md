@@ -23,7 +23,7 @@ tags: [planning, review-gates, specification, compound-engineering, mechanism-no
 
 ## Context
 
-PR #466 ran **23 cross-model peer rounds and 3 hosted reviews** against a docs-only
+PR #466 ran **23 cross-model peer rounds and 4 hosted reviews** against a docs-only
 branch. Nearly every finding was real and verifiable in source. The rounds still did
 not converge, and the reason was not reviewer thoroughness or plan sloppiness — it was
 one repeated mistake in how each fix was written.
@@ -72,7 +72,7 @@ list. Reshape the rule so its members are derived.**
 Name the *source of truth* the members come from, never the members:
 
 - the fields a **type** declares (`R5a`: "every field the adapter's output type declares")
-- a **census** the unit must produce and commit (`KTD8a`, `KTD8c`)
+- a **census** the unit must produce and commit (`KTD8a`)
 - a **complete key set** compared against a contract (`KTD8b`)
 - a **derivation relationship** asserted against its source (`gridColumnsKey === gridColumnsKey(gridColumns)`)
 - an **obligation carried by the requirement list itself** rather than restated per unit (`R5b`)
