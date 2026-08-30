@@ -1492,12 +1492,14 @@ describe('taskStateKey — composite sub-key components', () => {
    * SHORT-window folds together, because each collapses at least two of these
    * arrangements onto one key.
    *
-   * It is not a proof of injectivity, and must not be read as one: the set tops
-   * out at three elements, so a window at least that wide is the identity over
-   * it and passes, and a fourth element is wholly unpinned. Widening the set
-   * again would only move that boundary out by one. Only a generative check
-   * removes the class; that is an open decision, not something this file claims
-   * to have.
+   * It is not a proof of injectivity, and must not be read as one. Two families
+   * still pass. A window at least as wide as the longest arrangement is the
+   * identity over a set that tops out at three elements, so a fourth element is
+   * wholly unpinned. And a NARROW window anchored at the tail that also folds
+   * the length survives — the mirror of the head-anchored fold `[a,b,b]` kills.
+   * Each is closed by one more arrangement, and each closure opens the next,
+   * which is exactly why only a generative check removes the class. That is an
+   * open decision, not something this file claims to have settled.
    */
   const arrangementCollisions = <T>(
     [a, b, c]: [T, T, T],
@@ -1565,7 +1567,7 @@ describe('taskStateKey — composite sub-key components', () => {
     },
   );
 
-  it('gives every distinct ghost-run arrangement a distinct fingerprint', () => {
+  it('gives each sampled ghost-run arrangement a distinct fingerprint', () => {
     const collisions = arrangementCollisions(
       [
         { startDate: '2026-04-14', days: 1 },
@@ -1604,7 +1606,7 @@ describe('taskStateKey — composite sub-key components', () => {
   // Overlapping runs resolve last-write-wins, so the later one decides the
   // painted state and the click target: any fold that loses position or count
   // leaves the row un-reissued with stale paint.
-  it('gives every distinct occupancy-run arrangement a distinct fingerprint', () => {
+  it('gives each sampled occupancy-run arrangement a distinct fingerprint', () => {
     const collisions = arrangementCollisions(
       [
         run({ startDate: '2026-04-14', stateClass: 'projected' }),
@@ -1671,7 +1673,7 @@ describe('taskStateKey — composite sub-key components', () => {
     },
   );
 
-  it('gives every distinct incoming-dependency arrangement a distinct fingerprint', () => {
+  it('gives each sampled incoming-dependency arrangement a distinct fingerprint', () => {
     const collisions = arrangementCollisions(
       [
         dep({ linkId: 'l1', predecessorName: 'Draft docs' }),
