@@ -83,13 +83,21 @@ Name the *source of truth* the members come from, never the members:
 - an **obligation carried by the requirement list itself** rather than restated per unit (`R5b`)
 
 Committing a census is not itself enough, and the distinction is where this rule is
-easiest to get wrong. What makes a census derived is a completeness assertion over
-it. One seam in this repository has one: the diff-sync bridge's source-shape pin
-extracts its access literal by name, asserts *exactly* that literal's members, fails
-red on a widened read set, and carries a planted widening among its mutation
-self-tests. A census specified without such an assertion has the shape and not the
-guarantee, and citing it as an exemplar of this rule is itself the defect — as the
-review of this document demonstrated twice.
+easiest to get wrong. What makes a census derived is a completeness assertion over it;
+a census specified without one has the shape and not the guarantee.
+
+**Write the limit next to the guarantee**, because the assertion is partial too. The
+nearest instance here is the diff-sync bridge's source-shape pin: it pins the access
+literal as the one the factory receives by name, matches every census member's accessor
+as a bare read or assignment, holds the accessor *count* to the census length, forbids
+capture and spread inside the literal, and mutation-tests both a snapshotted getter and
+a planted extra accessor. So it catches an existing accessor quietly becoming a capture,
+and an accessor added with no census entry. It does **not** catch a member added to the
+access interface and supplied as shorthand in the same change: the count is unmoved and
+the member is not on the list being matched. That edge is deliberate — the pin is scoped
+as a tripwire for accidental drift, not a parser-fortress, and the compiler is meant to
+carry the rest. Describing it as more than that was the defect this document kept
+repeating, and the reason to put the limit in the same breath as the claim.
 
 Members named in the text are then illustrative — *the ones easiest to get wrong* —
 and explicitly not the whole set.
