@@ -1171,6 +1171,12 @@ type FieldCensus<T> =
   | { effect: 'changes'; perturb: (t: T) => T }
   | { effect: 'ignored'; why: string; perturb: (t: T) => T };
 
+/** The keys on which two objects hold different values, including absent-vs-set. */
+const differingKeys = <T extends object>(a: T, b: T): string[] =>
+  [...new Set([...Object.keys(a), ...Object.keys(b)])]
+    .filter((k) => a[k as keyof T] !== b[k as keyof T])
+    .sort();
+
 describe('taskStateKey — folded-field census', () => {
   const baseTask = (): SvarTask => buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }))[0]!;
   const withCustom =
@@ -1276,7 +1282,7 @@ describe('taskStateKey — folded-field census', () => {
       // fingerprint does not fold it — is never re-issued: under Hide-top the
       // duplicate root stays visible. Folding it is a src change and is out of
       // this test-only branch's scope; raised for triage instead.
-      why: 'NOT folded today, and that is a defect rather than a decision — see the PR body',
+      why: 'NOT folded today, and that is a defect rather than a decision',
       perturb: withCustom({ isTopLevelPlacement: true }),
     },
     calendarItemFamily: {
@@ -1341,7 +1347,7 @@ describe('taskStateKey — folded-field census', () => {
   // a calendar colour edited from one valid colour to another, with the title
   // and dates unchanged, must still re-issue the row.
   const VALUE_CHANGES: ReadonlyArray<
-    readonly [string, Partial<SvarTask['custom']>, Partial<SvarTask['custom']>]
+    readonly [keyof SvarTask['custom'], Partial<SvarTask['custom']>, Partial<SvarTask['custom']>]
   > = [
     ['calendarItemColor', { calendarItemColor: '#2980b9' }, { calendarItemColor: '#c0392b' }],
     [
@@ -1353,7 +1359,8 @@ describe('taskStateKey — folded-field census', () => {
 
   it.each(VALUE_CHANGES)(
     're-issues the row when %s changes from one value to another',
-    (_field, before, after) => {
+    (field, before, after) => {
+      expect(differingKeys(before, after)).toEqual([field]);
       expect(taskStateKey(withCustom(before)(baseTask()))).not.toBe(
         taskStateKey(withCustom(after)(baseTask())),
       );
@@ -1450,11 +1457,6 @@ describe('taskStateKey — composite sub-key components', () => {
   const withCustom =
     (over: Partial<SvarTask['custom']>) =>
     (t: SvarTask): SvarTask => ({ ...t, custom: { ...t.custom, ...over } });
-
-  const differingKeys = <T extends object>(a: T, b: T): string[] =>
-    [...new Set([...Object.keys(a), ...Object.keys(b)])]
-      .filter((k) => a[k as keyof T] !== b[k as keyof T])
-      .sort();
 
   /** Asserts the pair isolates `component`, then that the component reaches the key. */
   const expectComponentFolded = <T extends object>(
@@ -1627,7 +1629,9 @@ describe('taskStateKey — composite sub-key components', () => {
 
   const INCOMING_DEP: Record<keyof IncomingDep, [IncomingDep, IncomingDep]> = {
     reltype: [dep({ reltype: 'FINISHTOSTART' }), dep({ reltype: 'STARTTOSTART' })],
-    gap: [dep({ gap: null }), dep({ gap: 'P1D' })],
+    // Value-to-value, not null-to-present: the tooltip paints the lag itself, so
+    // a presence-only fold would leave `+1d` rendered after an edit to `+2d`.
+    gap: [dep({ gap: 'P1D' }), dep({ gap: 'P2D' })],
     // Renaming a predecessor changes only the tooltip's wording; without this the
     // blocked row keeps showing the old name.
     predecessorName: [

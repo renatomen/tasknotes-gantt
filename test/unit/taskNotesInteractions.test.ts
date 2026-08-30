@@ -305,12 +305,21 @@ describe('TaskNotesInteractions.handleActivate', () => {
 });
 
 describe('TaskNotesInteractions.showContextMenu', () => {
+  // Two paths through the same call: a single asserted path is satisfied by a
+  // hardcoded one, and every menu action would then land on the wrong note.
   it('shows the native task menu for the path at the event', () => {
     const env = makeEnv({});
-    const event = { clientX: 1 } as unknown as MouseEvent;
-    new TaskNotesInteractions(env.app).showContextMenu('tasks/a.md', event);
+    const interactions = new TaskNotesInteractions(env.app);
+    const first = { clientX: 1 } as unknown as MouseEvent;
+    const second = { clientX: 2 } as unknown as MouseEvent;
 
-    expect(env.taskMenuShow).toHaveBeenCalledWith({ taskPath: 'tasks/a.md', event });
+    interactions.showContextMenu('tasks/a.md', first);
+    interactions.showContextMenu('tasks/b.md', second);
+
+    expect(env.taskMenuShow.mock.calls.map(([arg]) => arg)).toEqual([
+      { taskPath: 'tasks/a.md', event: first },
+      { taskPath: 'tasks/b.md', event: second },
+    ]);
   });
 
   it('is inert (no throw) when TaskNotes is absent', () => {
