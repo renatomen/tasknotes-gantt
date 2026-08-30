@@ -1159,11 +1159,13 @@ describe('taskStateKey', () => {
  * only that the named perturbation moves the key, not that the key encodes the
  * field faithfully; and a composite field is perturbed into EXISTENCE, so the
  * key moves on presence alone and NOTHING here requires a component inside it
- * to reach the key. Every composite folded through a per-element helper has its
- * own component census below — `barIcon`, `ghostRuns`, `occupancyRuns`,
- * `incomingDeps`, and `cellRenders` (via its mode census). The one uncovered
- * remainder is the map STRUCTURE of `propertiesKey`/`cellRendersKey`: the
- * property key half, element order and the separators are guarded by nothing.
+ * to reach the key.
+ *
+ * Component-level cover is a separate question this census does not answer.
+ * Some composites have a sub-key census below; which ones is not enumerated
+ * here, because a list of them would be exactly the hand-maintained member list
+ * this census exists to replace — it would go stale the first time a composite
+ * was added without editing it. Read the censuses, not a summary of them.
  */
 type FieldCensus<T> =
   | { effect: 'changes'; perturb: (t: T) => T }
@@ -1299,6 +1301,15 @@ describe('taskStateKey — folded-field census', () => {
     ): entry is [string, Extract<FieldCensus<SvarTask>, { effect: E }>] =>
       entry[1].effect === effect;
 
+  // Falsifiable, unlike a count of the census against itself: a third effect
+  // added to `FieldCensus` runs no assertion, so its members would vanish from
+  // both blocks below. That is how `delegated` once let a field opt out.
+  it('runs every census entry through one of the two effects', () => {
+    const covered =
+      census.filter(withEffect('changes')).length + census.filter(withEffect('ignored')).length;
+    expect(covered).toBe(census.length);
+  });
+
   it.each(census.filter(withEffect('changes')))(
     're-issues the row when %s changes',
     (_field, entry) => {
@@ -1347,6 +1358,16 @@ describe('taskStateKey — cell-render modes', () => {
       );
     },
   );
+
+  // Pinning each pair to one mode (above) means nothing here requires the mode
+  // DISCRIMINATOR to reach the key. Same body, different mode: a cell that
+  // stops rendering `*A*` as markdown and starts showing it literally must
+  // re-issue the row, and a key built from the body alone collides.
+  it('re-issues the row when a cell keeps its body and changes mode', () => {
+    expect(taskStateKey(withRenders({ t: { mode: 'text', text: '*A*' } }))).not.toBe(
+      taskStateKey(withRenders({ t: { mode: 'markdown', source: '*A*' } })),
+    );
+  });
 });
 
 /**
@@ -1389,7 +1410,20 @@ describe('taskStateKey — composite sub-key components', () => {
     expect(taskStateKey(fold(before))).not.toBe(taskStateKey(fold(after)));
   };
 
+  // Every array-valued composite folds the perturbed element SECOND, behind a
+  // fixed leading element: a fold that read only index 0 would otherwise satisfy
+  // every case below. Order is asserted separately — reading both elements is
+  // not the same as keeping them apart.
   type GhostRun = NonNullable<SvarTask['custom']['ghostRuns']>[number];
+
+  const LEADING_GHOST_RUN: GhostRun = { startDate: '2026-01-02', days: 5 };
+  const LEADING_OCCUPANCY_RUN: OccupancyRunSpan = { startDate: '2026-01-02', days: 5 };
+  const LEADING_DEP: IncomingDep = {
+    reltype: 'FINISHTOFINISH',
+    gap: null,
+    predecessorName: 'Other',
+    linkId: 'l9',
+  };
 
   const GHOST_RUN: Record<keyof GhostRun, [GhostRun, GhostRun]> = {
     startDate: [
@@ -1407,11 +1441,19 @@ describe('taskStateKey — composite sub-key components', () => {
   it.each(Object.entries(GHOST_RUN))(
     're-issues the row when a ghost run %s changes',
     (component, pair) => {
-      expectComponentFolded(component, pair, (run) =>
-        withCustom({ ghostRuns: [run] })(baseTask()),
+      expectComponentFolded(component, pair, (span) =>
+        withCustom({ ghostRuns: [LEADING_GHOST_RUN, span] })(baseTask()),
       );
     },
   );
+
+  it('re-issues the row when two ghost runs swap order', () => {
+    const a: GhostRun = { startDate: '2026-04-14', days: 1 };
+    const b: GhostRun = { startDate: '2026-04-20', days: 3 };
+    expect(taskStateKey(withCustom({ ghostRuns: [a, b] })(baseTask()))).not.toBe(
+      taskStateKey(withCustom({ ghostRuns: [b, a] })(baseTask())),
+    );
+  });
 
   const run = (over: Partial<OccupancyRunSpan>): OccupancyRunSpan => ({
     startDate: '2026-04-14',
@@ -1432,10 +1474,20 @@ describe('taskStateKey — composite sub-key components', () => {
     're-issues the row when an occupancy run %s changes',
     (component, pair) => {
       expectComponentFolded(component, pair, (span) =>
-        withCustom({ occupancyRuns: [span] })(baseTask()),
+        withCustom({ occupancyRuns: [LEADING_OCCUPANCY_RUN, span] })(baseTask()),
       );
     },
   );
+
+  // Two overlapping runs where the later one decides the painted state and the
+  // click target: an order-insensitive fold would leave the row un-reissued.
+  it('re-issues the row when two occupancy runs swap order', () => {
+    const a = run({ startDate: '2026-04-14', stateClass: 'projected' });
+    const b = run({ startDate: '2026-04-14', stateClass: 'materialized', notePath: 'b.md' });
+    expect(taskStateKey(withCustom({ occupancyRuns: [a, b] })(baseTask()))).not.toBe(
+      taskStateKey(withCustom({ occupancyRuns: [b, a] })(baseTask())),
+    );
+  });
 
   const icon = (over: Partial<IconSpec>): IconSpec => ({
     kind: 'status',
@@ -1485,10 +1537,18 @@ describe('taskStateKey — composite sub-key components', () => {
     're-issues the row when an incoming dependency %s changes',
     (component, pair) => {
       expectComponentFolded(component, pair, (edge) =>
-        withCustom({ incomingDeps: [edge] })(baseTask()),
+        withCustom({ incomingDeps: [LEADING_DEP, edge] })(baseTask()),
       );
     },
   );
+
+  it('re-issues the row when two incoming dependencies swap order', () => {
+    const a = dep({ linkId: 'l1', predecessorName: 'Draft docs' });
+    const b = dep({ linkId: 'l2', predecessorName: 'Draft specs' });
+    expect(taskStateKey(withCustom({ incomingDeps: [a, b] })(baseTask()))).not.toBe(
+      taskStateKey(withCustom({ incomingDeps: [b, a] })(baseTask())),
+    );
+  });
 });
 
 describe('planLinkSync', () => {
