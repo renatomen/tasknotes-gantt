@@ -49,6 +49,7 @@ import type { RenderInstance, RenderLink } from '../../src/controller/InstanceEx
 import type { PriorityColor, StatusColor } from '../../src/datasource/types';
 import type { TypedValue } from '../../src/bases/propertyValues';
 import type { CellRender } from '../../src/bases/cellRender';
+import type { IncomingDep } from '../../src/bases/dependencyTooltip';
 
 /** Minimal RenderInstance factory with sane defaults. */
 function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
@@ -1147,10 +1148,16 @@ describe('taskStateKey', () => {
  * field and nothing fails — which is how `end` came to be droppable from the
  * fold with the whole suite green.
  *
+ * That completeness is carried by `npm run typecheck`, NOT by this suite: the
+ * jest transform strips types without checking them, so a green `npx jest` is
+ * never evidence the census is complete.
+ *
  * Bounded honestly: the members derive from the `SvarTask` TYPE, so this cannot
- * see a value the fingerprint reads off some other object, and `changes`
- * verifies only that the named perturbation moves the key — not that the key
- * encodes the field faithfully.
+ * see a value the fingerprint reads off some other object; `changes` verifies
+ * only that the named perturbation moves the key, not that the key encodes the
+ * field faithfully; and a composite field is perturbed into EXISTENCE, so the
+ * key moves on presence alone and the components inside it are guarded
+ * separately (see the sub-key census below).
  */
 type FieldCensus<T> =
   | { effect: 'changes'; perturb: (t: T) => T }
@@ -1266,23 +1273,40 @@ describe('taskStateKey — folded-field census', () => {
     },
   };
 
-  const census = Object.entries({ ...TOP_LEVEL, ...CUSTOM }) as ReadonlyArray<
-    [string, FieldCensus<SvarTask>]
-  >;
+  // Namespaced rather than merged: `{ ...TOP_LEVEL, ...CUSTOM }` keys on the bare
+  // field name, so a `custom` member sharing a name with a top-level one would
+  // overwrite it — both halves still satisfy their own `Record`, and the
+  // overwritten field's guard disappears with nothing failing.
+  const namespaced = (
+    prefix: string,
+    record: Record<string, FieldCensus<SvarTask>>,
+  ): Array<[string, FieldCensus<SvarTask>]> =>
+    Object.entries(record).map(([field, entry]) => [`${prefix}.${field}`, entry]);
 
-  it.each(census.filter(([, c]) => c.effect === 'changes'))(
+  const census = [...namespaced('task', TOP_LEVEL), ...namespaced('custom', CUSTOM)];
+
+  const withEffect =
+    <E extends FieldCensus<SvarTask>['effect']>(effect: E) =>
+    (
+      entry: [string, FieldCensus<SvarTask>],
+    ): entry is [string, Extract<FieldCensus<SvarTask>, { effect: E }>] =>
+      entry[1].effect === effect;
+
+  it('carries one entry per declared field', () => {
+    expect(census).toHaveLength(Object.keys(TOP_LEVEL).length + Object.keys(CUSTOM).length);
+  });
+
+  it.each(census.filter(withEffect('changes')))(
     're-issues the row when %s changes',
     (_field, entry) => {
-      const perturb = (entry as { perturb: (t: SvarTask) => SvarTask }).perturb;
-      expect(taskStateKey(perturb(baseTask()))).not.toBe(taskStateKey(baseTask()));
+      expect(taskStateKey(entry.perturb(baseTask()))).not.toBe(taskStateKey(baseTask()));
     },
   );
 
-  it.each(census.filter(([, c]) => c.effect === 'ignored'))(
+  it.each(census.filter(withEffect('ignored')))(
     'leaves the fingerprint alone when %s changes',
     (_field, entry) => {
-      const perturb = (entry as { perturb: (t: SvarTask) => SvarTask }).perturb;
-      expect(taskStateKey(perturb(baseTask()))).toBe(taskStateKey(baseTask()));
+      expect(taskStateKey(entry.perturb(baseTask()))).toBe(taskStateKey(baseTask()));
     },
   );
 });
@@ -1293,20 +1317,100 @@ describe('taskStateKey — cell-render modes', () => {
     return { ...t, custom: { ...t.custom, cellRenders } };
   };
 
-  // Both descriptor modes must reach the key. `propertiesKey` deliberately folds
+  // Every descriptor mode must reach the key. `propertiesKey` deliberately folds
   // the locale-INDEPENDENT canonical value, so the rendered text is the only
-  // thing that re-issues a row when what the cell displays moves.
-  it('re-issues the row when a markdown cell source changes', () => {
-    expect(taskStateKey(withRenders({ t: { mode: 'markdown', source: '[[A]]' } }))).not.toBe(
-      taskStateKey(withRenders({ t: { mode: 'markdown', source: '[[B]]' } })),
-    );
+  // thing that re-issues a row when what the cell displays moves. Keyed on
+  // `CellRender['mode']`, so a third mode does not compile until it is paired
+  // here — a hand-written pair would simply not mention it.
+  const MODES: Record<CellRender['mode'], [CellRender, CellRender]> = {
+    markdown: [
+      { mode: 'markdown', source: '[[A]]' },
+      { mode: 'markdown', source: '[[B]]' },
+    ],
+    text: [
+      { mode: 'text', text: '1 Jan 2026' },
+      { mode: 'text', text: '2 Jan 2026' },
+    ],
+  };
+
+  it.each(Object.entries(MODES))(
+    're-issues the row when a %s cell body changes',
+    (_mode, [before, after]) => {
+      expect(taskStateKey(withRenders({ t: before }))).not.toBe(
+        taskStateKey(withRenders({ t: after })),
+      );
+    },
+  );
+});
+
+/**
+ * The components INSIDE the composite sub-keys, and what perturbing each must do.
+ *
+ * The field census above gives a composite field a value where the base task had
+ * none, so the key moves on presence alone and no component is required to reach
+ * it. Measured, not assumed: dropping `days` from `ghostRunsKey` and
+ * `predecessorName` + `reltype` from `incomingDepsKey` left all 3,983 tests
+ * green. Both member lists are keyed on the component TYPE, so a new member of
+ * either shape does not compile until a decision is recorded here.
+ *
+ * Same bound as the field census: this proves the component reaches the key, not
+ * that the key encodes it faithfully.
+ */
+describe('taskStateKey — composite sub-key components', () => {
+  const baseTask = (): SvarTask => buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }))[0]!;
+  const withCustom =
+    (over: Partial<SvarTask['custom']>) =>
+    (t: SvarTask): SvarTask => ({ ...t, custom: { ...t.custom, ...over } });
+
+  type GhostRun = NonNullable<SvarTask['custom']['ghostRuns']>[number];
+
+  const GHOST_RUN: Record<keyof GhostRun, [GhostRun, GhostRun]> = {
+    startDate: [
+      { startDate: '2026-04-14', days: 2 },
+      { startDate: '2026-04-15', days: 2 },
+    ],
+    // A holiday that lengthens in place moves nothing else: without this the bar
+    // keeps painting the old run until an unrelated edit re-issues the row.
+    days: [
+      { startDate: '2026-04-14', days: 2 },
+      { startDate: '2026-04-14', days: 3 },
+    ],
+  };
+
+  it.each(Object.entries(GHOST_RUN))(
+    're-issues the row when a ghost run %s changes',
+    (_component, [before, after]) => {
+      expect(taskStateKey(withCustom({ ghostRuns: [before] })(baseTask()))).not.toBe(
+        taskStateKey(withCustom({ ghostRuns: [after] })(baseTask())),
+      );
+    },
+  );
+
+  const dep = (over: Partial<IncomingDep>): IncomingDep => ({
+    reltype: 'FINISHTOSTART',
+    gap: null,
+    predecessorName: 'P',
+    linkId: 'l1',
+    ...over,
   });
 
-  it('re-issues the row when a text cell body changes', () => {
-    expect(taskStateKey(withRenders({ t: { mode: 'text', text: '1 Jan 2026' } }))).not.toBe(
-      taskStateKey(withRenders({ t: { mode: 'text', text: '2 Jan 2026' } })),
-    );
-  });
+  const INCOMING_DEP: Record<keyof IncomingDep, [IncomingDep, IncomingDep]> = {
+    reltype: [dep({ reltype: 'FINISHTOSTART' }), dep({ reltype: 'STARTTOSTART' })],
+    gap: [dep({ gap: null }), dep({ gap: 'P1D' })],
+    // Renaming a predecessor changes only the tooltip's wording; without this the
+    // blocked row keeps showing the old name.
+    predecessorName: [dep({ predecessorName: 'Draft docs' }), dep({ predecessorName: 'Draft specs' })],
+    linkId: [dep({ linkId: 'l1' }), dep({ linkId: 'l2' })],
+  };
+
+  it.each(Object.entries(INCOMING_DEP))(
+    're-issues the row when an incoming dependency %s changes',
+    (_component, [before, after]) => {
+      expect(taskStateKey(withCustom({ incomingDeps: [before] })(baseTask()))).not.toBe(
+        taskStateKey(withCustom({ incomingDeps: [after] })(baseTask())),
+      );
+    },
+  );
 });
 
 describe('planLinkSync', () => {
