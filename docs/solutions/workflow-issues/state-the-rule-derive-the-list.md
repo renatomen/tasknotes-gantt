@@ -47,7 +47,9 @@ the same five-argument shape for U1. Fixing only what was named would have left 
 sibling for a later round.
 
 **The counter-examples are what prove the mechanism, and they are not equal.**
-Two amendments never recurred, neither of which names a member. `KTD8b` is the
+Two amendments never recurred, neither of which derives its coverage from a
+hand-maintained member list. Both still name members; that is the illustrative use
+this document endorses, not the defect. `KTD8b` is the
 complete form: its members are the key set of the `GanttData` type, so the list
 changes when the code changes and cannot go stale. `KTD8a` is the partial one, and
 worth being exact about — it replaced a member list with a
@@ -86,18 +88,21 @@ Committing a census is not itself enough, and the distinction is where this rule
 easiest to get wrong. What makes a census derived is a completeness assertion over it;
 a census specified without one has the shape and not the guarantee.
 
-**Write the limit next to the guarantee**, because the assertion is partial too. The
-nearest instance here is the diff-sync bridge's source-shape pin: it pins the access
-literal as the one the factory receives by name, matches every census member's accessor
-as a bare read or assignment, holds the accessor *count* to the census length, forbids
-capture and spread inside the literal, and mutation-tests both a snapshotted getter and
-a planted extra accessor. So it catches an existing accessor quietly becoming a capture,
-and an accessor added with no census entry. It does **not** catch a member added to the
-access interface and supplied as shorthand in the same change: the count is unmoved and
-the member is not on the list being matched. That edge is deliberate — the pin is scoped
-as a tripwire for accidental drift, not a parser-fortress, and the compiler is meant to
-carry the rest. Describing it as more than that was the defect this document kept
-repeating, and the reason to put the limit in the same breath as the claim.
+**Write the limit next to the guarantee, and be willing to conclude the guarantee is
+absent.** The closest thing in this repository is the diff-sync bridge's source-shape
+pin, and putting this document's own test to it answers *no*: add a member to the access
+interface and supply it as shorthand in the same change, and the accessor count is
+unmoved, the member is on no list being matched, and the excess-property check has
+nothing to reject because the interface was widened first. The member is neither covered
+nor guarded. The pin is a tripwire for accidental drift — which is exactly what it is
+scoped to be — and not an instance of this rule.
+
+Say that rather than smoothing it over. This document asserted otherwise repeatedly
+under review, each time in the sentence repairing the previous claim, because prose lets
+you assert a property without touching the thing that would have to provide it. **The
+rule is an ideal that real guards approximate; naming the part a given guard does not
+reach is the discipline, and concluding that a guard does not satisfy the rule is a
+legitimate outcome** — more useful than a citation that quietly overstates one.
 
 Members named in the text are then illustrative — *the ones easiest to get wrong* —
 and explicitly not the whole set.
