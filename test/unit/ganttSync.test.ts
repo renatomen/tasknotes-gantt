@@ -1267,7 +1267,16 @@ describe('taskStateKey — folded-field census', () => {
     },
     isTopLevelPlacement: {
       effect: 'ignored',
-      why: 'placement decides whether the row exists, not how an existing row paints',
+      // CHARACTERIZATION, NOT A DESIGN CHOICE — this records a defect.
+      // `shouldHideRow` reads this flag off the SVAR store, and the duplicate
+      // top-level copy shares its id with the genuine root it replaces
+      // (`InstanceExpansion`: both build the instance with `id = task.path`,
+      // one with the flag true and one with it defaulted false). So a note that
+      // gains a parent keeps its row id, flips the flag, and — because the
+      // fingerprint does not fold it — is never re-issued: under Hide-top the
+      // duplicate root stays visible. Folding it is a src change and is out of
+      // this test-only branch's scope; raised for triage instead.
+      why: 'NOT folded today, and that is a defect rather than a decision — see the PR body',
       perturb: withCustom({ isTopLevelPlacement: true }),
     },
     calendarItemFamily: {
@@ -1323,6 +1332,33 @@ describe('taskStateKey — folded-field census', () => {
       expect(taskStateKey(entry.perturb(baseTask()))).toBe(taskStateKey(baseTask()));
     },
   );
+
+  // Every `changes` entry above perturbs its field from the BASE task, and the
+  // base leaves the optional fields unset — so those cases prove the fingerprint
+  // reacts to a field APPEARING, which a presence-only fold (`x !== undefined`)
+  // satisfies without folding the value. These pin value-to-value for the
+  // optional scalars, where a presence-only fold is both plausible and painted:
+  // a calendar colour edited from one valid colour to another, with the title
+  // and dates unchanged, must still re-issue the row.
+  const VALUE_CHANGES: ReadonlyArray<
+    readonly [string, Partial<SvarTask['custom']>, Partial<SvarTask['custom']>]
+  > = [
+    ['calendarItemColor', { calendarItemColor: '#2980b9' }, { calendarItemColor: '#c0392b' }],
+    [
+      'dateStatusToken',
+      { dateStatusToken: DATE_STATUS_STATE_CLASS_TOKENS['inferred-start'] },
+      { dateStatusToken: DATE_STATUS_STATE_CLASS_TOKENS['inferred-end'] },
+    ],
+  ];
+
+  it.each(VALUE_CHANGES)(
+    're-issues the row when %s changes from one value to another',
+    (_field, before, after) => {
+      expect(taskStateKey(withCustom(before)(baseTask()))).not.toBe(
+        taskStateKey(withCustom(after)(baseTask())),
+      );
+    },
+  );
 });
 
 describe('taskStateKey — cell-render modes', () => {
@@ -1368,6 +1404,26 @@ describe('taskStateKey — cell-render modes', () => {
       taskStateKey(withRenders({ t: { mode: 'markdown', source: '*A*' } })),
     );
   });
+
+  // Every case above renders ONE column, so a key that folds a single column
+  // satisfies them all. Two columns, edited one at a time, separate a first-only
+  // fold from a last-only one. The markdown pair matters most: `[[A|Owner]]` and
+  // `[[B|Owner]]` display the same text, so the canonical property value is
+  // unchanged and only the rendered link moves.
+  const OWNER: CellRender = { mode: 'text', text: 'Owner' };
+  const LINK: CellRender = { mode: 'markdown', source: '[[A|Owner]]' };
+
+  it('re-issues the row when the first of two columns changes', () => {
+    expect(taskStateKey(withRenders({ a: OWNER, b: LINK }))).not.toBe(
+      taskStateKey(withRenders({ a: { mode: 'text', text: 'Maintainer' }, b: LINK })),
+    );
+  });
+
+  it('re-issues the row when the second of two columns changes', () => {
+    expect(taskStateKey(withRenders({ a: OWNER, b: LINK }))).not.toBe(
+      taskStateKey(withRenders({ a: OWNER, b: { mode: 'markdown', source: '[[B|Owner]]' } })),
+    );
+  });
 });
 
 /**
@@ -1410,10 +1466,49 @@ describe('taskStateKey — composite sub-key components', () => {
     expect(taskStateKey(fold(before))).not.toBe(taskStateKey(fold(after)));
   };
 
+  /**
+   * Distinct arrangements of the same elements must fingerprint distinctly.
+   *
+   * Enumerated positional cases cannot settle this. For any finite set of them
+   * there is a projection that satisfies exactly those cases and drops the rest:
+   * an earlier revision closed "reads only element 0" by moving the perturbed
+   * element to the tail, which relocated the blind spot to "reads only the last
+   * element" rather than removing it. Moving it to the middle would relocate it
+   * again.
+   *
+   * Injectivity over arrangements is the property the diff-sync actually needs,
+   * and one assertion kills head-only, tail-only, fixed-window, de-duplicating
+   * and count-truncating folds together, because every one of them collapses at
+   * least two of these arrangements onto the same key.
+   */
+  const arrangementCollisions = <T>(
+    [a, b, c]: [T, T, T],
+    fold: (values: T[]) => SvarTask,
+  ): string[] => {
+    const arrangements: ReadonlyArray<readonly [string, T[]]> = [
+      ['[a]', [a]],
+      ['[b]', [b]],
+      ['[a,b]', [a, b]],
+      ['[b,a]', [b, a]],
+      ['[a,a]', [a, a]],
+      ['[a,c]', [a, c]],
+      ['[a,b,c]', [a, b, c]],
+      ['[c,b,a]', [c, b, a]],
+    ];
+    const firstSeenBy = new Map<string, string>();
+    const collisions: string[] = [];
+    for (const [name, values] of arrangements) {
+      const key = taskStateKey(fold(values));
+      const seen = firstSeenBy.get(key);
+      if (seen === undefined) firstSeenBy.set(key, name);
+      else collisions.push(`${seen} === ${name}`);
+    }
+    return collisions;
+  };
+
   // Every array-valued composite folds the perturbed element SECOND, behind a
-  // fixed leading element: a fold that read only index 0 would otherwise satisfy
-  // every case below. Order is asserted separately — reading both elements is
-  // not the same as keeping them apart.
+  // fixed leading element, so a component case also proves the fold reaches past
+  // the first element. Position beyond that is the arrangement check's job.
   type GhostRun = NonNullable<SvarTask['custom']['ghostRuns']>[number];
 
   const LEADING_GHOST_RUN: GhostRun = { startDate: '2026-01-02', days: 5 };
@@ -1447,12 +1542,16 @@ describe('taskStateKey — composite sub-key components', () => {
     },
   );
 
-  it('re-issues the row when two ghost runs swap order', () => {
-    const a: GhostRun = { startDate: '2026-04-14', days: 1 };
-    const b: GhostRun = { startDate: '2026-04-20', days: 3 };
-    expect(taskStateKey(withCustom({ ghostRuns: [a, b] })(baseTask()))).not.toBe(
-      taskStateKey(withCustom({ ghostRuns: [b, a] })(baseTask())),
+  it('gives every distinct ghost-run arrangement a distinct fingerprint', () => {
+    const collisions = arrangementCollisions(
+      [
+        { startDate: '2026-04-14', days: 1 },
+        { startDate: '2026-04-20', days: 3 },
+        { startDate: '2026-05-02', days: 2 },
+      ],
+      (runs) => withCustom({ ghostRuns: runs })(baseTask()),
     );
+    expect(collisions).toEqual([]);
   });
 
   const run = (over: Partial<OccupancyRunSpan>): OccupancyRunSpan => ({
@@ -1479,14 +1578,19 @@ describe('taskStateKey — composite sub-key components', () => {
     },
   );
 
-  // Two overlapping runs where the later one decides the painted state and the
-  // click target: an order-insensitive fold would leave the row un-reissued.
-  it('re-issues the row when two occupancy runs swap order', () => {
-    const a = run({ startDate: '2026-04-14', stateClass: 'projected' });
-    const b = run({ startDate: '2026-04-14', stateClass: 'materialized', notePath: 'b.md' });
-    expect(taskStateKey(withCustom({ occupancyRuns: [a, b] })(baseTask()))).not.toBe(
-      taskStateKey(withCustom({ occupancyRuns: [b, a] })(baseTask())),
+  // Overlapping runs resolve last-write-wins, so the later one decides the
+  // painted state and the click target: any fold that loses position or count
+  // leaves the row un-reissued with stale paint.
+  it('gives every distinct occupancy-run arrangement a distinct fingerprint', () => {
+    const collisions = arrangementCollisions(
+      [
+        run({ startDate: '2026-04-14', stateClass: 'projected' }),
+        run({ startDate: '2026-04-14', stateClass: 'materialized', notePath: 'b.md' }),
+        run({ startDate: '2026-04-16', days: 3, stateClass: 'completed' }),
+      ],
+      (spans) => withCustom({ occupancyRuns: spans })(baseTask()),
     );
+    expect(collisions).toEqual([]);
   });
 
   const icon = (over: Partial<IconSpec>): IconSpec => ({
@@ -1542,12 +1646,16 @@ describe('taskStateKey — composite sub-key components', () => {
     },
   );
 
-  it('re-issues the row when two incoming dependencies swap order', () => {
-    const a = dep({ linkId: 'l1', predecessorName: 'Draft docs' });
-    const b = dep({ linkId: 'l2', predecessorName: 'Draft specs' });
-    expect(taskStateKey(withCustom({ incomingDeps: [a, b] })(baseTask()))).not.toBe(
-      taskStateKey(withCustom({ incomingDeps: [b, a] })(baseTask())),
+  it('gives every distinct incoming-dependency arrangement a distinct fingerprint', () => {
+    const collisions = arrangementCollisions(
+      [
+        dep({ linkId: 'l1', predecessorName: 'Draft docs' }),
+        dep({ linkId: 'l2', predecessorName: 'Draft specs' }),
+        dep({ linkId: 'l3', reltype: 'STARTTOSTART', gap: 'P2D' }),
+      ],
+      (edges) => withCustom({ incomingDeps: edges })(baseTask()),
     );
+    expect(collisions).toEqual([]);
   });
 });
 

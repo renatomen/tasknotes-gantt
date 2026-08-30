@@ -168,39 +168,39 @@ describe('TaskNotesInteractions.handleActivate', () => {
 
   it('opens the note in a new tab when ctrl/meta is held', async () => {
     const env = makeEnv({ singleClickAction: 'edit' }); // action overridden by modifier
-    await new TaskNotesInteractions(env.app).handleActivate('tasks/a.md', {
+    await new TaskNotesInteractions(env.app).handleActivate('tasks/b.md', {
       kind: 'single',
       ctrlOrMeta: true,
     });
 
     expect(env.getLeaf).toHaveBeenCalledWith('tab'); // new tab
     expect(env.openFile).toHaveBeenCalledTimes(1);
-    expect(env.openedNote()).toBe(env.fileFor('tasks/a.md'));
+    expect(env.openedNote()).toBe(env.fileFor('tasks/b.md'));
     expect(env.openTaskEditModal).not.toHaveBeenCalled();
   });
 
   it('opens the native edit modal for an edit action (via guarded plugin call)', async () => {
     const env = makeEnv({ singleClickAction: 'edit' });
-    await new TaskNotesInteractions(env.app).handleActivate('tasks/a.md', {
+    await new TaskNotesInteractions(env.app).handleActivate('tasks/c.md', {
       kind: 'single',
       ctrlOrMeta: false,
     });
 
-    expect(env.tasksGet).toHaveBeenCalledWith('tasks/a.md');
+    expect(env.tasksGet).toHaveBeenCalledWith('tasks/c.md');
     expect(env.openTaskEditModal).toHaveBeenCalledTimes(1);
-    expect(env.editedTask()).toBe(env.taskFor('tasks/a.md'));
+    expect(env.editedTask()).toBe(env.taskFor('tasks/c.md'));
     expect(env.openFile).not.toHaveBeenCalled();
   });
 
   it('reads the double-click action for a double-click', async () => {
     const env = makeEnv({ singleClickAction: 'none', doubleClickAction: 'edit' });
-    await new TaskNotesInteractions(env.app).handleActivate('tasks/a.md', {
+    await new TaskNotesInteractions(env.app).handleActivate('tasks/d.md', {
       kind: 'double',
       ctrlOrMeta: false,
     });
 
     expect(env.openTaskEditModal).toHaveBeenCalledTimes(1);
-    expect(env.editedTask()).toBe(env.taskFor('tasks/a.md'));
+    expect(env.editedTask()).toBe(env.taskFor('tasks/d.md'));
   });
 
   it('does nothing for a none action', async () => {
@@ -216,37 +216,37 @@ describe('TaskNotesInteractions.handleActivate', () => {
 
   it('falls back to opening the note when openTaskEditModal is absent', async () => {
     const env = makeEnv({ singleClickAction: 'edit', hasEditModal: false });
-    await new TaskNotesInteractions(env.app).handleActivate('tasks/a.md', {
+    await new TaskNotesInteractions(env.app).handleActivate('tasks/e.md', {
       kind: 'single',
       ctrlOrMeta: false,
     });
 
     expect(env.openFile).toHaveBeenCalledTimes(1); // fell back
-    expect(env.openedNote()).toBe(env.fileFor('tasks/a.md'));
+    expect(env.openedNote()).toBe(env.fileFor('tasks/e.md'));
   });
 
   it('falls back to opening the note when openTaskEditModal throws', async () => {
     const env = makeEnv({ singleClickAction: 'edit', editModalThrows: true });
-    await new TaskNotesInteractions(env.app).handleActivate('tasks/a.md', {
+    await new TaskNotesInteractions(env.app).handleActivate('tasks/f.md', {
       kind: 'single',
       ctrlOrMeta: false,
     });
 
     expect(env.openTaskEditModal).toHaveBeenCalledTimes(1);
-    expect(env.editedTask()).toBe(env.taskFor('tasks/a.md'));
+    expect(env.editedTask()).toBe(env.taskFor('tasks/f.md'));
     expect(env.openFile).toHaveBeenCalledTimes(1); // fell back after throw
-    expect(env.openedNote()).toBe(env.fileFor('tasks/a.md'));
+    expect(env.openedNote()).toBe(env.fileFor('tasks/f.md'));
   });
 
   it('opens the note (never the modal) when TaskNotes is absent', async () => {
     const env = makeEnv({ present: false, singleClickAction: 'edit' });
-    await new TaskNotesInteractions(env.app).handleActivate('tasks/a.md', {
+    await new TaskNotesInteractions(env.app).handleActivate('tasks/g.md', {
       kind: 'single',
       ctrlOrMeta: false,
     });
 
     expect(env.openFile).toHaveBeenCalledTimes(1);
-    expect(env.openedNote()).toBe(env.fileFor('tasks/a.md'));
+    expect(env.openedNote()).toBe(env.fileFor('tasks/g.md'));
     expect(env.openTaskEditModal).not.toHaveBeenCalled();
   });
 
@@ -266,13 +266,13 @@ describe('TaskNotesInteractions.handleActivate', () => {
 
   it('falls back to opening the note when TaskNotes tracks no task for the path', async () => {
     const env = makeEnv({ singleClickAction: 'edit', taskMissing: true });
-    await new TaskNotesInteractions(env.app).handleActivate('tasks/a.md', {
+    await new TaskNotesInteractions(env.app).handleActivate('tasks/h.md', {
       kind: 'single',
       ctrlOrMeta: false,
     });
 
     expect(env.openTaskEditModal).not.toHaveBeenCalled();
-    expect(env.openedNote()).toBe(env.fileFor('tasks/a.md'));
+    expect(env.openedNote()).toBe(env.fileFor('tasks/h.md'));
   });
 
   it('opens the note the clicked path resolves to, not a fixed one', async () => {
