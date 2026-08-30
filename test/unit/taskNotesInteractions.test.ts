@@ -316,10 +316,16 @@ describe('TaskNotesInteractions.showContextMenu', () => {
     interactions.showContextMenu('tasks/a.md', first);
     interactions.showContextMenu('tasks/b.md', second);
 
-    expect(env.taskMenuShow.mock.calls.map(([arg]) => arg)).toEqual([
-      { taskPath: 'tasks/a.md', event: first },
-      { taskPath: 'tasks/b.md', event: second },
-    ]);
+    // The event is asserted by REFERENCE for the same reason the note and task
+    // are: `toEqual` is structural and ignores undefined-valued keys, so a
+    // handler forwarding a rebuilt event would pass here while Obsidian's
+    // `showAtMouseEvent` got a stub — and this call site swallows the throw.
+    const calls = env.taskMenuShow.mock.calls.map(
+      ([arg]) => arg as { taskPath: string; event: unknown },
+    );
+    expect(calls.map((call) => call.taskPath)).toEqual(['tasks/a.md', 'tasks/b.md']);
+    expect(calls[0]?.event).toBe(first);
+    expect(calls[1]?.event).toBe(second);
   });
 
   it('is inert (no throw) when TaskNotes is absent', () => {

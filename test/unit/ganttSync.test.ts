@@ -1258,7 +1258,7 @@ describe('taskStateKey — folded-field census', () => {
     },
     dateStatus: {
       effect: 'ignored',
-      why: 'KTD3: it rides custom for the view filter; folding it would inflate the SVAR diff (#161)',
+      why: 'it rides custom for the view filter; folding it would inflate the SVAR diff',
       perturb: withCustom({ dateStatus: 'placeholder' }),
     },
     isReplicated: {
@@ -1366,6 +1366,16 @@ describe('taskStateKey — folded-field census', () => {
       );
     },
   );
+
+  // `open` is a top-level field with the same shape of gap: the census perturbs
+  // it from ABSENT, so a presence-only fold satisfies that case while collapsing
+  // an expanded parent onto a collapsed one, and a refresh that only toggles the
+  // twisty would emit no update-task.
+  it('re-issues the row when a parent collapses, not only when it first gains a state', () => {
+    expect(taskStateKey({ ...baseTask(), open: true })).not.toBe(
+      taskStateKey({ ...baseTask(), open: false }),
+    );
+  });
 });
 
 describe('taskStateKey — cell-render modes', () => {
@@ -1478,10 +1488,16 @@ describe('taskStateKey — composite sub-key components', () => {
    * element" rather than removing it. Moving it to the middle would relocate it
    * again.
    *
-   * Injectivity over arrangements is the property the diff-sync actually needs,
-   * and one assertion kills head-only, tail-only, fixed-window, de-duplicating
-   * and count-truncating folds together, because every one of them collapses at
-   * least two of these arrangements onto the same key.
+   * One assertion therefore kills head-only, tail-only, de-duplicating and
+   * SHORT-window folds together, because each collapses at least two of these
+   * arrangements onto one key.
+   *
+   * It is not a proof of injectivity, and must not be read as one: the set tops
+   * out at three elements, so a window as wide as the longest arrangement — or
+   * one that also folds the length — still passes, and a fourth element remains
+   * unpinned. A ninth arrangement would close that and reopen the next length,
+   * which is the relocation this replaced. Only a generative check removes the
+   * class; that is an open decision, not something this file claims to have.
    */
   const arrangementCollisions = <T>(
     [a, b, c]: [T, T, T],
