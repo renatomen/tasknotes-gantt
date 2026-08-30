@@ -72,10 +72,16 @@ list. Reshape the rule so its members are derived.**
 Name the *source of truth* the members come from, never the members:
 
 - the fields a **type** declares (`R5a`: "every field the adapter's output type declares")
-- a **census** the unit must produce and commit (`KTD8a`)
+- a **census** the unit produces and asserts complete against the code, so a widened set fails red (`KTD8a`)
 - a **complete key set** compared against a contract (`KTD8b`)
 - a **derivation relationship** asserted against its source (`gridColumnsKey === gridColumnsKey(gridColumns)`)
 - an **obligation carried by the requirement list itself** rather than restated per unit (`R5b`)
+
+Committing a census is not itself enough: a census that is merely recorded goes
+stale exactly like a hand-written list, because nothing fails when the code gains a
+member it omits. What makes it derived is the completeness assertion over it — the
+shipped instrument pins *exactly* the census members and fails red on a widened read
+set, with a planted widening among its mutation self-tests.
 
 Members named in the text are then illustrative — *the ones easiest to get wrong* —
 and explicitly not the whole set.
