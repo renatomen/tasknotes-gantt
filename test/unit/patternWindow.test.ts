@@ -104,7 +104,7 @@ describe('evaluatePattern', () => {
   it('rejects a garbage rule string with a message', () => {
     const result = evaluatePattern('every other tuesday', undefined, TWO_WEEKS);
     expect(result.kind).toBe('invalid');
-    if (result.kind === 'invalid') expect(result.reason.length).toBeGreaterThan(0);
+    if (result.kind === 'invalid') expect(result.reason).toMatch(/not a valid RRULE/);
   });
 
   it('anchored evaluation starts no earlier than the anchor even when the window reaches back', () => {
@@ -145,7 +145,9 @@ describe('evaluatePattern', () => {
     // the anchorless case, and > 1 alone misses it).
     expect(evaluatePattern('FREQ=DAILY;INTERVAL=-1', '2026-04-06', TWO_WEEKS).kind).toBe('invalid');
     expect(evaluatePattern('FREQ=DAILY;INTERVAL=0', undefined, TWO_WEEKS).kind).toBe('invalid');
-    expect(validatePattern('FREQ=DAILY;INTERVAL=-1', '2026-04-06')).not.toBeNull();
+    expect(validatePattern('FREQ=DAILY;INTERVAL=-1', '2026-04-06')).toMatch(
+      /non-positive or non-integer INTERVAL/,
+    );
   });
 
   it('rejects a malformed or non-integer INTERVAL that rrule keeps as a string', () => {
@@ -153,14 +155,18 @@ describe('evaluatePattern', () => {
     // alone passes and between() hangs. Reject unless it is a positive integer.
     expect(evaluatePattern('FREQ=DAILY;INTERVAL=foo', '2026-04-06', TWO_WEEKS).kind).toBe('invalid');
     expect(evaluatePattern('FREQ=DAILY;INTERVAL=1.5', undefined, TWO_WEEKS).kind).toBe('invalid');
-    expect(validatePattern('FREQ=DAILY;INTERVAL=foo', '2026-04-06')).not.toBeNull();
+    expect(validatePattern('FREQ=DAILY;INTERVAL=foo', '2026-04-06')).toMatch(
+      /non-positive or non-integer INTERVAL/,
+    );
   });
 
   it('rejects sub-day BY-parts a day calendar cannot use (BYHOUR/BYMINUTE/BYSECOND)', () => {
     expect(evaluatePattern('FREQ=DAILY;BYHOUR=12', undefined, TWO_WEEKS).kind).toBe('invalid');
     // Full BY* lists would materialize ~10^8 occurrences over the probe — the
     // guard must reject before between() rather than expand them.
-    expect(validatePattern('FREQ=DAILY;BYHOUR=0,6,12,18;BYMINUTE=0,30', undefined)).not.toBeNull();
+    expect(validatePattern('FREQ=DAILY;BYHOUR=0,6,12,18;BYMINUTE=0,30', undefined)).toMatch(
+      /sub-day BY-parts/,
+    );
   });
 
   it('rejects out-of-range BY-parts rrule accepts but scans for fruitlessly', () => {
@@ -174,7 +180,9 @@ describe('evaluatePattern', () => {
     expect(evaluatePattern('FREQ=YEARLY;BYWEEKNO=54', undefined, TWO_WEEKS).kind).toBe('invalid'); // BYWEEKNO > 53
     expect(evaluatePattern('FREQ=MONTHLY;BYSETPOS=400;BYDAY=MO', undefined, TWO_WEEKS).kind).toBe('invalid');
     expect(evaluatePattern('FREQ=DAILY;BYMONTHDAY=1.5', undefined, TWO_WEEKS).kind).toBe('invalid'); // fractional -> rrule keeps a string
-    expect(validatePattern('FREQ=DAILY;BYYEARDAY=400', undefined)).not.toBeNull();
+    expect(validatePattern('FREQ=DAILY;BYYEARDAY=400', undefined)).toMatch(
+      /out-of-range BYYEARDAY/,
+    );
     // Valid ranges, including a list, a negative "from the end", and a BYDAY
     // ordinal (2nd Monday), still evaluate.
     expect(validatePattern('FREQ=YEARLY;BYMONTH=2,6;BYMONTHDAY=-1', undefined)).toBeNull();
@@ -235,24 +243,24 @@ describe('validatePattern', () => {
   it('rejects a pattern matching zero days in a representative window', () => {
     // BYMONTHDAY=31 in FREQ=MONTHLY matches some months; use an impossible combo instead.
     const reason = validatePattern('FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=30', undefined);
-    expect(reason).not.toBeNull();
+    expect(reason).toMatch(/matches no days/);
   });
 
   it('rejects garbage and anchorless advanced grammar', () => {
-    expect(validatePattern('not an rrule', undefined)).not.toBeNull();
-    expect(validatePattern('FREQ=DAILY;COUNT=2', undefined)).not.toBeNull();
+    expect(validatePattern('not an rrule', undefined)).toMatch(/not a valid RRULE/);
+    expect(validatePattern('FREQ=DAILY;COUNT=2', undefined)).toMatch(/floats without a pattern_start/);
   });
 
   it('rejects a sub-daily frequency without expanding it (no freeze over the probe)', () => {
     // FREQ=SECONDLY over the multi-year probe would materialize ~10^8 dates; the
     // guard must reject before expansion, even when an anchor is supplied.
-    expect(validatePattern('FREQ=SECONDLY', '2026-01-05')).not.toBeNull();
-    expect(validatePattern('FREQ=MINUTELY', undefined)).not.toBeNull();
+    expect(validatePattern('FREQ=SECONDLY', '2026-01-05')).toMatch(/sub-daily frequency/);
+    expect(validatePattern('FREQ=MINUTELY', undefined)).toMatch(/sub-daily frequency/);
   });
 
   it('rejects a bare recurring pattern that floats without an anchor', () => {
-    expect(validatePattern('FREQ=WEEKLY', undefined)).not.toBeNull();
-    expect(validatePattern('FREQ=MONTHLY', undefined)).not.toBeNull();
+    expect(validatePattern('FREQ=WEEKLY', undefined)).toMatch(/floats without a pattern_start/);
+    expect(validatePattern('FREQ=MONTHLY', undefined)).toMatch(/floats without a pattern_start/);
   });
 
   it('accepts an anchorless yearly pattern pinned by BYWEEKNO (week-number phase)', () => {
@@ -261,9 +269,25 @@ describe('validatePattern', () => {
     expect(validatePattern('FREQ=YEARLY;BYWEEKNO=1', undefined)).toBeNull();
   });
 
+  it('answers these distinct causes with distinct reasons (one shared message would pass a presence check)', () => {
+    // The reason is user-visible text, so it has to stay a function of what was
+    // actually wrong. Collapsing them onto one message satisfies every
+    // `not.toBeNull()` in this file while telling the author nothing.
+    const reasons = [
+      validatePattern('FREQ=SECONDLY', '2026-01-05'),
+      validatePattern('FREQ=DAILY;BYHOUR=12', undefined),
+      validatePattern('FREQ=DAILY;BYYEARDAY=400', undefined),
+      validatePattern('FREQ=DAILY;INTERVAL=0', undefined),
+      validatePattern('FREQ=WEEKLY', undefined),
+      validatePattern('FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=30', undefined),
+      validatePattern('not an rrule', undefined),
+    ];
+    expect(new Set(reasons).size).toBe(reasons.length);
+  });
+
   it('rejects an anchorless yearly pattern pinned only by BYMONTH (the day still floats)', () => {
     // BYMONTH fixes the month, but rrule derives the day from the anchor, so
     // shading would move with the window; it needs a day selector or an anchor.
-    expect(validatePattern('FREQ=YEARLY;BYMONTH=2', undefined)).not.toBeNull();
+    expect(validatePattern('FREQ=YEARLY;BYMONTH=2', undefined)).toMatch(/floats without a pattern_start/);
   });
 });

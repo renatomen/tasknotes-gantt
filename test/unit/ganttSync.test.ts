@@ -48,6 +48,7 @@ import { makeCalendarItemId, type CalendarOccupancy } from '../../src/datasource
 import type { RenderInstance, RenderLink } from '../../src/controller/InstanceExpansion';
 import type { PriorityColor, StatusColor } from '../../src/datasource/types';
 import type { TypedValue } from '../../src/bases/propertyValues';
+import type { CellRender } from '../../src/bases/cellRender';
 
 /** Minimal RenderInstance factory with sane defaults. */
 function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
@@ -1134,6 +1135,68 @@ describe('taskStateKey', () => {
     );
     expect(a.custom.dateStatus).not.toBe(b.custom.dateStatus);
     expect(taskStateKey(a)).toBe(taskStateKey(b));
+  });
+});
+
+describe('taskStateKey — per-field re-issue guards', () => {
+  // One guard per field named below — this block does not cover the whole fold.
+  // Each of these folds into the fingerprint but had no differs-guard: it could
+  // be dropped from taskStateKey with the whole suite still green. A dropped
+  // field means the diff-sync skips the update, so the bar keeps the previous
+  // value until an unrelated edit happens to move the row.
+  const baseTask = (): SvarTask => buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }))[0]!;
+  const withCustom = (over: Partial<SvarTask['custom']>): SvarTask => {
+    const t = baseTask();
+    return { ...t, custom: { ...t.custom, ...over } };
+  };
+
+  it('changes when the bar title changes', () => {
+    expect(taskStateKey(baseTask())).not.toBe(taskStateKey({ ...baseTask(), text: 'Renamed' }));
+  });
+
+  it('changes when a parent row expands or collapses', () => {
+    expect(taskStateKey({ ...baseTask(), open: true })).not.toBe(
+      taskStateKey({ ...baseTask(), open: false }),
+    );
+  });
+
+  it('changes when the dependency-marker flag flips', () => {
+    expect(taskStateKey(withCustom({ showHasDeps: true }))).not.toBe(
+      taskStateKey(withCustom({ showHasDeps: false })),
+    );
+  });
+
+  it('changes when a row becomes virtual', () => {
+    expect(taskStateKey(withCustom({ isVirtual: true }))).not.toBe(
+      taskStateKey(withCustom({ isVirtual: false })),
+    );
+  });
+
+  it('changes when a row is collapsed in place', () => {
+    expect(taskStateKey(withCustom({ isCollapsed: true }))).not.toBe(
+      taskStateKey(withCustom({ isCollapsed: false })),
+    );
+  });
+
+  it('changes when the occupancy envelope appears', () => {
+    expect(taskStateKey(withCustom({ occupancyEnvelope: true }))).not.toBe(
+      taskStateKey(withCustom({ occupancyEnvelope: undefined })),
+    );
+  });
+
+  it('changes when the recurring-occupancy flag flips', () => {
+    expect(taskStateKey(withCustom({ hasRecurringOccupancy: true }))).not.toBe(
+      taskStateKey(withCustom({ hasRecurringOccupancy: undefined })),
+    );
+  });
+
+  it('changes when a rendered cell descriptor changes', () => {
+    const renders = (source: string): Record<string, CellRender> => ({
+      'note.title': { mode: 'markdown', source },
+    });
+    expect(taskStateKey(withCustom({ cellRenders: renders('[[A]]') }))).not.toBe(
+      taskStateKey(withCustom({ cellRenders: renders('[[B]]') })),
+    );
   });
 });
 

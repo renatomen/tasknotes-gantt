@@ -66,14 +66,16 @@ function makeEnv(opts: {
   editModalThrows?: boolean;
 } = {}) {
   const present = opts.present !== false;
-  const openFile = jest.fn(() => Promise.resolve());
+  const openFile = jest.fn((_file: { path: string }) => Promise.resolve());
   const getLeaf = jest.fn((_mode?: unknown) => ({ openFile }));
-  const file = { path: 'tasks/a.md' };
-  const getAbstractFileByPath = jest.fn((_p: string) => file);
+  // Path-faithful on purpose: the vault answers with a file derived from the
+  // path it was asked for. A shared constant would collapse every path onto one
+  // object, leaving "opened the wrong note" indistinguishable downstream.
+  const getAbstractFileByPath = jest.fn((path: string) => ({ path }));
 
   const taskMenuShow = jest.fn();
   const tasksGet = jest.fn((path: string) => Promise.resolve({ path, title: 'A' }));
-  const openTaskEditModal = jest.fn(() => {
+  const openTaskEditModal = jest.fn((_task: unknown) => {
     if (opts.editModalThrows) throw new Error('modal boom');
     return undefined;
   });
@@ -114,6 +116,7 @@ describe('TaskNotesInteractions.handleActivate', () => {
     expect(env.getAbstractFileByPath).toHaveBeenCalledWith('tasks/a.md');
     expect(env.getLeaf).toHaveBeenCalledWith(false); // current tab
     expect(env.openFile).toHaveBeenCalledTimes(1);
+    expect(env.openFile).toHaveBeenCalledWith({ path: 'tasks/a.md' });
     expect(env.openTaskEditModal).not.toHaveBeenCalled();
   });
 
@@ -126,6 +129,7 @@ describe('TaskNotesInteractions.handleActivate', () => {
 
     expect(env.getLeaf).toHaveBeenCalledWith('tab'); // new tab
     expect(env.openFile).toHaveBeenCalledTimes(1);
+    expect(env.openFile).toHaveBeenCalledWith({ path: 'tasks/a.md' });
     expect(env.openTaskEditModal).not.toHaveBeenCalled();
   });
 
@@ -138,6 +142,7 @@ describe('TaskNotesInteractions.handleActivate', () => {
 
     expect(env.tasksGet).toHaveBeenCalledWith('tasks/a.md');
     expect(env.openTaskEditModal).toHaveBeenCalledTimes(1);
+    expect(env.openTaskEditModal).toHaveBeenCalledWith({ path: 'tasks/a.md', title: 'A' });
     expect(env.openFile).not.toHaveBeenCalled();
   });
 
@@ -149,6 +154,7 @@ describe('TaskNotesInteractions.handleActivate', () => {
     });
 
     expect(env.openTaskEditModal).toHaveBeenCalledTimes(1);
+    expect(env.openTaskEditModal).toHaveBeenCalledWith({ path: 'tasks/a.md', title: 'A' });
   });
 
   it('does nothing for a none action', async () => {
@@ -170,6 +176,7 @@ describe('TaskNotesInteractions.handleActivate', () => {
     });
 
     expect(env.openFile).toHaveBeenCalledTimes(1); // fell back
+    expect(env.openFile).toHaveBeenCalledWith({ path: 'tasks/a.md' });
   });
 
   it('falls back to opening the note when openTaskEditModal throws', async () => {
@@ -180,7 +187,9 @@ describe('TaskNotesInteractions.handleActivate', () => {
     });
 
     expect(env.openTaskEditModal).toHaveBeenCalledTimes(1);
+    expect(env.openTaskEditModal).toHaveBeenCalledWith({ path: 'tasks/a.md', title: 'A' });
     expect(env.openFile).toHaveBeenCalledTimes(1); // fell back after throw
+    expect(env.openFile).toHaveBeenCalledWith({ path: 'tasks/a.md' });
   });
 
   it('opens the note (never the modal) when TaskNotes is absent', async () => {
@@ -191,7 +200,35 @@ describe('TaskNotesInteractions.handleActivate', () => {
     });
 
     expect(env.openFile).toHaveBeenCalledTimes(1);
+    expect(env.openFile).toHaveBeenCalledWith({ path: 'tasks/a.md' });
     expect(env.openTaskEditModal).not.toHaveBeenCalled();
+  });
+
+  it('opens the note the clicked path resolves to, not a fixed one', async () => {
+    const env = makeEnv({ singleClickAction: 'openNote' });
+    const interactions = new TaskNotesInteractions(env.app);
+    const openedFor = async (path: string) => {
+      env.openFile.mockClear();
+      await interactions.handleActivate(path, { kind: 'single', ctrlOrMeta: false });
+      return env.openFile.mock.calls.at(-1)?.[0];
+    };
+    // Two distinguishing paths must reach two distinguishing notes. A handler
+    // that opened one fixed note would satisfy every count- and presence-check
+    // above, so this is the assertion that makes the note a function of input.
+    expect(await openedFor('tasks/a.md')).toEqual({ path: 'tasks/a.md' });
+    expect(await openedFor('tasks/b.md')).toEqual({ path: 'tasks/b.md' });
+  });
+
+  it('opens the edit modal for the clicked path, not a fixed task', async () => {
+    const env = makeEnv({ singleClickAction: 'edit' });
+    const interactions = new TaskNotesInteractions(env.app);
+    const editedFor = async (path: string) => {
+      env.openTaskEditModal.mockClear();
+      await interactions.handleActivate(path, { kind: 'single', ctrlOrMeta: false });
+      return env.openTaskEditModal.mock.calls.at(-1)?.[0];
+    };
+    expect(await editedFor('tasks/a.md')).toEqual({ path: 'tasks/a.md', title: 'A' });
+    expect(await editedFor('tasks/b.md')).toEqual({ path: 'tasks/b.md', title: 'A' });
   });
 });
 
