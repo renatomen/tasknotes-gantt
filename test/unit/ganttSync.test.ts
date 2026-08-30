@@ -1492,14 +1492,16 @@ describe('taskStateKey — composite sub-key components', () => {
    * SHORT-window folds together, because each collapses at least two of these
    * arrangements onto one key.
    *
-   * It is not a proof of injectivity, and must not be read as one. Two families
-   * still pass. A window at least as wide as the longest arrangement is the
-   * identity over a set that tops out at three elements, so a fourth element is
-   * wholly unpinned. And a NARROW window anchored at the tail that also folds
-   * the length survives — the mirror of the head-anchored fold `[a,b,b]` kills.
-   * Each is closed by one more arrangement, and each closure opens the next,
-   * which is exactly why only a generative check removes the class. That is an
-   * open decision, not something this file claims to have settled.
+   * It is not a proof of injectivity, and must not be read as one. The sample is
+   * finite, so any fold that happens to separate exactly these arrangements
+   * survives — a window at least as wide as the longest one, a narrow window
+   * anchored at the tail that also folds the length, and others. No count of
+   * them is given here on purpose: every revision of this comment that
+   * enumerated the survivors was wrong about how many there were, which is
+   * itself the argument. Each is closed by one more arrangement, and each
+   * closure opens the next, so only a generative check removes the class rather
+   * than moving its boundary. That is an open decision, not something this file
+   * claims to have settled.
    */
   const arrangementCollisions = <T>(
     [a, b, c]: [T, T, T],
@@ -1519,6 +1521,11 @@ describe('taskStateKey — composite sub-key components', () => {
       // the array length separates every other arrangement and still drops
       // later edits.
       ['[a,b,b]', [a, b, b]],
+      // Shares length and BOTH endpoints with [a,b,b], differing only in the
+      // middle: without it every length-3 case carries `b` at index 1, so
+      // interior content is constant across the sample and a fold reading only
+      // the length and the two ends passes while dropping the middle element.
+      ['[a,c,b]', [a, c, b]],
     ];
     const firstSeenBy = new Map<string, string>();
     const collisions: string[] = [];
