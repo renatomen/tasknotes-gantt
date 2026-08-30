@@ -96,8 +96,13 @@ and explicitly not the whole set.
 
 ## Governance test
 
-> **Can a new member appear without editing this rule?**
+> **Is a new member covered without editing this rule, or does a guard fail?**
 > If covering it requires editing the rule's text, it is a list, not a rule.
+
+Ask it that way round. "Can a new member appear?" is the wrong question, and a
+hand-maintained list passes it: the member appears in the code, the rule's text needs
+no edit, and the member is silently uncovered — the false-green the test exists to
+catch. Coverage, not appearance, is what the question has to be about.
 
 Apply it at spec time. A reviewer who finds an unnamed member has found a
 *specification-shape* defect, not a missing bullet.
