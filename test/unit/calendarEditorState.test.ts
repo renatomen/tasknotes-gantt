@@ -111,8 +111,8 @@ describe('fieldErrors — inline validation mirroring R26', () => {
   const base = formFromFrontmatter(CALENDAR);
 
   it('accepts a hex or a CSS3 name, flags anything else', () => {
-    expect(fieldErrors({ ...base, color: 'url(evil)' }).color).toBeDefined();
-    expect(fieldErrors({ ...base, color: 'notacolour' }).color).toBeDefined();
+    expect(fieldErrors({ ...base, color: 'url(evil)' }).color).toMatch(/CSS3 colour name or a hex/);
+    expect(fieldErrors({ ...base, color: 'notacolour' }).color).toMatch(/CSS3 colour name or a hex/);
     expect(fieldErrors({ ...base, color: 'cornflowerblue' }).color).toBeUndefined();
     expect(fieldErrors(base).color).toBeUndefined(); // base is a #hex
   });
@@ -123,16 +123,26 @@ describe('fieldErrors — inline validation mirroring R26', () => {
 
   it('flags an anchored pattern with no pattern_start', () => {
     const form = { ...base, pattern: 'FREQ=WEEKLY;COUNT=4', patternStart: '' };
-    expect(fieldErrors(form).patternStart).toBeDefined();
+    expect(fieldErrors(form).patternStart).toMatch(/needs a pattern_start anchor date/);
   });
 
   it('flags a malformed working-hours range', () => {
-    expect(fieldErrors({ ...base, workingHours: ['9-5'] }).workingHours).toBeDefined();
+    expect(fieldErrors({ ...base, workingHours: ['9-5'] }).workingHours).toMatch(
+      /Expected HH:MM-HH:MM/,
+    );
     expect(fieldErrors({ ...base, workingHours: ['09:00-17:00'] }).workingHours).toBeUndefined();
   });
 
   it('flags an unknown timezone but accepts a valid IANA name', () => {
-    expect(fieldErrors({ ...base, timezone: 'Mars/Olympus' }).timezone).toBeDefined();
+    // Two zones, because the message names the offending one back: with a single
+    // case a hardcoded 'Unknown IANA zone: Mars/Olympus' passes while every other
+    // bad zone reports the wrong name to the user.
+    expect(fieldErrors({ ...base, timezone: 'Mars/Olympus' }).timezone).toMatch(
+      /Unknown IANA zone: Mars\/Olympus/,
+    );
+    expect(fieldErrors({ ...base, timezone: 'Saturn/Titan' }).timezone).toMatch(
+      /Unknown IANA zone: Saturn\/Titan/,
+    );
     expect(fieldErrors({ ...base, timezone: 'Pacific/Auckland' }).timezone).toBeUndefined();
     expect(fieldErrors({ ...base, timezone: '' }).timezone).toBeUndefined();
   });
@@ -259,8 +269,12 @@ describe('Codex-found round-trip losses', () => {
 
   it('rejects a reversed or zero-length working-hours range', () => {
     const base = formFromFrontmatter(CALENDAR);
-    expect(fieldErrors({ ...base, workingHours: ['18:00-09:00'] }).workingHours).toBeDefined();
-    expect(fieldErrors({ ...base, workingHours: ['09:00-09:00'] }).workingHours).toBeDefined();
+    expect(fieldErrors({ ...base, workingHours: ['18:00-09:00'] }).workingHours).toMatch(
+      /start before end/,
+    );
+    expect(fieldErrors({ ...base, workingHours: ['09:00-09:00'] }).workingHours).toMatch(
+      /start before end/,
+    );
     expect(fieldErrors({ ...base, workingHours: ['09:00-17:00'] }).workingHours).toBeUndefined();
   });
 });
@@ -269,8 +283,12 @@ describe('Codex-found save-bad-data validation', () => {
   const base = formFromFrontmatter(CALENDAR);
 
   it('flags a dated entry with no date so an empty exception cannot be saved', () => {
-    expect(fieldErrors({ ...base, nonWorking: [{ date: '', name: 'x' }] }).dates).toBeDefined();
-    expect(fieldErrors({ ...base, events: [{ date: '', name: '' }] }).dates).toBeDefined();
+    expect(fieldErrors({ ...base, nonWorking: [{ date: '', name: 'x' }] }).dates).toMatch(
+      /Every entry needs a date/,
+    );
+    expect(fieldErrors({ ...base, events: [{ date: '', name: '' }] }).dates).toMatch(
+      /Every entry needs a date/,
+    );
     expect(fieldErrors(base).dates).toBeUndefined();
   });
 
@@ -281,12 +299,13 @@ describe('Codex-found save-bad-data validation', () => {
 
   it('flags a set member that is empty or not a wikilink', () => {
     const set = formFromFrontmatter({ tngantt: 'calendar-set', calendars: ['[[A]]'] });
-    expect(fieldErrors({ ...set, members: ['[[A]]', ''] }).members).toBeDefined();
-    expect(fieldErrors({ ...set, members: ['plain text'] }).members).toBeDefined();
+    expect(fieldErrors({ ...set, members: ['[[A]]', ''] }).members).toMatch(/\[\[wikilink\]\]/);
+    expect(fieldErrors({ ...set, members: ['plain text'] }).members).toMatch(/\[\[wikilink\]\]/);
     expect(fieldErrors({ ...set, members: ['[[A]]', '[[B]]'] }).members).toBeUndefined();
   });
 
   it('does not flag members on a plain calendar', () => {
     expect(fieldErrors(base).members).toBeUndefined();
   });
+
 });

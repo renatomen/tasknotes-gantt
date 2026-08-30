@@ -48,6 +48,10 @@ import { makeCalendarItemId, type CalendarOccupancy } from '../../src/datasource
 import type { RenderInstance, RenderLink } from '../../src/controller/InstanceExpansion';
 import type { PriorityColor, StatusColor } from '../../src/datasource/types';
 import type { TypedValue } from '../../src/bases/propertyValues';
+import type { CellRender } from '../../src/bases/cellRender';
+import type { IncomingDep } from '../../src/bases/dependencyTooltip';
+import type { IconSpec } from '../../src/bases/barTreatment';
+import type { OccupancyRunSpan } from '../../src/render/segmentLayout';
 
 /** Minimal RenderInstance factory with sane defaults. */
 function inst(over: Partial<RenderInstance> & { id: string }): RenderInstance {
@@ -1134,6 +1138,558 @@ describe('taskStateKey', () => {
     );
     expect(a.custom.dateStatus).not.toBe(b.custom.dateStatus);
     expect(taskStateKey(a)).toBe(taskStateKey(b));
+  });
+});
+
+/**
+ * Every field of a task, and what perturbing it must do to the fingerprint.
+ *
+ * The member lists are `Record<keyof …>`, so adding a field to `SvarTask` or to
+ * its `custom` bag does not compile until a decision is recorded here. That is
+ * the property a hand-written list of guards cannot have: a list simply omits a
+ * field and nothing fails — which is how `end` came to be droppable from the
+ * fold with the whole suite green.
+ *
+ * That completeness is carried by `npm run typecheck`, NOT by this suite: the
+ * jest transform strips types without checking them, so a green `npx jest` is
+ * never evidence the census is complete.
+ *
+ * Bounded honestly: the members derive from the `SvarTask` TYPE, so this cannot
+ * see a value the fingerprint reads off some other object; `changes` verifies
+ * only that the named perturbation moves the key, not that the key encodes the
+ * field faithfully; and a composite field is perturbed into EXISTENCE, so the
+ * key moves on presence alone and NOTHING here requires a component inside it
+ * to reach the key.
+ *
+ * Component-level cover is a separate question this census does not answer.
+ * Some composites have a sub-key census below; which ones is not enumerated
+ * here, because a list of them would be exactly the hand-maintained member list
+ * this census exists to replace — it would go stale the first time a composite
+ * was added without editing it. Read the censuses, not a summary of them.
+ */
+type FieldCensus<T> =
+  | { effect: 'changes'; perturb: (t: T) => T }
+  | { effect: 'ignored'; why: string; perturb: (t: T) => T };
+
+/** The keys on which two objects hold different values, including absent-vs-set. */
+const differingKeys = <T extends object>(a: T, b: T): string[] =>
+  [...new Set([...Object.keys(a), ...Object.keys(b)])]
+    .filter((k) => a[k as keyof T] !== b[k as keyof T])
+    .sort();
+
+describe('taskStateKey — folded-field census', () => {
+  const baseTask = (): SvarTask => buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }))[0]!;
+  const withCustom =
+    (over: Partial<SvarTask['custom']>) =>
+    (t: SvarTask): SvarTask => ({ ...t, custom: { ...t.custom, ...over } });
+
+  // `custom` is excluded from the key set, not recorded as an exempt entry: it is
+  // delegated to CUSTOM by construction, so no field can opt out of an assertion
+  // by declaring itself covered elsewhere.
+  const TOP_LEVEL: Record<Exclude<keyof SvarTask, 'custom'>, FieldCensus<SvarTask>> = {
+    id: {
+      effect: 'ignored',
+      why: 'the diff keys ON id — a different id is a different row, not a changed one',
+      perturb: (t) => ({ ...t, id: 'other' }),
+    },
+    text: { effect: 'changes', perturb: (t) => ({ ...t, text: `${t.text} renamed` }) },
+    start: { effect: 'changes', perturb: (t) => ({ ...t, start: new Date(2030, 0, 1) }) },
+    end: { effect: 'changes', perturb: (t) => ({ ...t, end: new Date(2030, 0, 2) }) },
+    progress: { effect: 'changes', perturb: (t) => ({ ...t, progress: t.progress + 10 }) },
+    type: { effect: 'changes', perturb: (t) => ({ ...t, type: `${t.type} extra` }) },
+    parent: { effect: 'changes', perturb: (t) => ({ ...t, parent: 'other-parent' }) },
+    open: { effect: 'changes', perturb: (t) => ({ ...t, open: !(t.open ?? false) }) },
+  };
+
+  const CUSTOM: Record<keyof SvarTask['custom'], FieldCensus<SvarTask>> = {
+    isVirtual: { effect: 'changes', perturb: withCustom({ isVirtual: true }) },
+    isCollapsed: { effect: 'changes', perturb: withCustom({ isCollapsed: true }) },
+    showHasDeps: { effect: 'changes', perturb: withCustom({ showHasDeps: true }) },
+    editable: { effect: 'changes', perturb: withCustom({ editable: true }) },
+    dateStatusToken: {
+      effect: 'changes',
+      perturb: withCustom({ dateStatusToken: ZIGZAG_START }),
+    },
+    barIcon: {
+      effect: 'changes',
+      perturb: withCustom({ barIcon: { kind: 'status', color: '#c0392b' } }),
+    },
+    properties: {
+      effect: 'changes',
+      perturb: withCustom({ properties: { 'note.status': { kind: 'text', value: 'wip' } } }),
+    },
+    cellRenders: {
+      effect: 'changes',
+      perturb: withCustom({ cellRenders: { 'note.title': { mode: 'markdown', source: '[[A]]' } } }),
+    },
+    ghostRuns: {
+      effect: 'changes',
+      perturb: withCustom({ ghostRuns: [{ startDate: '2026-04-14', days: 1 }] }),
+    },
+    occupancyRuns: {
+      effect: 'changes',
+      perturb: withCustom({ occupancyRuns: [{ startDate: '2026-04-14', days: 1 }] }),
+    },
+    occupancyEnvelope: { effect: 'changes', perturb: withCustom({ occupancyEnvelope: true }) },
+    hasRecurringOccupancy: {
+      effect: 'changes',
+      perturb: withCustom({ hasRecurringOccupancy: true }),
+    },
+    calendarItemColor: {
+      effect: 'changes',
+      perturb: withCustom({ calendarItemColor: '#2980b9' }),
+    },
+    interpretationOverridden: {
+      effect: 'changes',
+      perturb: withCustom({ interpretationOverridden: 'working-days' }),
+    },
+    incomingDeps: {
+      effect: 'changes',
+      perturb: withCustom({
+        incomingDeps: [
+          { reltype: 'FINISHTOSTART', gap: null, predecessorName: 'P', linkId: 'l1' },
+        ],
+      }),
+    },
+    sourceTaskId: {
+      effect: 'ignored',
+      why: 'row provenance, not rendered content',
+      perturb: withCustom({ sourceTaskId: 'other.md' }),
+    },
+    dateStatus: {
+      effect: 'ignored',
+      why: 'it rides custom for the view filter; folding it would inflate the SVAR diff',
+      perturb: withCustom({ dateStatus: 'placeholder' }),
+    },
+    isReplicated: {
+      effect: 'ignored',
+      why: 'reaches the fingerprint through the composed bar `type`, not on its own',
+      perturb: withCustom({ isReplicated: true }),
+    },
+    isContext: {
+      effect: 'ignored',
+      why: 'reaches the fingerprint through the composed bar `type`, not on its own',
+      perturb: withCustom({ isContext: true }),
+    },
+    isTopLevelPlacement: {
+      effect: 'ignored',
+      // CHARACTERIZATION, NOT A DESIGN CHOICE — this records a defect.
+      // `shouldHideRow` reads this flag off the SVAR store, and the duplicate
+      // top-level copy shares its id with the genuine root it replaces
+      // (`InstanceExpansion`: both build the instance with `id = task.path`,
+      // one with the flag true and one with it defaulted false). So a note that
+      // gains a parent keeps its row id, flips the flag, and — because the
+      // fingerprint does not fold it — is never re-issued: under Hide-top the
+      // duplicate root stays visible. Folding it is a src change and is out of
+      // this test-only branch's scope; raised for triage instead.
+      why: 'NOT folded today, and that is a defect rather than a decision',
+      perturb: withCustom({ isTopLevelPlacement: true }),
+    },
+    calendarItemFamily: {
+      effect: 'ignored',
+      why: 'the family is embedded in the row synthetic id, which the diff keys on',
+      perturb: withCustom({ calendarItemFamily: 'recurring-instance' }),
+    },
+    stretchFlagged: {
+      effect: 'ignored',
+      why: 'echo provenance for geometry write-back, not painted state',
+      perturb: withCustom({ stretchFlagged: true }),
+    },
+  };
+
+  // Namespaced rather than merged: `{ ...TOP_LEVEL, ...CUSTOM }` keys on the bare
+  // field name, so a `custom` member sharing a name with a top-level one would
+  // overwrite it — both halves still satisfy their own `Record`, and the
+  // overwritten field's guard disappears with nothing failing.
+  const namespaced = (
+    prefix: string,
+    record: Record<string, FieldCensus<SvarTask>>,
+  ): Array<[string, FieldCensus<SvarTask>]> =>
+    Object.entries(record).map(([field, entry]) => [`${prefix}.${field}`, entry]);
+
+  const census = [...namespaced('task', TOP_LEVEL), ...namespaced('custom', CUSTOM)];
+
+  const withEffect =
+    <E extends FieldCensus<SvarTask>['effect']>(effect: E) =>
+    (
+      entry: [string, FieldCensus<SvarTask>],
+    ): entry is [string, Extract<FieldCensus<SvarTask>, { effect: E }>] =>
+      entry[1].effect === effect;
+
+  // Falsifiable, unlike a count of the census against itself: a third effect
+  // added to `FieldCensus` runs no assertion, so its members would vanish from
+  // both blocks below. That is how `delegated` once let a field opt out.
+  it('runs every census entry through one of the two effects', () => {
+    const covered =
+      census.filter(withEffect('changes')).length + census.filter(withEffect('ignored')).length;
+    expect(covered).toBe(census.length);
+  });
+
+  it.each(census.filter(withEffect('changes')))(
+    're-issues the row when %s changes',
+    (_field, entry) => {
+      expect(taskStateKey(entry.perturb(baseTask()))).not.toBe(taskStateKey(baseTask()));
+    },
+  );
+
+  it.each(census.filter(withEffect('ignored')))(
+    'leaves the fingerprint alone when %s changes',
+    (_field, entry) => {
+      expect(taskStateKey(entry.perturb(baseTask()))).toBe(taskStateKey(baseTask()));
+    },
+  );
+
+  // Every `changes` entry above perturbs its field from the BASE task, and the
+  // base leaves the optional fields unset — so those cases prove the fingerprint
+  // reacts to a field APPEARING, which a presence-only fold (`x !== undefined`)
+  // satisfies without folding the value. These pin value-to-value for the
+  // optional scalars, where a presence-only fold is both plausible and painted:
+  // a calendar colour edited from one valid colour to another, with the title
+  // and dates unchanged, must still re-issue the row.
+  const VALUE_CHANGES: ReadonlyArray<
+    readonly [keyof SvarTask['custom'], Partial<SvarTask['custom']>, Partial<SvarTask['custom']>]
+  > = [
+    ['calendarItemColor', { calendarItemColor: '#2980b9' }, { calendarItemColor: '#c0392b' }],
+    [
+      'dateStatusToken',
+      { dateStatusToken: DATE_STATUS_STATE_CLASS_TOKENS['inferred-start'] },
+      { dateStatusToken: DATE_STATUS_STATE_CLASS_TOKENS['inferred-end'] },
+    ],
+  ];
+
+  it.each(VALUE_CHANGES)(
+    're-issues the row when %s changes from one value to another',
+    (field, before, after) => {
+      expect(differingKeys(before, after)).toEqual([field]);
+      expect(taskStateKey(withCustom(before)(baseTask()))).not.toBe(
+        taskStateKey(withCustom(after)(baseTask())),
+      );
+    },
+  );
+
+  // `open` is a top-level field with the same shape of gap: the census perturbs
+  // it from ABSENT, so a presence-only fold satisfies that case while collapsing
+  // an expanded parent onto a collapsed one, and a refresh that only toggles the
+  // twisty would emit no update-task.
+  it('re-issues the row when a parent collapses, not only when it first gains a state', () => {
+    expect(taskStateKey({ ...baseTask(), open: true })).not.toBe(
+      taskStateKey({ ...baseTask(), open: false }),
+    );
+  });
+});
+
+describe('taskStateKey — cell-render modes', () => {
+  const withRenders = (cellRenders: Record<string, CellRender>): SvarTask => {
+    const t = buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }))[0]!;
+    return { ...t, custom: { ...t.custom, cellRenders } };
+  };
+
+  // Every descriptor mode must reach the key. `propertiesKey` deliberately folds
+  // the locale-INDEPENDENT canonical value, so the rendered text is the only
+  // thing that re-issues a row when what the cell displays moves. Keyed on
+  // `CellRender['mode']`, so a third mode does not compile until it is paired
+  // here — a hand-written pair would simply not mention it.
+  const MODES: Record<CellRender['mode'], [CellRender, CellRender]> = {
+    markdown: [
+      { mode: 'markdown', source: '[[A]]' },
+      { mode: 'markdown', source: '[[B]]' },
+    ],
+    text: [
+      { mode: 'text', text: '1 Jan 2026' },
+      { mode: 'text', text: '2 Jan 2026' },
+    ],
+  };
+
+  it.each(Object.entries(MODES))(
+    're-issues the row when a %s cell body changes',
+    (mode, [before, after]) => {
+      // Both members must BE the mode the case is named for: a pair edited to
+      // vary the mode instead would still move the key while testing neither.
+      expect([before.mode, after.mode]).toEqual([mode, mode]);
+      expect(taskStateKey(withRenders({ t: before }))).not.toBe(
+        taskStateKey(withRenders({ t: after })),
+      );
+    },
+  );
+
+  // Pinning each pair to one mode (above) means nothing here requires the mode
+  // DISCRIMINATOR to reach the key. Same body, different mode: a cell that
+  // stops rendering `*A*` as markdown and starts showing it literally must
+  // re-issue the row, and a key built from the body alone collides.
+  it('re-issues the row when a cell keeps its body and changes mode', () => {
+    expect(taskStateKey(withRenders({ t: { mode: 'text', text: '*A*' } }))).not.toBe(
+      taskStateKey(withRenders({ t: { mode: 'markdown', source: '*A*' } })),
+    );
+  });
+
+  // Every case above renders ONE column, so a key that folds a single column
+  // satisfies them all. Two columns, edited one at a time, separate a first-only
+  // fold from a last-only one. The markdown pair matters most: `[[A|Owner]]` and
+  // `[[B|Owner]]` display the same text, so the canonical property value is
+  // unchanged and only the rendered link moves.
+  const OWNER: CellRender = { mode: 'text', text: 'Owner' };
+  const LINK: CellRender = { mode: 'markdown', source: '[[A|Owner]]' };
+
+  it('re-issues the row when the first of two columns changes', () => {
+    expect(taskStateKey(withRenders({ a: OWNER, b: LINK }))).not.toBe(
+      taskStateKey(withRenders({ a: { mode: 'text', text: 'Maintainer' }, b: LINK })),
+    );
+  });
+
+  it('re-issues the row when the second of two columns changes', () => {
+    expect(taskStateKey(withRenders({ a: OWNER, b: LINK }))).not.toBe(
+      taskStateKey(withRenders({ a: OWNER, b: { mode: 'markdown', source: '[[B|Owner]]' } })),
+    );
+  });
+});
+
+/**
+ * The components INSIDE the composite sub-keys, and what perturbing each must do.
+ *
+ * The field census above gives a composite field a value where the base task had
+ * none, so the key moves on presence alone and no component is required to reach
+ * it. Measured, not assumed: dropping `days` from `ghostRunsKey` and
+ * `predecessorName` + `reltype` from `incomingDepsKey` left the whole suite
+ * green. Every member list is keyed on the component TYPE, so a new member of
+ * any of these shapes does not compile until a decision is recorded here.
+ *
+ * A `Record<keyof Shape, [Shape, Shape]>` forces one pair per component but not
+ * that the pair differs IN that component — a pair edited to vary something else
+ * would still move the key and stay green while its named component became
+ * droppable again. So each case asserts its own isolation first: the two members
+ * must differ in exactly the component the case is named for.
+ *
+ * Same bound as the field census: this proves the component reaches the key, not
+ * that the key encodes it faithfully.
+ */
+describe('taskStateKey — composite sub-key components', () => {
+  const baseTask = (): SvarTask => buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }))[0]!;
+  const withCustom =
+    (over: Partial<SvarTask['custom']>) =>
+    (t: SvarTask): SvarTask => ({ ...t, custom: { ...t.custom, ...over } });
+
+  /** Asserts the pair isolates `component`, then that the component reaches the key. */
+  const expectComponentFolded = <T extends object>(
+    component: string,
+    [before, after]: [T, T],
+    fold: (value: T) => SvarTask,
+  ): void => {
+    expect(differingKeys(before, after)).toEqual([component]);
+    expect(taskStateKey(fold(before))).not.toBe(taskStateKey(fold(after)));
+  };
+
+  /**
+   * Distinct arrangements of the same elements must fingerprint distinctly.
+   *
+   * Enumerated positional cases cannot settle this. For any finite set of them
+   * there is a projection that satisfies exactly those cases and drops the rest:
+   * an earlier revision closed "reads only element 0" by moving the perturbed
+   * element to the tail, which relocated the blind spot to "reads only the last
+   * element" rather than removing it. Moving it to the middle would relocate it
+   * again.
+   *
+   * One assertion therefore kills head-only, tail-only, de-duplicating and
+   * SHORT-window folds together, because each collapses at least two of these
+   * arrangements onto one key.
+   *
+   * It is not a proof of injectivity, and must not be read as one. The sample is
+   * finite, so any fold that happens to separate exactly these arrangements
+   * survives — a window at least as wide as the longest one, a narrow window
+   * anchored at the tail that also folds the length, and others. No count of
+   * them is given here on purpose: every revision of this comment that
+   * enumerated the survivors was wrong about how many there were, which is
+   * itself the argument. Each is closed by one more arrangement, and each
+   * closure opens the next, so only a generative check removes the class rather
+   * than moving its boundary. That is an open decision, not something this file
+   * claims to have settled.
+   */
+  const arrangementCollisions = <T>(
+    [a, b, c]: [T, T, T],
+    fold: (values: T[]) => SvarTask,
+  ): string[] => {
+    const arrangements: ReadonlyArray<readonly [string, T[]]> = [
+      ['[a]', [a]],
+      ['[b]', [b]],
+      ['[a,b]', [a, b]],
+      ['[b,a]', [b, a]],
+      ['[a,a]', [a, a]],
+      ['[a,c]', [a, c]],
+      ['[a,b,c]', [a, b, c]],
+      ['[c,b,a]', [c, b, a]],
+      // Same length AND same first two elements as [a,b,c], differing only at
+      // the last: without this pair a fold reading the first two elements plus
+      // the array length separates every other arrangement and still drops
+      // later edits.
+      ['[a,b,b]', [a, b, b]],
+      // Shares length and BOTH endpoints with [a,b,b], differing only in the
+      // middle: without it every length-3 case carries `b` at index 1, so
+      // interior content is constant across the sample and a fold reading only
+      // the length and the two ends passes while dropping the middle element.
+      ['[a,c,b]', [a, c, b]],
+    ];
+    const firstSeenBy = new Map<string, string>();
+    const collisions: string[] = [];
+    for (const [name, values] of arrangements) {
+      const key = taskStateKey(fold(values));
+      const seen = firstSeenBy.get(key);
+      if (seen === undefined) firstSeenBy.set(key, name);
+      else collisions.push(`${seen} === ${name}`);
+    }
+    return collisions;
+  };
+
+  // Every array-valued composite folds the perturbed element SECOND, behind a
+  // fixed leading element, so a component case also proves the fold reaches past
+  // the first element. Position beyond that is the arrangement check's job.
+  type GhostRun = NonNullable<SvarTask['custom']['ghostRuns']>[number];
+
+  const LEADING_GHOST_RUN: GhostRun = { startDate: '2026-01-02', days: 5 };
+  const LEADING_OCCUPANCY_RUN: OccupancyRunSpan = { startDate: '2026-01-02', days: 5 };
+  const LEADING_DEP: IncomingDep = {
+    reltype: 'FINISHTOFINISH',
+    gap: null,
+    predecessorName: 'Other',
+    linkId: 'l9',
+  };
+
+  const GHOST_RUN: Record<keyof GhostRun, [GhostRun, GhostRun]> = {
+    startDate: [
+      { startDate: '2026-04-14', days: 2 },
+      { startDate: '2026-04-15', days: 2 },
+    ],
+    // A holiday that lengthens in place moves nothing else: without this the bar
+    // keeps painting the old run until an unrelated edit re-issues the row.
+    days: [
+      { startDate: '2026-04-14', days: 2 },
+      { startDate: '2026-04-14', days: 3 },
+    ],
+  };
+
+  it.each(Object.entries(GHOST_RUN))(
+    're-issues the row when a ghost run %s changes',
+    (component, pair) => {
+      expectComponentFolded(component, pair, (span) =>
+        withCustom({ ghostRuns: [LEADING_GHOST_RUN, span] })(baseTask()),
+      );
+    },
+  );
+
+  it('gives each sampled ghost-run arrangement a distinct fingerprint', () => {
+    const collisions = arrangementCollisions(
+      [
+        { startDate: '2026-04-14', days: 1 },
+        { startDate: '2026-04-20', days: 3 },
+        { startDate: '2026-05-02', days: 2 },
+      ],
+      (runs) => withCustom({ ghostRuns: runs })(baseTask()),
+    );
+    expect(collisions).toEqual([]);
+  });
+
+  const run = (over: Partial<OccupancyRunSpan>): OccupancyRunSpan => ({
+    startDate: '2026-04-14',
+    days: 2,
+    ...over,
+  });
+
+  const OCCUPANCY_RUN: Record<keyof OccupancyRunSpan, [OccupancyRunSpan, OccupancyRunSpan]> = {
+    startDate: [run({ startDate: '2026-04-14' }), run({ startDate: '2026-04-15' })],
+    days: [run({ days: 2 }), run({ days: 3 })],
+    stateClass: [run({ stateClass: 'projected' }), run({ stateClass: 'completed' })],
+    // A materialized occurrence's backing note decides where a piece click lands;
+    // without this the piece keeps opening the note it used to point at.
+    notePath: [run({ notePath: 'a.md' }), run({ notePath: 'b.md' })],
+  };
+
+  it.each(Object.entries(OCCUPANCY_RUN))(
+    're-issues the row when an occupancy run %s changes',
+    (component, pair) => {
+      expectComponentFolded(component, pair, (span) =>
+        withCustom({ occupancyRuns: [LEADING_OCCUPANCY_RUN, span] })(baseTask()),
+      );
+    },
+  );
+
+  // Overlapping runs resolve last-write-wins, so the later one decides the
+  // painted state and the click target: any fold that loses position or count
+  // leaves the row un-reissued with stale paint.
+  it('gives each sampled occupancy-run arrangement a distinct fingerprint', () => {
+    const collisions = arrangementCollisions(
+      [
+        run({ startDate: '2026-04-14', stateClass: 'projected' }),
+        run({ startDate: '2026-04-14', stateClass: 'materialized', notePath: 'b.md' }),
+        run({ startDate: '2026-04-16', days: 3, stateClass: 'completed' }),
+      ],
+      (spans) => withCustom({ occupancyRuns: spans })(baseTask()),
+    );
+    expect(collisions).toEqual([]);
+  });
+
+  const icon = (over: Partial<IconSpec>): IconSpec => ({
+    kind: 'status',
+    color: '#c0392b',
+    ...over,
+  });
+
+  const BAR_ICON: Record<keyof IconSpec, [IconSpec, IconSpec]> = {
+    kind: [icon({ kind: 'status' }), icon({ kind: 'priority' })],
+    // A status keeping its kind and completion while its configured glyph or
+    // colour changes: without these the row keeps rendering the old chip.
+    iconName: [icon({ iconName: 'circle' }), icon({ iconName: 'square' })],
+    color: [icon({ color: '#c0392b' }), icon({ color: '#2980b9' })],
+    completed: [icon({ completed: true }), icon({ completed: undefined })],
+  };
+
+  it.each(Object.entries(BAR_ICON))(
+    're-issues the row when a bar icon %s changes',
+    (component, pair) => {
+      expectComponentFolded(component, pair, (spec) =>
+        withCustom({ barIcon: spec })(baseTask()),
+      );
+    },
+  );
+
+  const dep = (over: Partial<IncomingDep>): IncomingDep => ({
+    reltype: 'FINISHTOSTART',
+    gap: null,
+    predecessorName: 'P',
+    linkId: 'l1',
+    ...over,
+  });
+
+  const INCOMING_DEP: Record<keyof IncomingDep, [IncomingDep, IncomingDep]> = {
+    reltype: [dep({ reltype: 'FINISHTOSTART' }), dep({ reltype: 'STARTTOSTART' })],
+    // Value-to-value, not null-to-present: the tooltip paints the lag itself, so
+    // a presence-only fold would leave `+1d` rendered after an edit to `+2d`.
+    gap: [dep({ gap: 'P1D' }), dep({ gap: 'P2D' })],
+    // Renaming a predecessor changes only the tooltip's wording; without this the
+    // blocked row keeps showing the old name.
+    predecessorName: [
+      dep({ predecessorName: 'Draft docs' }),
+      dep({ predecessorName: 'Draft specs' }),
+    ],
+    linkId: [dep({ linkId: 'l1' }), dep({ linkId: 'l2' })],
+  };
+
+  it.each(Object.entries(INCOMING_DEP))(
+    're-issues the row when an incoming dependency %s changes',
+    (component, pair) => {
+      expectComponentFolded(component, pair, (edge) =>
+        withCustom({ incomingDeps: [LEADING_DEP, edge] })(baseTask()),
+      );
+    },
+  );
+
+  it('gives each sampled incoming-dependency arrangement a distinct fingerprint', () => {
+    const collisions = arrangementCollisions(
+      [
+        dep({ linkId: 'l1', predecessorName: 'Draft docs' }),
+        dep({ linkId: 'l2', predecessorName: 'Draft specs' }),
+        dep({ linkId: 'l3', reltype: 'STARTTOSTART', gap: 'P2D' }),
+      ],
+      (edges) => withCustom({ incomingDeps: edges })(baseTask()),
+    );
+    expect(collisions).toEqual([]);
   });
 });
 
