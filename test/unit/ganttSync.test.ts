@@ -1493,11 +1493,11 @@ describe('taskStateKey — composite sub-key components', () => {
    * arrangements onto one key.
    *
    * It is not a proof of injectivity, and must not be read as one: the set tops
-   * out at three elements, so a window as wide as the longest arrangement — or
-   * one that also folds the length — still passes, and a fourth element remains
-   * unpinned. A ninth arrangement would close that and reopen the next length,
-   * which is the relocation this replaced. Only a generative check removes the
-   * class; that is an open decision, not something this file claims to have.
+   * out at three elements, so a window at least that wide is the identity over
+   * it and passes, and a fourth element is wholly unpinned. Widening the set
+   * again would only move that boundary out by one. Only a generative check
+   * removes the class; that is an open decision, not something this file claims
+   * to have.
    */
   const arrangementCollisions = <T>(
     [a, b, c]: [T, T, T],
@@ -1512,6 +1512,11 @@ describe('taskStateKey — composite sub-key components', () => {
       ['[a,c]', [a, c]],
       ['[a,b,c]', [a, b, c]],
       ['[c,b,a]', [c, b, a]],
+      // Same length AND same first two elements as [a,b,c], differing only at
+      // the last: without this pair a fold reading the first two elements plus
+      // the array length separates every other arrangement and still drops
+      // later edits.
+      ['[a,b,b]', [a, b, b]],
     ];
     const firstSeenBy = new Map<string, string>();
     const collisions: string[] = [];
