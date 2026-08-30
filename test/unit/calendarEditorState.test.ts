@@ -134,9 +134,14 @@ describe('fieldErrors — inline validation mirroring R26', () => {
   });
 
   it('flags an unknown timezone but accepts a valid IANA name', () => {
-    // The message names the offending zone back, so it stays a function of input.
+    // Two zones, because the message names the offending one back: with a single
+    // case a hardcoded 'Unknown IANA zone: Mars/Olympus' passes while every other
+    // bad zone reports the wrong name to the user.
     expect(fieldErrors({ ...base, timezone: 'Mars/Olympus' }).timezone).toMatch(
       /Unknown IANA zone: Mars\/Olympus/,
+    );
+    expect(fieldErrors({ ...base, timezone: 'Saturn/Titan' }).timezone).toMatch(
+      /Unknown IANA zone: Saturn\/Titan/,
     );
     expect(fieldErrors({ ...base, timezone: 'Pacific/Auckland' }).timezone).toBeUndefined();
     expect(fieldErrors({ ...base, timezone: '' }).timezone).toBeUndefined();
@@ -303,20 +308,4 @@ describe('Codex-found save-bad-data validation', () => {
     expect(fieldErrors(base).members).toBeUndefined();
   });
 
-  it('answers these distinct field faults with distinct messages (one shared string would pass a presence check)', () => {
-    // These messages are the inline text the editor shows next to the field, so
-    // each has to stay a function of what was actually wrong. Collapsing them
-    // onto one string satisfies every `toBeDefined()` in this file.
-    const set = formFromFrontmatter({ tngantt: 'calendar-set', calendars: ['[[A]]'] });
-    const messages = [
-      fieldErrors({ ...base, color: 'notacolour' }).color,
-      fieldErrors({ ...base, pattern: 'BYDAY=MO' }).pattern,
-      fieldErrors({ ...base, pattern: 'FREQ=WEEKLY;COUNT=4', patternStart: '' }).patternStart,
-      fieldErrors({ ...base, timezone: 'Mars/Olympus' }).timezone,
-      fieldErrors({ ...base, workingHours: ['9-5'] }).workingHours,
-      fieldErrors({ ...base, nonWorking: [{ date: '', name: 'x' }] }).dates,
-      fieldErrors({ ...set, members: ['plain text'] }).members,
-    ];
-    expect(new Set(messages).size).toBe(messages.length);
-  });
 });

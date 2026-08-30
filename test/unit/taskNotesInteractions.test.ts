@@ -64,6 +64,10 @@ function makeEnv(opts: {
   doubleClickAction?: string;
   hasEditModal?: boolean;
   editModalThrows?: boolean;
+  /** Paths the vault reports as absent — a deleted or renamed note. */
+  missingPaths?: string[];
+  /** TaskNotes tracks no task for this path (an unmanaged note). */
+  taskMissing?: boolean;
 } = {}) {
   const present = opts.present !== false;
   const openFile = jest.fn((_file: { path: string }) => Promise.resolve());
@@ -81,7 +85,13 @@ function makeEnv(opts: {
     files.set(path, created);
     return created;
   };
-  const getAbstractFileByPath = jest.fn((path: string) => fileFor(path));
+  // Real `getAbstractFileByPath` returns null for a path with no file, so the
+  // double has to be able to as well — otherwise the module's not-found guard is
+  // unreachable and deleting it stays green.
+  const missing = new Set(opts.missingPaths ?? []);
+  const getAbstractFileByPath = jest.fn((path: string) =>
+    missing.has(path) ? null : fileFor(path),
+  );
 
   const taskMenuShow = jest.fn();
   // Same reasoning for the TaskInfo the edit modal receives: the real object
@@ -94,7 +104,9 @@ function makeEnv(opts: {
     tasks.set(path, created);
     return created;
   };
-  const tasksGet = jest.fn((path: string) => Promise.resolve(taskFor(path)));
+  const tasksGet = jest.fn((path: string) =>
+    Promise.resolve(opts.taskMissing ? undefined : taskFor(path)),
+  );
   const openTaskEditModal = jest.fn((_task: unknown) => {
     if (opts.editModalThrows) throw new Error('modal boom');
     return undefined;
@@ -236,6 +248,31 @@ describe('TaskNotesInteractions.handleActivate', () => {
     expect(env.openFile).toHaveBeenCalledTimes(1);
     expect(env.openedNote()).toBe(env.fileFor('tasks/a.md'));
     expect(env.openTaskEditModal).not.toHaveBeenCalled();
+  });
+
+  it('opens nothing when the clicked note no longer exists', async () => {
+    const env = makeEnv({ singleClickAction: 'openNote', missingPaths: ['tasks/gone.md'] });
+    await new TaskNotesInteractions(env.app).handleActivate('tasks/gone.md', {
+      kind: 'single',
+      ctrlOrMeta: false,
+    });
+
+    // Without the not-found guard this reaches openFile(null): the user gets an
+    // empty tab and the throw is swallowed by the surrounding catch.
+    expect(env.getAbstractFileByPath).toHaveBeenCalledWith('tasks/gone.md');
+    expect(env.getLeaf).not.toHaveBeenCalled();
+    expect(env.openFile).not.toHaveBeenCalled();
+  });
+
+  it('falls back to opening the note when TaskNotes tracks no task for the path', async () => {
+    const env = makeEnv({ singleClickAction: 'edit', taskMissing: true });
+    await new TaskNotesInteractions(env.app).handleActivate('tasks/a.md', {
+      kind: 'single',
+      ctrlOrMeta: false,
+    });
+
+    expect(env.openTaskEditModal).not.toHaveBeenCalled();
+    expect(env.openedNote()).toBe(env.fileFor('tasks/a.md'));
   });
 
   it('opens the note the clicked path resolves to, not a fixed one', async () => {

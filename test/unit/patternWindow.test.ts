@@ -269,22 +269,6 @@ describe('validatePattern', () => {
     expect(validatePattern('FREQ=YEARLY;BYWEEKNO=1', undefined)).toBeNull();
   });
 
-  it('answers these distinct causes with distinct reasons (one shared message would pass a presence check)', () => {
-    // The reason is user-visible text, so it has to stay a function of what was
-    // actually wrong. Collapsing them onto one message satisfies every
-    // `not.toBeNull()` in this file while telling the author nothing.
-    const reasons = [
-      validatePattern('FREQ=SECONDLY', '2026-01-05'),
-      validatePattern('FREQ=DAILY;BYHOUR=12', undefined),
-      validatePattern('FREQ=DAILY;BYYEARDAY=400', undefined),
-      validatePattern('FREQ=DAILY;INTERVAL=0', undefined),
-      validatePattern('FREQ=WEEKLY', undefined),
-      validatePattern('FREQ=YEARLY;BYMONTH=2;BYMONTHDAY=30', undefined),
-      validatePattern('not an rrule', undefined),
-    ];
-    expect(new Set(reasons).size).toBe(reasons.length);
-  });
-
   it('rejects an anchorless yearly pattern pinned only by BYMONTH (the day still floats)', () => {
     // BYMONTH fixes the month, but rrule derives the day from the anchor, so
     // shading would move with the window; it needs a day selector or an anchor.

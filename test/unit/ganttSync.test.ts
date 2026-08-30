@@ -1138,64 +1138,173 @@ describe('taskStateKey', () => {
   });
 });
 
-describe('taskStateKey — per-field re-issue guards', () => {
-  // One guard per field named below — this block does not cover the whole fold.
-  // Each of these folds into the fingerprint but had no differs-guard: it could
-  // be dropped from taskStateKey with the whole suite still green. A dropped
-  // field means the diff-sync skips the update, so the bar keeps the previous
-  // value until an unrelated edit happens to move the row.
+/**
+ * Every field of a task, and what perturbing it must do to the fingerprint.
+ *
+ * The member lists are `Record<keyof …>`, so adding a field to `SvarTask` or to
+ * its `custom` bag does not compile until a decision is recorded here. That is
+ * the property a hand-written list of guards cannot have: a list simply omits a
+ * field and nothing fails — which is how `end` came to be droppable from the
+ * fold with the whole suite green.
+ *
+ * Bounded honestly: the members derive from the `SvarTask` TYPE, so this cannot
+ * see a value the fingerprint reads off some other object, and `changes`
+ * verifies only that the named perturbation moves the key — not that the key
+ * encodes the field faithfully.
+ */
+type FieldCensus<T> =
+  | { effect: 'changes'; perturb: (t: T) => T }
+  | { effect: 'ignored'; why: string; perturb: (t: T) => T }
+  | { effect: 'delegated'; why: string };
+
+describe('taskStateKey — folded-field census', () => {
   const baseTask = (): SvarTask => buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }))[0]!;
-  const withCustom = (over: Partial<SvarTask['custom']>): SvarTask => {
-    const t = baseTask();
-    return { ...t, custom: { ...t.custom, ...over } };
+  const withCustom =
+    (over: Partial<SvarTask['custom']>) =>
+    (t: SvarTask): SvarTask => ({ ...t, custom: { ...t.custom, ...over } });
+
+  const TOP_LEVEL: Record<keyof SvarTask, FieldCensus<SvarTask>> = {
+    id: {
+      effect: 'ignored',
+      why: 'the diff keys ON id — a different id is a different row, not a changed one',
+      perturb: (t) => ({ ...t, id: 'other' }),
+    },
+    custom: { effect: 'delegated', why: 'covered field-by-field by CUSTOM below' },
+    text: { effect: 'changes', perturb: (t) => ({ ...t, text: `${t.text} renamed` }) },
+    start: { effect: 'changes', perturb: (t) => ({ ...t, start: new Date(2030, 0, 1) }) },
+    end: { effect: 'changes', perturb: (t) => ({ ...t, end: new Date(2030, 0, 2) }) },
+    progress: { effect: 'changes', perturb: (t) => ({ ...t, progress: t.progress + 10 }) },
+    type: { effect: 'changes', perturb: (t) => ({ ...t, type: `${t.type} extra` }) },
+    parent: { effect: 'changes', perturb: (t) => ({ ...t, parent: 'other-parent' }) },
+    open: { effect: 'changes', perturb: (t) => ({ ...t, open: !(t.open ?? false) }) },
   };
 
-  it('changes when the bar title changes', () => {
-    expect(taskStateKey(baseTask())).not.toBe(taskStateKey({ ...baseTask(), text: 'Renamed' }));
-  });
+  const CUSTOM: Record<keyof SvarTask['custom'], FieldCensus<SvarTask>> = {
+    isVirtual: { effect: 'changes', perturb: withCustom({ isVirtual: true }) },
+    isCollapsed: { effect: 'changes', perturb: withCustom({ isCollapsed: true }) },
+    showHasDeps: { effect: 'changes', perturb: withCustom({ showHasDeps: true }) },
+    editable: { effect: 'changes', perturb: withCustom({ editable: true }) },
+    dateStatusToken: {
+      effect: 'changes',
+      perturb: withCustom({ dateStatusToken: ZIGZAG_START }),
+    },
+    barIcon: {
+      effect: 'changes',
+      perturb: withCustom({ barIcon: { kind: 'status', color: '#c0392b' } }),
+    },
+    properties: {
+      effect: 'changes',
+      perturb: withCustom({ properties: { 'note.status': { kind: 'text', value: 'wip' } } }),
+    },
+    cellRenders: {
+      effect: 'changes',
+      perturb: withCustom({ cellRenders: { 'note.title': { mode: 'markdown', source: '[[A]]' } } }),
+    },
+    ghostRuns: {
+      effect: 'changes',
+      perturb: withCustom({ ghostRuns: [{ startDate: '2026-04-14', days: 1 }] }),
+    },
+    occupancyRuns: {
+      effect: 'changes',
+      perturb: withCustom({ occupancyRuns: [{ startDate: '2026-04-14', days: 1 }] }),
+    },
+    occupancyEnvelope: { effect: 'changes', perturb: withCustom({ occupancyEnvelope: true }) },
+    hasRecurringOccupancy: {
+      effect: 'changes',
+      perturb: withCustom({ hasRecurringOccupancy: true }),
+    },
+    calendarItemColor: {
+      effect: 'changes',
+      perturb: withCustom({ calendarItemColor: '#2980b9' }),
+    },
+    interpretationOverridden: {
+      effect: 'changes',
+      perturb: withCustom({ interpretationOverridden: 'working-days' }),
+    },
+    incomingDeps: {
+      effect: 'changes',
+      perturb: withCustom({
+        incomingDeps: [
+          { reltype: 'FINISHTOSTART', gap: null, predecessorName: 'P', linkId: 'l1' },
+        ],
+      }),
+    },
+    sourceTaskId: {
+      effect: 'ignored',
+      why: 'row provenance, not rendered content',
+      perturb: withCustom({ sourceTaskId: 'other.md' }),
+    },
+    dateStatus: {
+      effect: 'ignored',
+      why: 'KTD3: it rides custom for the view filter; folding it would inflate the SVAR diff (#161)',
+      perturb: withCustom({ dateStatus: 'placeholder' }),
+    },
+    isReplicated: {
+      effect: 'ignored',
+      why: 'reaches the fingerprint through the composed bar `type`, not on its own',
+      perturb: withCustom({ isReplicated: true }),
+    },
+    isContext: {
+      effect: 'ignored',
+      why: 'reaches the fingerprint through the composed bar `type`, not on its own',
+      perturb: withCustom({ isContext: true }),
+    },
+    isTopLevelPlacement: {
+      effect: 'ignored',
+      why: 'placement decides whether the row exists, not how an existing row paints',
+      perturb: withCustom({ isTopLevelPlacement: true }),
+    },
+    calendarItemFamily: {
+      effect: 'ignored',
+      why: 'the family is embedded in the row synthetic id, which the diff keys on',
+      perturb: withCustom({ calendarItemFamily: 'recurring-instance' }),
+    },
+    stretchFlagged: {
+      effect: 'ignored',
+      why: 'echo provenance for geometry write-back, not painted state',
+      perturb: withCustom({ stretchFlagged: true }),
+    },
+  };
 
-  it('changes when a parent row expands or collapses', () => {
-    expect(taskStateKey({ ...baseTask(), open: true })).not.toBe(
-      taskStateKey({ ...baseTask(), open: false }),
+  const census = Object.entries({ ...TOP_LEVEL, ...CUSTOM }) as ReadonlyArray<
+    [string, FieldCensus<SvarTask>]
+  >;
+
+  it.each(census.filter(([, c]) => c.effect === 'changes'))(
+    're-issues the row when %s changes',
+    (_field, entry) => {
+      const perturb = (entry as { perturb: (t: SvarTask) => SvarTask }).perturb;
+      expect(taskStateKey(perturb(baseTask()))).not.toBe(taskStateKey(baseTask()));
+    },
+  );
+
+  it.each(census.filter(([, c]) => c.effect === 'ignored'))(
+    'leaves the fingerprint alone when %s changes',
+    (_field, entry) => {
+      const perturb = (entry as { perturb: (t: SvarTask) => SvarTask }).perturb;
+      expect(taskStateKey(perturb(baseTask()))).toBe(taskStateKey(baseTask()));
+    },
+  );
+});
+
+describe('taskStateKey — cell-render modes', () => {
+  const withRenders = (cellRenders: Record<string, CellRender>): SvarTask => {
+    const t = buildSvarTasks(inputs({ instances: [inst({ id: 'a' })] }))[0]!;
+    return { ...t, custom: { ...t.custom, cellRenders } };
+  };
+
+  // Both descriptor modes must reach the key. `propertiesKey` deliberately folds
+  // the locale-INDEPENDENT canonical value, so the rendered text is the only
+  // thing that re-issues a row when what the cell displays moves.
+  it('re-issues the row when a markdown cell source changes', () => {
+    expect(taskStateKey(withRenders({ t: { mode: 'markdown', source: '[[A]]' } }))).not.toBe(
+      taskStateKey(withRenders({ t: { mode: 'markdown', source: '[[B]]' } })),
     );
   });
 
-  it('changes when the dependency-marker flag flips', () => {
-    expect(taskStateKey(withCustom({ showHasDeps: true }))).not.toBe(
-      taskStateKey(withCustom({ showHasDeps: false })),
-    );
-  });
-
-  it('changes when a row becomes virtual', () => {
-    expect(taskStateKey(withCustom({ isVirtual: true }))).not.toBe(
-      taskStateKey(withCustom({ isVirtual: false })),
-    );
-  });
-
-  it('changes when a row is collapsed in place', () => {
-    expect(taskStateKey(withCustom({ isCollapsed: true }))).not.toBe(
-      taskStateKey(withCustom({ isCollapsed: false })),
-    );
-  });
-
-  it('changes when the occupancy envelope appears', () => {
-    expect(taskStateKey(withCustom({ occupancyEnvelope: true }))).not.toBe(
-      taskStateKey(withCustom({ occupancyEnvelope: undefined })),
-    );
-  });
-
-  it('changes when the recurring-occupancy flag flips', () => {
-    expect(taskStateKey(withCustom({ hasRecurringOccupancy: true }))).not.toBe(
-      taskStateKey(withCustom({ hasRecurringOccupancy: undefined })),
-    );
-  });
-
-  it('changes when a rendered cell descriptor changes', () => {
-    const renders = (source: string): Record<string, CellRender> => ({
-      'note.title': { mode: 'markdown', source },
-    });
-    expect(taskStateKey(withCustom({ cellRenders: renders('[[A]]') }))).not.toBe(
-      taskStateKey(withCustom({ cellRenders: renders('[[B]]') })),
+  it('re-issues the row when a text cell body changes', () => {
+    expect(taskStateKey(withRenders({ t: { mode: 'text', text: '1 Jan 2026' } }))).not.toBe(
+      taskStateKey(withRenders({ t: { mode: 'text', text: '2 Jan 2026' } })),
     );
   });
 });
