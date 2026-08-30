@@ -68,13 +68,33 @@ function makeEnv(opts: {
   const present = opts.present !== false;
   const openFile = jest.fn((_file: { path: string }) => Promise.resolve());
   const getLeaf = jest.fn((_mode?: unknown) => ({ openFile }));
-  // Path-faithful on purpose: the vault answers with a file derived from the
-  // path it was asked for. A shared constant would collapse every path onto one
-  // object, leaving "opened the wrong note" indistinguishable downstream.
-  const getAbstractFileByPath = jest.fn((path: string) => ({ path }));
+  // Path-faithful AND identity-stable: one object per path, handed back on every
+  // lookup. Path-faithful so a wrong path is a different object; identity-stable
+  // so the assertions can compare by REFERENCE. Structural comparison would let
+  // an implementation that rebuilds `{ path }` — discarding the resolved TFile
+  // Obsidian's openFile actually requires — pass while every real click fails.
+  const files = new Map<string, { path: string }>();
+  const fileFor = (path: string): { path: string } => {
+    const existing = files.get(path);
+    if (existing) return existing;
+    const created = { path };
+    files.set(path, created);
+    return created;
+  };
+  const getAbstractFileByPath = jest.fn((path: string) => fileFor(path));
 
   const taskMenuShow = jest.fn();
-  const tasksGet = jest.fn((path: string) => Promise.resolve({ path, title: 'A' }));
+  // Same reasoning for the TaskInfo the edit modal receives: the real object
+  // carries more than `path`, so forwarding it is what the modal depends on.
+  const tasks = new Map<string, { path: string; title: string }>();
+  const taskFor = (path: string): { path: string; title: string } => {
+    const existing = tasks.get(path);
+    if (existing) return existing;
+    const created = { path, title: 'A' };
+    tasks.set(path, created);
+    return created;
+  };
+  const tasksGet = jest.fn((path: string) => Promise.resolve(taskFor(path)));
   const openTaskEditModal = jest.fn((_task: unknown) => {
     if (opts.editModalThrows) throw new Error('modal boom');
     return undefined;
@@ -102,7 +122,21 @@ function makeEnv(opts: {
     vault: { getAbstractFileByPath },
   } as unknown as App;
 
-  return { app, getLeaf, openFile, getAbstractFileByPath, taskMenuShow, tasksGet, openTaskEditModal };
+  return {
+    app,
+    getLeaf,
+    openFile,
+    getAbstractFileByPath,
+    taskMenuShow,
+    tasksGet,
+    openTaskEditModal,
+    fileFor,
+    taskFor,
+    /** The note object actually handed to `leaf.openFile` on the last call. */
+    openedNote: (): unknown => openFile.mock.calls.at(-1)?.[0],
+    /** The task object actually handed to `openTaskEditModal` on the last call. */
+    editedTask: (): unknown => openTaskEditModal.mock.calls.at(-1)?.[0],
+  };
 }
 
 describe('TaskNotesInteractions.handleActivate', () => {
@@ -116,7 +150,7 @@ describe('TaskNotesInteractions.handleActivate', () => {
     expect(env.getAbstractFileByPath).toHaveBeenCalledWith('tasks/a.md');
     expect(env.getLeaf).toHaveBeenCalledWith(false); // current tab
     expect(env.openFile).toHaveBeenCalledTimes(1);
-    expect(env.openFile).toHaveBeenCalledWith({ path: 'tasks/a.md' });
+    expect(env.openedNote()).toBe(env.fileFor('tasks/a.md'));
     expect(env.openTaskEditModal).not.toHaveBeenCalled();
   });
 
@@ -129,7 +163,7 @@ describe('TaskNotesInteractions.handleActivate', () => {
 
     expect(env.getLeaf).toHaveBeenCalledWith('tab'); // new tab
     expect(env.openFile).toHaveBeenCalledTimes(1);
-    expect(env.openFile).toHaveBeenCalledWith({ path: 'tasks/a.md' });
+    expect(env.openedNote()).toBe(env.fileFor('tasks/a.md'));
     expect(env.openTaskEditModal).not.toHaveBeenCalled();
   });
 
@@ -142,7 +176,7 @@ describe('TaskNotesInteractions.handleActivate', () => {
 
     expect(env.tasksGet).toHaveBeenCalledWith('tasks/a.md');
     expect(env.openTaskEditModal).toHaveBeenCalledTimes(1);
-    expect(env.openTaskEditModal).toHaveBeenCalledWith({ path: 'tasks/a.md', title: 'A' });
+    expect(env.editedTask()).toBe(env.taskFor('tasks/a.md'));
     expect(env.openFile).not.toHaveBeenCalled();
   });
 
@@ -154,7 +188,7 @@ describe('TaskNotesInteractions.handleActivate', () => {
     });
 
     expect(env.openTaskEditModal).toHaveBeenCalledTimes(1);
-    expect(env.openTaskEditModal).toHaveBeenCalledWith({ path: 'tasks/a.md', title: 'A' });
+    expect(env.editedTask()).toBe(env.taskFor('tasks/a.md'));
   });
 
   it('does nothing for a none action', async () => {
@@ -176,7 +210,7 @@ describe('TaskNotesInteractions.handleActivate', () => {
     });
 
     expect(env.openFile).toHaveBeenCalledTimes(1); // fell back
-    expect(env.openFile).toHaveBeenCalledWith({ path: 'tasks/a.md' });
+    expect(env.openedNote()).toBe(env.fileFor('tasks/a.md'));
   });
 
   it('falls back to opening the note when openTaskEditModal throws', async () => {
@@ -187,9 +221,9 @@ describe('TaskNotesInteractions.handleActivate', () => {
     });
 
     expect(env.openTaskEditModal).toHaveBeenCalledTimes(1);
-    expect(env.openTaskEditModal).toHaveBeenCalledWith({ path: 'tasks/a.md', title: 'A' });
+    expect(env.editedTask()).toBe(env.taskFor('tasks/a.md'));
     expect(env.openFile).toHaveBeenCalledTimes(1); // fell back after throw
-    expect(env.openFile).toHaveBeenCalledWith({ path: 'tasks/a.md' });
+    expect(env.openedNote()).toBe(env.fileFor('tasks/a.md'));
   });
 
   it('opens the note (never the modal) when TaskNotes is absent', async () => {
@@ -200,7 +234,7 @@ describe('TaskNotesInteractions.handleActivate', () => {
     });
 
     expect(env.openFile).toHaveBeenCalledTimes(1);
-    expect(env.openFile).toHaveBeenCalledWith({ path: 'tasks/a.md' });
+    expect(env.openedNote()).toBe(env.fileFor('tasks/a.md'));
     expect(env.openTaskEditModal).not.toHaveBeenCalled();
   });
 
@@ -212,11 +246,12 @@ describe('TaskNotesInteractions.handleActivate', () => {
       await interactions.handleActivate(path, { kind: 'single', ctrlOrMeta: false });
       return env.openFile.mock.calls.at(-1)?.[0];
     };
-    // Two distinguishing paths must reach two distinguishing notes. A handler
-    // that opened one fixed note would satisfy every count- and presence-check
-    // above, so this is the assertion that makes the note a function of input.
-    expect(await openedFor('tasks/a.md')).toEqual({ path: 'tasks/a.md' });
-    expect(await openedFor('tasks/b.md')).toEqual({ path: 'tasks/b.md' });
+    // Two distinguishing paths must reach two distinguishing notes, and each
+    // must be the very object the vault returned — not a look-alike rebuilt
+    // from the path. A handler that opened one fixed note, or that discarded
+    // the resolved file, would satisfy every count- and presence-check above.
+    expect(await openedFor('tasks/a.md')).toBe(env.fileFor('tasks/a.md'));
+    expect(await openedFor('tasks/b.md')).toBe(env.fileFor('tasks/b.md'));
   });
 
   it('opens the edit modal for the clicked path, not a fixed task', async () => {
@@ -227,8 +262,8 @@ describe('TaskNotesInteractions.handleActivate', () => {
       await interactions.handleActivate(path, { kind: 'single', ctrlOrMeta: false });
       return env.openTaskEditModal.mock.calls.at(-1)?.[0];
     };
-    expect(await editedFor('tasks/a.md')).toEqual({ path: 'tasks/a.md', title: 'A' });
-    expect(await editedFor('tasks/b.md')).toEqual({ path: 'tasks/b.md', title: 'A' });
+    expect(await editedFor('tasks/a.md')).toBe(env.taskFor('tasks/a.md'));
+    expect(await editedFor('tasks/b.md')).toBe(env.taskFor('tasks/b.md'));
   });
 });
 
