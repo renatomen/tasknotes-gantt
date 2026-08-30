@@ -46,11 +46,16 @@ parameters in U2 (AGENTS.md caps at 3–4) and did **not** flag `KTD1`, which sp
 the same five-argument shape for U1. Fixing only what was named would have left the
 sibling for a later round.
 
-**The counter-examples are what prove the mechanism.** Two amendments never recurred:
-`KTD8a`, whose members come from a committed [read census](../../../CONCEPTS.md) the
-unit must produce, and `KTD8b`, whose members are the key set of the `GanttData` type.
-Neither names a member. Both derive their list from something that changes when the
-code changes.
+**The counter-examples are what prove the mechanism, and they are not equal.**
+Two amendments never recurred, neither of which names a member. `KTD8b` is the
+complete form: its members are the key set of the `GanttData` type, so the list
+changes when the code changes and cannot go stale. `KTD8a` is the partial one, and
+worth being exact about — it replaced a member list with a
+[read census](../../../CONCEPTS.md) the unit must produce, which is what stopped it
+recurring, but its plan still leaves completeness to a later reader checking the
+census against the code. A census with no completeness assertion over it is a
+hand-maintained list at one remove: nothing fails when the code gains a read the
+census omits.
 
 ## Root cause
 
@@ -71,17 +76,20 @@ list. Reshape the rule so its members are derived.**
 
 Name the *source of truth* the members come from, never the members:
 
-- the fields a **type** declares (`R5a`: "every field the adapter's output type declares")
-- a **census** the unit produces and asserts complete against the code, so a widened set fails red (`KTD8a`)
+- the fields a **type** declares (`R5a`: "enumerated from the adapter's own output type")
+- a **census** the unit produces, with a completeness assertion over it so a widened set fails red
 - a **complete key set** compared against a contract (`KTD8b`)
 - a **derivation relationship** asserted against its source (`gridColumnsKey === gridColumnsKey(gridColumns)`)
 - an **obligation carried by the requirement list itself** rather than restated per unit (`R5b`)
 
-Committing a census is not itself enough: a census that is merely recorded goes
-stale exactly like a hand-written list, because nothing fails when the code gains a
-member it omits. What makes it derived is the completeness assertion over it — the
-shipped instrument pins *exactly* the census members and fails red on a widened read
-set, with a planted widening among its mutation self-tests.
+Committing a census is not itself enough, and the distinction is where this rule is
+easiest to get wrong. What makes a census derived is a completeness assertion over
+it. One seam in this repository has one: the diff-sync bridge's source-shape pin
+extracts its access literal by name, asserts *exactly* that literal's members, fails
+red on a widened read set, and carries a planted widening among its mutation
+self-tests. A census specified without such an assertion has the shape and not the
+guarantee, and citing it as an exemplar of this rule is itself the defect — as the
+review of this document demonstrated twice.
 
 Members named in the text are then illustrative — *the ones easiest to get wrong* —
 and explicitly not the whole set.
