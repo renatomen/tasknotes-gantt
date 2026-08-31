@@ -41,7 +41,8 @@ tags:
 A guard had to prove a composition property: every field the row-visibility predicate reads reaches
 the SVAR store on a live refresh, so the filter never decides from a value the store has stopped
 agreeing with. That property is only as strong as its member list — it has to run over *the set of
-fields the predicate's input can carry*. Get the list wrong and the guard is green over a subset,
+fields the predicate's input can carry*, and this repository's version of that set is spread over
+two declarations, which is the seam the limits section returns to. Get the list wrong and the guard is green over a subset,
 which is precisely the state the defect it was written for lived in (#470, closed by #473).
 
 Three successive derivations of that list were tried. All three derived it by **observing a call**,
@@ -93,11 +94,21 @@ header (`test/unit/rowVisibilityLiveSync.test.ts:25-26`):
 
 > A probe sees the fields some call happens to touch; `keyof` sees the ones that exist.
 
+**Two things the settled table still does not close, and a reader adopting the pattern should adopt
+the limits with it.** It is keyed on the projection's INPUT type, so a member added to the predicate's
+own input type and consumed there, without the projection ever supplying it, falls outside the key set
+— the shape that defeated the second probe, now a stated boundary rather than an unnoticed one. And a
+`row-identity` route is carried by a prose `why`: the generated assertions run over the `fingerprint`
+entries only, so a member misrouted to `row-identity` is accepted on its author's word. Both are
+recorded follow-ups. A table that inherits these silently is back to being a mechanism-shaped comment.
+
 ## Guidance
 
 **When a guard needs "the set of members X can carry", derive it from the declaration, not from an
-observation.** `keyof` over the type. The evasions then stop being *possible* rather than being
-patched one at a time.
+observation.** `keyof` over the type. The three evasions above then stop being *possible* over the
+type you keyed on, rather than being patched one at a time — a narrower guarantee than "no member
+can escape", and the narrowing is load-bearing: it holds for the members of that type, not for a
+contract assembled from more than one.
 
 A runtime probe answers *what did this execution touch?* A member-list rule asks *what may exist?*
 Those coincide only when one call happens to exercise the whole contract, which nothing enforces and
