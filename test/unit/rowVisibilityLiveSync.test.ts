@@ -8,16 +8,22 @@
  * what the user is left looking at rather than a fingerprint.
  *
  * Two halves. A staleness property proves, per scenario, that the store holds what a
- * fresh reopen would compute. A completeness rule proves no field escapes that property
- * silently: it recovers the fields the projection reads by RECORDING property access, so
- * a field added tomorrow — one nested under `source` included — fails until it is folded
- * into the fingerprint or argued into the exemption set with its structural reason.
+ * fresh reopen would compute. A routing table proves no field escapes that property
+ * silently: it is keyed on the predicate input's own type, so a member added tomorrow
+ * does not compile until its route to the store is recorded — folded into the
+ * fingerprint, or borne by the row id with the reason a stale value is unreachable.
  *
  * The folded-field census in `ganttSync`'s spec is a weaker guarantee and does not stand
  * in for this one: it forces that SOME decision is recorded per `custom` field, never
  * that the decision suits the visibility filter — and `effect: 'ignored'`, which asserts
  * the fingerprint must NOT move, is precisely the wrong decision for a field the filter
  * reads. Measured: a filter-read field recorded there as ignored passes the whole suite.
+ *
+ * The route is recorded against a TYPE rather than discovered by running the projection.
+ * Three successive runtime derivations were tried and each was evaded — by a nested
+ * member, then by one the predicate consumed without the projection supplying it, then by
+ * one read only behind a branch a probe never entered. A probe sees the fields some call
+ * happens to touch; `keyof` sees the ones that exist.
  *
  * What a green run does NOT earn, in two parts. It stops at the coordinator's injected
  * port, so SVAR's own store and its `filter-tasks` walk over the updated row stay
@@ -260,38 +266,37 @@ function projections(rows: Iterable<SvarTask>): Map<string, RowVisibilityInput> 
   return new Map([...rows].map((row) => [row.id, toRowVisibilityInput(row.custom)]));
 }
 
-/**
- * The `custom` fields the visibility projection reads, recovered by RECORDING property
- * access instead of listing them.
- *
- * Derived from the input side on purpose. The projection's input is the store's flat
- * `custom` record, so a proxy over it sees the switcher members too; its output nests
- * those under one `source` key, so enumerating output keys silently misses them — which
- * is how an earlier version of this rule let a nested member through.
- */
-function visibilityReadKeys(): string[] {
-  const read = new Set<string>();
-  toRowVisibilityInput(
-    new Proxy(
-      {},
-      {
-        get: (_target, key) => {
-          read.add(String(key));
-          return undefined;
-        },
-      },
-    ) as RowVisibilitySource,
-  );
-  return [...read].sort();
-}
+/** How the store delivers a change to one field the visibility predicate's input carries. */
+type FieldDelivery =
+  | { delivery: 'fingerprint' }
+  | { delivery: 'row-identity'; why: string };
 
 /**
- * Fields the filter reads that the fingerprint deliberately does NOT carry, each with the
- * structural reason a stale value is unreachable. An entry is a claim, not an escape
- * hatch: the row's synthetic id embeds its calendar family, so a family change arrives as
- * an add plus a delete and no row ever survives one in place.
+ * Every member of the projection's input, and the route by which a change to it reaches
+ * the store.
+ *
+ * Keyed `Record<keyof RowVisibilitySource, ...>`, so a member added to that interface — or
+ * to the switcher source it extends — does not COMPILE until its route is recorded. The
+ * member list is the type's, never one kept here by hand.
+ *
+ * A type is the right instrument for this and runtime introspection is not: a probe can
+ * only observe the fields some particular call happens to touch, so a field read behind a
+ * branch, or reached through a copy, escapes it silently. `keyof` cannot be evaded that
+ * way.
  */
-const IDENTITY_BORNE = new Set(['calendarItemFamily']);
+const FIELD_DELIVERY: Record<keyof RowVisibilitySource, FieldDelivery> = {
+  isTopLevelPlacement: { delivery: 'fingerprint' },
+  dateStatus: { delivery: 'fingerprint' },
+  hasRecurringOccupancy: { delivery: 'fingerprint' },
+  calendarItemFamily: {
+    delivery: 'row-identity',
+    why: 'the row synthetic id embeds the family, so a change arrives as an add plus a delete and no row survives one in place',
+  },
+};
+
+const fingerprinted = Object.entries(FIELD_DELIVERY)
+  .filter(([, route]) => route.delivery === 'fingerprint')
+  .map(([field]) => field);
 
 /** A value guaranteed to differ from `current`, whatever shape the field holds. */
 function perturbedValue(current: unknown): unknown {
@@ -300,32 +305,31 @@ function perturbedValue(current: unknown): unknown {
   return '__og-perturbed__';
 }
 
-describe('every custom field the visibility filter reads reaches the store', () => {
-  // The completeness half of the requirement. The staleness property below proves the
-  // members that have a scenario; this proves no member is left WITHOUT one silently.
-  // A field added to the projection and read by the predicate fails here until it is
-  // folded into the fingerprint, or argued into IDENTITY_BORNE with its reason.
+describe('every field the visibility filter reads reaches the store', () => {
   const baseRow = (): SvarTask => rowsFor([task({ path: 'X.md' })])[0]!;
 
-  it.each(visibilityReadKeys().filter((key) => !IDENTITY_BORNE.has(key)))(
-    'folds custom.%s, so a change to it re-issues the row',
-    (key) => {
-      const base = baseRow();
-      const current = (base.custom as unknown as Record<string, unknown>)[key];
-      const moved: SvarTask = {
-        ...base,
-        custom: { ...base.custom, [key]: perturbedValue(current) },
-      };
-      expect(perturbedValue(current)).not.toEqual(current);
-      expect(taskStateKey(moved)).not.toBe(taskStateKey(base));
-    },
-  );
+  it('routes every declared field, and has fields left to assert on', () => {
+    // Falsifiable rather than a count of the record against itself: a third delivery kind
+    // added to `FieldDelivery` would run no assertion, so its members would vanish from
+    // the block below with nothing failing. The second expectation is the vacuity floor —
+    // routing every field to `row-identity` would otherwise leave an empty table and a
+    // green describe whose name still claims the fold is checked.
+    const routed = Object.values(FIELD_DELIVERY).filter(
+      (route) => route.delivery === 'fingerprint' || route.delivery === 'row-identity',
+    );
+    expect(routed).toHaveLength(Object.keys(FIELD_DELIVERY).length);
+    expect(fingerprinted.length).toBeGreaterThan(0);
+  });
 
-  it('reads every field it exempts, so a stale exemption cannot hide', () => {
-    // An exemption for a field the projection no longer reads is dead weight that would
-    // go on excusing a real fold gap if the field ever came back.
-    const read = new Set(visibilityReadKeys());
-    expect([...IDENTITY_BORNE].filter((key) => !read.has(key))).toEqual([]);
+  it.each(fingerprinted)('folds custom.%s, so a change to it re-issues the row', (field) => {
+    const base = baseRow();
+    const current = (base.custom as unknown as Record<string, unknown>)[field];
+    const moved: SvarTask = {
+      ...base,
+      custom: { ...base.custom, [field]: perturbedValue(current) },
+    };
+    expect(perturbedValue(current)).not.toEqual(current);
+    expect(taskStateKey(moved)).not.toBe(taskStateKey(base));
   });
 });
 
