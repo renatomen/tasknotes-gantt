@@ -288,11 +288,16 @@ describe('a live refresh leaves no row-visibility input stale', () => {
       // The floor. Without it the property below passes vacuously on a scenario that
       // stopped exercising the member it claims — the failure mode that let #469's
       // first guard go green with the predicate entirely dead.
+      //
+      // Only rows present in BOTH states count. A scenario that merely ADDS rows says
+      // nothing about whether the named member can go stale: a fresh row reaches the
+      // store through the add path carrying whatever the shaper just computed, so
+      // counting additions would let this pass with the member never changing at all.
       const from = projections(before);
       const to = projections(after);
       const moved = [...to].some(
         ([id, projection]) =>
-          !from.has(id) ||
+          from.has(id) &&
           JSON.stringify(from.get(id)?.[scenario.field]) !== JSON.stringify(projection[scenario.field]),
       );
       expect(moved).toBe(true);
