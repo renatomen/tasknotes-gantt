@@ -41,7 +41,8 @@ tags:
 A guard had to prove a composition property: every field the row-visibility predicate reads reaches
 the SVAR store on a live refresh, so the filter never decides from a value the store has stopped
 agreeing with. That property is only as strong as its member list — it has to run over *the set of
-fields the predicate's input can carry*. Get the list wrong and the guard is green over a subset,
+fields the predicate's input can carry*, and this repository's version of that set is spread over
+two declarations, which is the seam the limits section returns to. Get the list wrong and the guard is green over a subset,
 which is precisely the state the defect it was written for lived in (#470, closed by #473).
 
 Three successive derivations of that list were tried. All three derived it by **observing a call**,
@@ -93,11 +94,21 @@ header (`test/unit/rowVisibilityLiveSync.test.ts:25-26`):
 
 > A probe sees the fields some call happens to touch; `keyof` sees the ones that exist.
 
+**Two things the settled table still does not close, and a reader adopting the pattern should adopt
+the limits with it.** It is keyed on the projection's INPUT type, so a member added to the predicate's
+own input type and consumed there, without the projection ever supplying it, falls outside the key set
+— the shape that defeated the second probe, now a stated boundary rather than an unnoticed one. And a
+`row-identity` route is carried by a prose `why`: the generated assertions run over the `fingerprint`
+entries only, so a member misrouted to `row-identity` is accepted on its author's word. Both are
+recorded follow-ups. A table that inherits these silently is back to being a mechanism-shaped comment.
+
 ## Guidance
 
 **When a guard needs "the set of members X can carry", derive it from the declaration, not from an
-observation.** `keyof` over the type. The evasions then stop being *possible* rather than being
-patched one at a time.
+observation.** `keyof` over the type. The three evasions above then stop being *possible* over the
+type you keyed on, rather than being patched one at a time — a narrower guarantee than "no member
+can escape", and the narrowing is load-bearing: it holds for the members of that type, not for a
+contract assembled from more than one.
 
 A runtime probe answers *what did this execution touch?* A member-list rule asks *what may exist?*
 Those coincide only when one call happens to exercise the whole contract, which nothing enforces and
@@ -115,8 +126,19 @@ last — which is the tell that the *shape* is wrong rather than the instance.
 
 **A type-level completeness table degenerates silently, so it needs two companions.**
 
-- **A literal-key assertion.** `keyof T` widens to `string` the moment `T` gains an index signature —
-  from anywhere in its extends chain — and `Record<string, V>` is satisfied by any set of entries.
+- **A literal-key assertion.** `keyof T` widens to `string` the moment `T` gains a **string** index
+  signature — from anywhere in its extends chain — and `Record<string, V>` is satisfied by any set of
+  entries.
+
+  Be precise about which signature does this, because the wrong test looks reassuring. A numeric or
+  symbol index signature also widens `keyof`, but it *adds* `number` or `symbol` beside the
+  **string-named** keys rather than absorbing them, so `Record<keyof T, V>` still demands each of
+  those. The qualifier is load-bearing: a numerically-named member is absorbed by `[key: number]`,
+  and a unique-symbol member by `[key: symbol]`, so a contract carrying either needs the assertion
+  widened to reject those signatures too. The contract here carries only string-named members. Measured
+  on TypeScript 5.9.2: with `[key: number]: unknown` planted, the complete table compiles clean — and
+  dropping one member from it still fails `TS2741`. Observing that the honest tree still compiles is
+  not evidence the gate is off; the gate is tested by removing a member and watching it go red.
   The gate would then be off with nothing failing. `type LiteralKeys<T> = string extends keyof T ?
   never : true` fails `TS2322` instead (`test/unit/rowVisibilityLiveSync.test.ts:307-308`). It has to
   be *referenced* at run time as well, or it reads as an unused declaration and gets deleted
@@ -130,9 +152,9 @@ last — which is the tell that the *shape* is wrong rather than the instance.
 repository already owned the mechanism: `Record<keyof SvarTask['custom'], FieldCensus<SvarTask>>` at
 `test/unit/ganttSync.test.ts:1205` forces a per-field decision at compile time. The three probes
 were a weaker **imitation** of a mechanism already in the tree — and the history makes that
-sharper rather than softer. `git log -S"Record<keyof" -- test/` returns two commits: the census
-landed one PR earlier in this same campaign (#468), and the file that later imitated it was
-created hours afterwards (#472). This was not buried prior art that took excavating. It was the
+sharper rather than softer. `git log -S"Record<keyof" -- test/` returns two commits — the census
+in #468, and this branch's reuse of the pattern in #473. The file that went on to imitate it was
+created between them, by #472, hours after the census landed. This was not buried prior art that took excavating. It was the
 immediately preceding unit of the same workstream, freshly hardened over ten review rounds.
 `docs/architecture/principles.md:29` states the rule — *Reuse the owner's mechanism — never imitate,
 infer, or rebuild it* — and line 37 names the failure mode it predicts: "Imitating a mechanism
