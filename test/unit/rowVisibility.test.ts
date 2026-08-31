@@ -9,6 +9,7 @@
 import {
   shouldHideRow,
   anyRowFilterActive,
+  toRowVisibilityInput,
   type RowVisibilityFlags,
   type RowVisibilityInput,
 } from '../../src/bases/rowVisibility';
@@ -76,5 +77,30 @@ describe('anyRowFilterActive', () => {
     expect(anyRowFilterActive({ ...SHOW_ALL, hideTopLevel: true })).toBe(true);
     expect(anyRowFilterActive({ ...SHOW_ALL, showUndated: false })).toBe(true);
     expect(anyRowFilterActive({ ...SHOW_ALL, showPartial: false })).toBe(true);
+  });
+});
+
+describe('toRowVisibilityInput', () => {
+  it('lifts the switcher fields out of the flat custom record', () => {
+    expect(
+      toRowVisibilityInput({
+        isTopLevelPlacement: true,
+        dateStatus: 'placeholder',
+        calendarItemFamily: 'recurring-instance',
+        hasRecurringOccupancy: true,
+      }),
+    ).toEqual({
+      isTopLevelPlacement: true,
+      dateStatus: 'placeholder',
+      source: { calendarItemFamily: 'recurring-instance', hasRecurringOccupancy: true },
+    });
+  });
+
+  it('treats a row with no date status as complete, not as one to hide', () => {
+    // The store can hand back a row shaped before a field existed. Defaulting the
+    // other way would make Show-partial/Show-undated hide rows they never targeted.
+    const flags = { hideTopLevel: true, showUndated: false, showPartial: false };
+    expect(shouldHideRow(toRowVisibilityInput(undefined), flags)).toBe(false);
+    expect(shouldHideRow(toRowVisibilityInput({}), flags)).toBe(false);
   });
 });

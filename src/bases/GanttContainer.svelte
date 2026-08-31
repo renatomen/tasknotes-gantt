@@ -113,10 +113,14 @@
     type SvarInterceptorDeps,
     type UpdateTaskEvent,
   } from './svarInterceptors';
-  import { shouldHideRow, anyRowFilterActive } from './rowVisibility';
-  import type { SourceSwitcherState, SwitcherRowSource } from './sourceSwitcher';
+  import {
+    shouldHideRow,
+    anyRowFilterActive,
+    toRowVisibilityInput,
+    type RowVisibilitySource,
+  } from './rowVisibility';
+  import type { SourceSwitcherState } from './sourceSwitcher';
   import { buildRetainedAncestorNotice } from './retainedAncestorNotice';
-  import type { DateStatus } from '../controller/datePolicy';
   import { spanDaysToMinutes, inclusiveDaySpan, minutesToSpanDays } from '../controller/durationConversion';
   import {
     createDequeueBeforeRebase, memoizePlannerDerivation, overlayStoreGeometry, planCascade, planGestureCommit,
@@ -1005,20 +1009,8 @@
     };
     if (anyRowFilterActive(flags)) {
       api.exec('filter-tasks', {
-        filter: (t: {
-          custom?: { isTopLevelPlacement?: boolean; dateStatus?: DateStatus } & SwitcherRowSource;
-        }) =>
-          !shouldHideRow(
-            {
-              isTopLevelPlacement: !!t?.custom?.isTopLevelPlacement,
-              dateStatus: t?.custom?.dateStatus ?? 'complete',
-              source: {
-                calendarItemFamily: t?.custom?.calendarItemFamily,
-                hasRecurringOccupancy: t?.custom?.hasRecurringOccupancy,
-              },
-            },
-            flags,
-          ),
+        filter: (t: { custom?: RowVisibilitySource }) =>
+          !shouldHideRow(toRowVisibilityInput(t?.custom), flags),
         open: false,
       });
     } else {

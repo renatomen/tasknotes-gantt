@@ -229,7 +229,9 @@ export interface SvarTask {
      * The date-policy classification of this row's dates (#161). The composed
      * display filter reads it so "Show tasks with no dates" (`placeholder`) and
      * "Show tasks with only one date" (`inferred-*`) hide rows via SVAR
-     * `filter-tasks` over the STABLE task set — never by re-deriving it.
+     * `filter-tasks` over the STABLE task set — never by re-deriving it. Folded
+     * into {@link taskStateKey}, so the value the filter reads off the store can
+     * never trail the value the policy resolves.
      */
     dateStatus: DateStatus;
     /**
@@ -696,6 +698,12 @@ export function taskStateKey(t: SvarTask): string {
     // change. Fold it or the row never
     // re-issues and the bar keeps the previous state's cue.
     t.custom.dateStatusToken ?? '',
+    // The display filter reads the date policy itself, and with indicators off nothing
+    // else carries it: the state token is `undefined` and `type` flags only a swapped
+    // span. Authoring the span the policy had already inferred then leaves every other
+    // folded field identical, so without this the row never re-issues and Show-partial
+    // / Show-undated go on filtering it on the status it used to have.
+    t.custom.dateStatus,
     // Ghost runs: a holiday moved inside an unchanged span alters only these —
     // without the fold the diff-sync would skip the update and the ghost would
     // render on the wrong days until an unrelated edit.
