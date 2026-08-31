@@ -93,6 +93,14 @@ header (`test/unit/rowVisibilityLiveSync.test.ts:25-26`):
 
 > A probe sees the fields some call happens to touch; `keyof` sees the ones that exist.
 
+**Two things the settled table still does not close, and a reader adopting the pattern should adopt
+the limits with it.** It is keyed on the projection's INPUT type, so a member added to the predicate's
+own input type and consumed there, without the projection ever supplying it, falls outside the key set
+— the shape that defeated the second probe, now a stated boundary rather than an unnoticed one. And a
+`row-identity` route is carried by a prose `why`: the generated assertions run over the `fingerprint`
+entries only, so a member misrouted to `row-identity` is accepted on its author's word. Both are
+recorded follow-ups. A table that inherits these silently is back to being a mechanism-shaped comment.
+
 ## Guidance
 
 **When a guard needs "the set of members X can carry", derive it from the declaration, not from an
