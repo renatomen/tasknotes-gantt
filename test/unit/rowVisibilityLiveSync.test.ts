@@ -1,6 +1,7 @@
 /**
- * Requirement (#469): with "Hide top-level subtasks" ON, the removable top-level
- * copy of a note that gains a parent WHILE THE VIEW IS OPEN stops occupying a row.
+ * Requirement: with "Hide top-level subtasks" ON, the removable top-level copy of a
+ * note whose parenting changes WHILE THE VIEW IS OPEN stops occupying a row — and
+ * comes back when the note is un-nested again.
  *
  * The view never re-seeds SVAR's `tasks` array on a refresh — that would re-init the
  * store and throw away zoom/scroll. It diffs (`planGanttSync`), execs the resulting
@@ -16,9 +17,13 @@
  * chain: expansion → SVAR shaping → diff → store → filter. It asserts the VISIBLE ROW
  * SET, never a fingerprint, so it cannot be satisfied by any particular fold shape.
  *
- * It stays at the fastest tier — no SVAR, no Obsidian — because the coordinator
- * takes an injected port, and that port IS the view's real apply path: the test
- * drives the mechanism rather than standing a second plan applier up beside it.
+ * It stays at the fastest tier — no SVAR, no Obsidian — by driving the coordinator
+ * through its injected port rather than standing a second plan applier up beside it.
+ * Two hops stay OUT of reach here and are named so nobody reads more into a green run
+ * than it earns: SVAR's own store and its `filterTree` walk (which keeps a hidden
+ * ancestor whose descendant passes), and the view's hand-written mapping from a row's
+ * `custom` record to the predicate's input — dropping a field from THAT literal would
+ * reintroduce this defect with this spec still green.
  */
 
 import { describe, it, expect } from '@jest/globals';
@@ -133,28 +138,40 @@ function visibleAfterLiveRefresh(
 }
 
 describe('Hide top-level subtasks — a live parenting edit', () => {
-  // C is matched by the Base throughout; the ONLY thing the edit changes is that it
-  // gains a parent. That turns its existing root row into the removable top-level
-  // DUPLICATE of the newly nested copy — and the duplicate keeps the row id the
-  // genuine root had, so the diff sees an existing row rather than a new one.
+  // C is matched by the Base throughout; the ONLY thing an edit changes is whether it
+  // has a parent. Gaining one turns its existing root row into the removable top-level
+  // DUPLICATE of the newly nested copy — and the duplicate keeps the row id the genuine
+  // root had, so the diff sees an existing row rather than a new one. `alsoTopLevel` is
+  // set only on the nested shape because the resolver derives it from having a displayed
+  // parent; a parentless task never carries it.
   const P = task({ path: 'P.md' });
   const G = task({ path: 'G.md', parents: ['C.md'] });
-  const beforeEdit = [P, { ...task({ path: 'C.md' }), alsoTopLevel: true }, G];
-  const afterEdit = [P, { ...task({ path: 'C.md', parents: ['P.md'] }), alsoTopLevel: true }, G];
+  const unNested = [P, task({ path: 'C.md' }), G];
+  const nested = [P, { ...task({ path: 'C.md', parents: ['P.md'] }), alsoTopLevel: true }, G];
+
+  /** Every row of the duplicate placement is gone; the genuine nesting remains. */
+  const NESTED_VISIBLE = ['C.md#parent-P.md', 'G.md#parent-C.md#parent-P.md', 'P.md'];
+  /** Un-nested, nothing is a duplicate, so Hide-top hides nothing. */
+  const UN_NESTED_VISIBLE = ['C.md', 'G.md#parent-C.md', 'P.md'];
 
   it('hides the whole duplicate placement — its root row AND its subtree', () => {
-    expect(visibleAfterLiveRefresh(beforeEdit, afterEdit)).toEqual([
-      'C.md#parent-P.md',
-      'G.md#parent-C.md#parent-P.md',
-      'P.md',
-    ]);
+    expect(visibleAfterLiveRefresh(unNested, nested)).toEqual(NESTED_VISIBLE);
   });
 
-  it('reopening the view on the same data shows exactly what the live refresh should', () => {
-    // The self-heal path: a fresh seed has no stale rows to carry, so it is the
-    // independent statement of what the live refresh above owes the user. If these
-    // two disagree, the chart depends on how the user got there.
-    const reopened = new Map(rowsFor(afterEdit).map((row) => [row.id, row]));
-    expect(visibleAfterLiveRefresh(beforeEdit, afterEdit)).toEqual(visibleIds(reopened));
+  it('restores the rows again when the note is un-nested', () => {
+    // The opposite direction rides the same fold, and its failure is worse: the rows
+    // stay FLAGGED and therefore stay hidden, so the data is invisible rather than
+    // merely duplicated.
+    expect(visibleAfterLiveRefresh(nested, unNested)).toEqual(UN_NESTED_VISIBLE);
+  });
+
+  it('does not depend on how the user got there — a live refresh matches a fresh reopen', () => {
+    // The self-heal path: a fresh seed carries no stale rows, so it says independently
+    // what the live refresh owes the user. Both sides are pinned to the same expected
+    // set as well as to each other — sharing only the equality would let this pass with
+    // the Hide-top predicate entirely dead, since both sides would then be equally wrong.
+    const reopened = new Map(rowsFor(nested).map((row) => [row.id, row]));
+    expect(visibleIds(reopened)).toEqual(NESTED_VISIBLE);
+    expect(visibleAfterLiveRefresh(unNested, nested)).toEqual(visibleIds(reopened));
   });
 });
