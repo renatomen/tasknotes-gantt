@@ -1272,17 +1272,7 @@ describe('taskStateKey — folded-field census', () => {
       perturb: withCustom({ isContext: true }),
     },
     isTopLevelPlacement: {
-      effect: 'ignored',
-      // CHARACTERIZATION, NOT A DESIGN CHOICE — this records a defect.
-      // `shouldHideRow` reads this flag off the SVAR store, and the duplicate
-      // top-level copy shares its id with the genuine root it replaces
-      // (`InstanceExpansion`: both build the instance with `id = task.path`,
-      // one with the flag true and one with it defaulted false). So a note that
-      // gains a parent keeps its row id, flips the flag, and — because the
-      // fingerprint does not fold it — is never re-issued: under Hide-top the
-      // duplicate root stays visible. Folding it is a src change and is out of
-      // this test-only branch's scope; raised for triage instead.
-      why: 'NOT folded today, and that is a defect rather than a decision',
+      effect: 'changes',
       perturb: withCustom({ isTopLevelPlacement: true }),
     },
     calendarItemFamily: {
