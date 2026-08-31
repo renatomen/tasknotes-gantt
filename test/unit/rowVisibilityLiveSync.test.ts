@@ -7,18 +7,26 @@
  * stale, so these specs drive expansion → shaping → diff → store → filter and assert
  * what the user is left looking at rather than a fingerprint.
  *
- * The first block is the Hide-top example, asserted as a VISIBLE ROW SET (#469). The
- * second is the general rule the example is one case of (#470): for EVERY member of
- * `RowVisibilityInput`, the projection the store holds after a live refresh equals the
- * projection a fresh reopen would compute. It is stated over the members
- * {@link toRowVisibilityInput} actually produces, so a member added tomorrow is covered
- * without editing a list — and a member added with no scenario fails the coverage
- * check rather than passing silently.
+ * The first block is the Hide-top duplicate-placement example, asserted as a VISIBLE
+ * ROW SET. The second is the general property that example is one case of: after a
+ * live refresh the visibility projection the store holds equals the projection a fresh
+ * reopen would compute.
+ *
+ * Scope, stated honestly. The property covers the two members a vault edit can move on
+ * a row the diff treats as EXISTING. It is not a completeness rule over the projection:
+ * a switcher family is embedded in the row's synthetic id (so it arrives as an
+ * add/delete, never a stale update), and recurring occupancy never moves without also
+ * moving the run list beside it. Whether a newly added `custom` field reaches the store
+ * at all is decided one layer down, by the typecheck-enforced folded-field census in
+ * `ganttSync`'s spec — that census, not this file, is the member-list mechanism.
+ *
+ * What a green run here does NOT earn: it stops at the coordinator's injected port, so
+ * SVAR's own store and its `filter-tasks` walk over the updated row stay unproven.
  *
  * Both blocks read the store through {@link toRowVisibilityInput}, the same projection
  * the view applies. Writing that mapping out again here would make this file a second
- * implementation of the thing under test, which is how #469's guard passed while the
- * defect it named was live.
+ * implementation of the thing under test — which is how an earlier guard stayed green
+ * while the defect it named was live.
  */
 
 import { describe, it, expect } from '@jest/globals';
@@ -30,7 +38,6 @@ import {
 import type { RenderLink } from '../../src/controller/InstanceExpansion';
 import { applyDatePolicy } from '../../src/controller/datePolicy';
 import type { SourceTask } from '../../src/datasource/types';
-import type { CalendarOccupancy } from '../../src/datasource/calendarItems/types';
 import { buildSvarTasks, type SvarTask } from '../../src/bases/ganttSync';
 import {
   applyIncrementalGanttSync,
@@ -192,8 +199,8 @@ describe('Hide top-level subtasks — a live parenting edit', () => {
 });
 
 /**
- * A scenario moves exactly one member of the visibility projection between two vault
- * states, driving the real expander and shaper for each.
+ * A vault edit that moves exactly one member of the visibility projection on a row the
+ * diff treats as existing, driving the real expander and shaper for each state.
  */
 interface StalenessScenario {
   /** The `RowVisibilityInput` member this scenario moves. */
@@ -210,17 +217,6 @@ function datedTask(start: Date | null, end: Date | null): ExpandableTask {
     start: resolved.start,
     end: resolved.end,
     dateStatus: resolved.dateStatus,
-  };
-}
-
-/** One recorded recurring-instance occupancy, the switcher's `hasRecurringOccupancy` input. */
-function recurringOccupancy(day: string): CalendarOccupancy {
-  return {
-    family: 'recurring-instance',
-    itemId: `recurring-instance::R.md::${day}`,
-    day,
-    minutes: null,
-    stateClass: 'completed',
   };
 }
 
@@ -250,20 +246,6 @@ const SCENARIOS: StalenessScenario[] = [
         showDateIndicators: false,
       }),
   },
-  {
-    field: 'source',
-    name: 'a recurring family starts occupying a task row',
-    // Occupancy is merged onto instances AFTER expansion (the controller's calendar-item
-    // stage), so the scenario attaches it at the shaper's input, where the real one does.
-    rows: (phase) => {
-      const instances = [...expandInstances([task({ path: 'R.md' })]).instances];
-      return shape(
-        phase === 'before'
-          ? instances
-          : instances.map((instance) => ({ ...instance, occupancy: [recurringOccupancy('2026-01-01')] })),
-      );
-    },
-  },
 ];
 
 /** Every row's visibility projection, by row id. */
@@ -272,22 +254,14 @@ function projections(rows: Iterable<SvarTask>): Map<string, RowVisibilityInput> 
 }
 
 describe('a live refresh leaves no row-visibility input stale', () => {
-  it('has a scenario for every member of the visibility projection', () => {
-    // Derived from the projection itself, not from a list kept by hand: a member added
-    // to `RowVisibilityInput` and `toRowVisibilityInput` fails here until it has a
-    // scenario proving a live refresh carries it.
-    const members = Object.keys(toRowVisibilityInput(undefined)).sort();
-    expect([...new Set(SCENARIOS.map((scenario) => scenario.field))].sort()).toEqual(members);
-  });
-
   describe.each(SCENARIOS)('$name', (scenario) => {
     const before = scenario.rows('before');
     const after = scenario.rows('after');
 
     it(`moves ${scenario.field} between the two vault states`, () => {
       // The floor. Without it the property below passes vacuously on a scenario that
-      // stopped exercising the member it claims — the failure mode that let #469's
-      // first guard go green with the predicate entirely dead.
+      // stopped exercising the member it claims — the failure mode that let the Hide-top
+      // guard above go green with the predicate entirely dead.
       //
       // Only rows present in BOTH states count. A scenario that merely ADDS rows says
       // nothing about whether the named member can go stale: a fresh row reaches the
