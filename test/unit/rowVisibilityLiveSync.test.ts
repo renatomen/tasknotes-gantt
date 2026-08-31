@@ -7,23 +7,22 @@
  * stale, so these specs drive expansion → shaping → diff → store → filter and assert
  * what the user is left looking at rather than a fingerprint.
  *
- * The first block is the Hide-top duplicate-placement example, asserted as a VISIBLE
- * ROW SET. The second is the general property that example is one case of: after a
- * live refresh the visibility projection the store holds equals the projection a fresh
- * reopen would compute.
+ * Two halves. A staleness property proves, per scenario, that the store holds what a
+ * fresh reopen would compute. A completeness rule proves no field escapes that property
+ * silently: it recovers the fields the projection reads by RECORDING property access, so
+ * a field added tomorrow — one nested under `source` included — fails until it is folded
+ * into the fingerprint or argued into the exemption set with its structural reason.
  *
- * Scope, stated honestly. The property covers the two members a vault edit can move on
- * a row the diff treats as EXISTING. It is not a completeness rule over the projection:
- * a switcher family is embedded in the row's synthetic id (so it arrives as an
- * add/delete, never a stale update), and recurring occupancy never moves without also
- * moving the run list beside it. Whether a newly added `custom` field reaches the store
- * at all is decided one layer down, by the typecheck-enforced folded-field census in
- * `ganttSync`'s spec — that census, not this file, is the member-list mechanism.
+ * The folded-field census in `ganttSync`'s spec is a weaker guarantee and does not stand
+ * in for this one: it forces that SOME decision is recorded per `custom` field, never
+ * that the decision suits the visibility filter — and `effect: 'ignored'`, which asserts
+ * the fingerprint must NOT move, is precisely the wrong decision for a field the filter
+ * reads. Measured: a filter-read field recorded there as ignored passes the whole suite.
  *
- * What a green run here does NOT earn: it stops at the coordinator's injected port, so
- * SVAR's own store and its `filter-tasks` walk over the updated row stay unproven.
+ * What a green run does NOT earn: it stops at the coordinator's injected port, so SVAR's
+ * own store and its `filter-tasks` walk over the updated row stay unproven.
  *
- * Both blocks read the store through {@link toRowVisibilityInput}, the same projection
+ * Both halves read the store through {@link toRowVisibilityInput}, the same projection
  * the view applies. Writing that mapping out again here would make this file a second
  * implementation of the thing under test — which is how an earlier guard stayed green
  * while the defect it named was live.
@@ -38,7 +37,7 @@ import {
 import type { RenderLink } from '../../src/controller/InstanceExpansion';
 import { applyDatePolicy } from '../../src/controller/datePolicy';
 import type { SourceTask } from '../../src/datasource/types';
-import { buildSvarTasks, type SvarTask } from '../../src/bases/ganttSync';
+import { buildSvarTasks, taskStateKey, type SvarTask } from '../../src/bases/ganttSync';
 import {
   applyIncrementalGanttSync,
   createAppliedGanttSyncState,
@@ -51,6 +50,7 @@ import {
   toRowVisibilityInput,
   type RowVisibilityFlags,
   type RowVisibilityInput,
+  type RowVisibilitySource,
 } from '../../src/bases/rowVisibility';
 
 /** The toggle under test is ON; the other row-visibility options show everything. */
@@ -252,6 +252,75 @@ const SCENARIOS: StalenessScenario[] = [
 function projections(rows: Iterable<SvarTask>): Map<string, RowVisibilityInput> {
   return new Map([...rows].map((row) => [row.id, toRowVisibilityInput(row.custom)]));
 }
+
+/**
+ * The `custom` fields the visibility projection reads, recovered by RECORDING property
+ * access instead of listing them.
+ *
+ * Derived from the input side on purpose. The projection's input is the store's flat
+ * `custom` record, so a proxy over it sees the switcher members too; its output nests
+ * those under one `source` key, so enumerating output keys silently misses them — which
+ * is how an earlier version of this rule let a nested member through.
+ */
+function visibilityReadKeys(): string[] {
+  const read = new Set<string>();
+  toRowVisibilityInput(
+    new Proxy(
+      {},
+      {
+        get: (_target, key) => {
+          read.add(String(key));
+          return undefined;
+        },
+      },
+    ) as RowVisibilitySource,
+  );
+  return [...read].sort();
+}
+
+/**
+ * Fields the filter reads that the fingerprint deliberately does NOT carry, each with the
+ * structural reason a stale value is unreachable. An entry is a claim, not an escape
+ * hatch: the row's synthetic id embeds its calendar family, so a family change arrives as
+ * an add plus a delete and no row ever survives one in place.
+ */
+const IDENTITY_BORNE = new Set(['calendarItemFamily']);
+
+/** A value guaranteed to differ from `current`, whatever shape the field holds. */
+function perturbedValue(current: unknown): unknown {
+  if (current === true) return false;
+  if (current === false || current === undefined) return true;
+  return '__og-perturbed__';
+}
+
+describe('every custom field the visibility filter reads reaches the store', () => {
+  // The completeness half of the requirement. The staleness property below proves the
+  // members that have a scenario; this proves no member is left WITHOUT one silently.
+  // A field added to the projection and read by the predicate fails here until it is
+  // folded into the fingerprint, or argued into IDENTITY_BORNE with its reason.
+  const baseRow = (): SvarTask => rowsFor([task({ path: 'X.md' })])[0]!;
+
+  it.each(visibilityReadKeys().filter((key) => !IDENTITY_BORNE.has(key)))(
+    'folds custom.%s, so a change to it re-issues the row',
+    (key) => {
+      const base = baseRow();
+      const current = (base.custom as unknown as Record<string, unknown>)[key];
+      const moved: SvarTask = {
+        ...base,
+        custom: { ...base.custom, [key]: perturbedValue(current) },
+      };
+      expect(perturbedValue(current)).not.toEqual(current);
+      expect(taskStateKey(moved)).not.toBe(taskStateKey(base));
+    },
+  );
+
+  it('reads every field it exempts, so a stale exemption cannot hide', () => {
+    // An exemption for a field the projection no longer reads is dead weight that would
+    // go on excusing a real fold gap if the field ever came back.
+    const read = new Set(visibilityReadKeys());
+    expect([...IDENTITY_BORNE].filter((key) => !read.has(key))).toEqual([]);
+  });
+});
 
 describe('a live refresh leaves no row-visibility input stale', () => {
   describe.each(SCENARIOS)('$name', (scenario) => {
