@@ -19,8 +19,15 @@
  * the fingerprint must NOT move, is precisely the wrong decision for a field the filter
  * reads. Measured: a filter-read field recorded there as ignored passes the whole suite.
  *
- * What a green run does NOT earn: it stops at the coordinator's injected port, so SVAR's
- * own store and its `filter-tasks` walk over the updated row stay unproven.
+ * What a green run does NOT earn, in two parts. It stops at the coordinator's injected
+ * port, so SVAR's own store and its `filter-tasks` walk over the updated row stay
+ * unproven. And the completeness rule pins only what the PROJECTION reads: a member the
+ * predicate consumes that the projection never supplies is invisible to it, because
+ * nothing here observes that coupling. The predicate then reads `undefined` for that
+ * member — an inert field rather than a stale one, so it is a different defect from the
+ * one these specs exist for, but it is currently unguarded. Closing it means the
+ * predicate taking the store's own record shape instead of a second hand-written one,
+ * which deletes the coupling rather than asserting it.
  *
  * Both halves read the store through {@link toRowVisibilityInput}, the same projection
  * the view applies. Writing that mapping out again here would make this file a second
