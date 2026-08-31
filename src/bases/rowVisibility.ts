@@ -31,6 +31,40 @@ export interface RowVisibilityInput {
   source?: SwitcherRowSource;
 }
 
+/**
+ * A row's `custom` record as read back off the SVAR store — every field optional,
+ * because the store hands back plain objects with no compile-time guarantee that
+ * a row carries the shaper's full record.
+ */
+export interface RowVisibilitySource extends SwitcherRowSource {
+  isTopLevelPlacement?: boolean;
+  dateStatus?: DateStatus;
+}
+
+/**
+ * Project a stored row's `custom` record onto the predicate's input.
+ *
+ * The ONE mapping from stored row to {@link shouldHideRow} input. It lives here
+ * rather than in the view because the view is a `.svelte` module that Jest maps
+ * to a stub: a mapping written inline there could never be executed by a unit
+ * test, so every guard written against it would be a second implementation of
+ * it, and dropping a field from that copy would reintroduce a staleness defect
+ * with the whole suite green. Being a plain function, it is also what lets a
+ * guard DERIVE the filter's field list instead of restating it by hand.
+ */
+export function toRowVisibilityInput(
+  custom: RowVisibilitySource | undefined,
+): RowVisibilityInput {
+  return {
+    isTopLevelPlacement: custom?.isTopLevelPlacement === true,
+    dateStatus: custom?.dateStatus ?? 'complete',
+    source: {
+      calendarItemFamily: custom?.calendarItemFamily,
+      hasRecurringOccupancy: custom?.hasRecurringOccupancy,
+    },
+  };
+}
+
 /** The row-visibility option values plus session state, as the view sees them. */
 export interface RowVisibilityFlags {
   /** "Hide top-level subtasks": hide also-top-level duplicate rows. */

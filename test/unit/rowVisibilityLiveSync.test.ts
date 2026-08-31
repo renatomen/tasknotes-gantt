@@ -1,23 +1,36 @@
 /**
- * Requirement: with "Hide top-level subtasks" ON, the removable top-level copy of a
- * note whose parenting changes WHILE THE VIEW IS OPEN stops occupying a row — and
- * comes back when the note is un-nested again.
+ * Requirement: a live refresh never leaves the row-visibility filter deciding from
+ * a value the store has stopped agreeing with.
  *
  * Each module is individually correct — the expander flags the duplicate, the shaper
  * copies the flag, the predicate hides a flagged row — and only the composition is
- * stale, so this spec drives expansion → shaping → diff → store → filter and asserts
- * the VISIBLE ROW SET rather than a fingerprint.
+ * stale, so these specs drive expansion → shaping → diff → store → filter and assert
+ * what the user is left looking at rather than a fingerprint.
  *
- * What a green run here does NOT earn: it stops at the coordinator's injected port, so
- * SVAR's own store and filter walk are unproven, and so is the view's hand-written
- * mapping from a row's `custom` record to the predicate's input — dropping a field from
- * THAT literal reintroduces this defect with this spec still green.
+ * The first block is the Hide-top example, asserted as a VISIBLE ROW SET (#469). The
+ * second is the general rule the example is one case of (#470): for EVERY member of
+ * `RowVisibilityInput`, the projection the store holds after a live refresh equals the
+ * projection a fresh reopen would compute. It is stated over the members
+ * {@link toRowVisibilityInput} actually produces, so a member added tomorrow is covered
+ * without editing a list — and a member added with no scenario fails the coverage
+ * check rather than passing silently.
+ *
+ * Both blocks read the store through {@link toRowVisibilityInput}, the same projection
+ * the view applies. Writing that mapping out again here would make this file a second
+ * implementation of the thing under test, which is how #469's guard passed while the
+ * defect it named was live.
  */
 
 import { describe, it, expect } from '@jest/globals';
-import { expandInstances } from '../../src/controller/InstanceExpansion';
+import {
+  expandInstances,
+  type ExpandableTask,
+  type RenderInstance,
+} from '../../src/controller/InstanceExpansion';
 import type { RenderLink } from '../../src/controller/InstanceExpansion';
+import { applyDatePolicy } from '../../src/controller/datePolicy';
 import type { SourceTask } from '../../src/datasource/types';
+import type { CalendarOccupancy } from '../../src/datasource/calendarItems/types';
 import { buildSvarTasks, type SvarTask } from '../../src/bases/ganttSync';
 import {
   applyIncrementalGanttSync,
@@ -26,7 +39,12 @@ import {
   planGanttSync,
 } from '../../src/bases/ganttSyncCoordinator';
 import type { GanttSyncPort } from '../../src/bases/ganttSyncPort';
-import { shouldHideRow, type RowVisibilityFlags } from '../../src/bases/rowVisibility';
+import {
+  shouldHideRow,
+  toRowVisibilityInput,
+  type RowVisibilityFlags,
+  type RowVisibilityInput,
+} from '../../src/bases/rowVisibility';
 
 /** The toggle under test is ON; the other row-visibility options show everything. */
 const HIDE_TOP_ON: RowVisibilityFlags = {
@@ -78,51 +96,52 @@ function storeBackedPort(store: Map<string, SvarTask>): GanttSyncPort {
 
 const INERT_SORT = { isActive: () => false, reassert: (): void => {}, clear: (): void => {} };
 
-/** Expand + shape one vault state into the rows a refresh would hand the chart. */
-function rowsFor(tasks: readonly SourceTask[]): SvarTask[] {
+/** Shape resolved instances into rows exactly as a refresh would. */
+function shape(
+  instances: readonly RenderInstance[],
+  options: { showDateIndicators?: boolean; hideTopLevel?: boolean } = {},
+): SvarTask[] {
   return buildSvarTasks({
-    instances: [...expandInstances(tasks).instances],
+    instances: [...instances],
     links: [],
     statusColors: [],
-    showDateIndicators: true,
+    showDateIndicators: options.showDateIndicators ?? true,
     arrowMode: 'primary',
-    hideTopLevelSubtasks: HIDE_TOP_ON.hideTopLevel,
+    hideTopLevelSubtasks: options.hideTopLevel ?? false,
   });
 }
 
-/** The ids left on screen once the composed row-visibility filter has run. */
-function visibleIds(store: ReadonlyMap<string, SvarTask>): string[] {
-  return [...store.values()]
-    .filter((row) => !shouldHideRow(row.custom, HIDE_TOP_ON))
-    .map((row) => row.id)
-    .sort();
+/** Expand + shape one vault state into the rows a refresh would hand the chart. */
+function rowsFor(
+  tasks: readonly ExpandableTask[],
+  options: { showDateIndicators?: boolean; hideTopLevel?: boolean } = {},
+): SvarTask[] {
+  return shape(expandInstances(tasks).instances, options);
 }
 
-/**
- * Open the view on `before`, then refresh it with `after` exactly as the view does,
- * and report what the user is left looking at.
- */
-function visibleAfterLiveRefresh(
-  before: readonly SourceTask[],
-  after: readonly SourceTask[],
-): string[] {
-  const seeded = rowsFor(before);
-  const store = new Map(seeded.map((row) => [row.id, row]));
+/** Open the view on `before`, then refresh it with `after` exactly as the view does. */
+function liveRefresh(before: readonly SvarTask[], after: readonly SvarTask[]): Map<string, SvarTask> {
+  const store = new Map(before.map((row) => [row.id, row]));
   const links: RenderLink[] = [];
-
   const applied = createAppliedGanttSyncState(
-    createGanttSeedSnapshot({ tasks: seeded, links, cellEditColumnIds: [] }),
+    createGanttSeedSnapshot({ tasks: [...before], links, cellEditColumnIds: [] }),
     '',
   );
-
   applyIncrementalGanttSync({
-    plan: planGanttSync({ next: rowsFor(after), links, applied, baseSortKey: '' }),
+    plan: planGanttSync({ next: [...after], links, applied, baseSortKey: '' }),
     port: storeBackedPort(store),
     state: applied,
     ephemeralSort: INERT_SORT,
   });
+  return store;
+}
 
-  return visibleIds(store);
+/** The ids left on screen once the composed row-visibility filter has run. */
+function visibleIds(rows: Iterable<SvarTask>): string[] {
+  return [...rows]
+    .filter((row) => !shouldHideRow(toRowVisibilityInput(row.custom), HIDE_TOP_ON))
+    .map((row) => row.id)
+    .sort();
 }
 
 describe('Hide top-level subtasks — a live parenting edit', () => {
@@ -142,6 +161,17 @@ describe('Hide top-level subtasks — a live parenting edit', () => {
   /** Un-nested, nothing is a duplicate, so Hide-top hides nothing. */
   const UN_NESTED_VISIBLE = ['C.md', 'G.md#parent-C.md', 'P.md'];
 
+  const visibleAfterLiveRefresh = (
+    before: readonly ExpandableTask[],
+    after: readonly ExpandableTask[],
+  ): string[] =>
+    visibleIds(
+      liveRefresh(
+        rowsFor(before, { hideTopLevel: true }),
+        rowsFor(after, { hideTopLevel: true }),
+      ).values(),
+    );
+
   it('hides the whole duplicate placement — its root row AND its subtree', () => {
     expect(visibleAfterLiveRefresh(unNested, nested)).toEqual(NESTED_VISIBLE);
   });
@@ -157,7 +187,119 @@ describe('Hide top-level subtasks — a live parenting edit', () => {
     // The path the user reaches by closing and reopening the view. A fresh seed carries
     // no stale rows, so it owes the same answer without the diff — which is what makes
     // the two cases above a bug rather than the design.
-    const reopened = new Map(rowsFor(nested).map((row) => [row.id, row]));
-    expect(visibleIds(reopened)).toEqual(NESTED_VISIBLE);
+    expect(visibleIds(rowsFor(nested, { hideTopLevel: true }))).toEqual(NESTED_VISIBLE);
+  });
+});
+
+/**
+ * A scenario moves exactly one member of the visibility projection between two vault
+ * states, driving the real expander and shaper for each.
+ */
+interface StalenessScenario {
+  /** The `RowVisibilityInput` member this scenario moves. */
+  field: keyof RowVisibilityInput;
+  name: string;
+  rows: (phase: 'before' | 'after') => SvarTask[];
+}
+
+/** A due-only task and the same task once its inferred start is authored. */
+function datedTask(start: Date | null, end: Date | null): ExpandableTask {
+  const resolved = applyDatePolicy({ start, end }, { defaultDuration: 1, today: new Date(2026, 0, 1) });
+  return {
+    ...task({ path: 'D.md' }),
+    start: resolved.start,
+    end: resolved.end,
+    dateStatus: resolved.dateStatus,
+  };
+}
+
+/** One recorded recurring-instance occupancy, the switcher's `hasRecurringOccupancy` input. */
+function recurringOccupancy(day: string): CalendarOccupancy {
+  return {
+    family: 'recurring-instance',
+    itemId: `recurring-instance::R.md::${day}`,
+    day,
+    minutes: null,
+    stateClass: 'completed',
+  };
+}
+
+const DUE = new Date(2026, 3, 20);
+
+const SCENARIOS: StalenessScenario[] = [
+  {
+    field: 'isTopLevelPlacement',
+    name: 'a note gains a parent, turning its root row into a duplicate placement',
+    rows: (phase) =>
+      rowsFor(
+        phase === 'before'
+          ? [task({ path: 'P.md' }), task({ path: 'C.md' })]
+          : [task({ path: 'P.md' }), { ...task({ path: 'C.md', parents: ['P.md'] }), alsoTopLevel: true }],
+        { hideTopLevel: true },
+      ),
+  },
+  {
+    field: 'dateStatus',
+    name: 'a due-only task has its inferred start authored, with indicators off',
+    // The span the policy already inferred is authored verbatim, so start, end and the
+    // composed `type` are byte-identical across the edit. With indicators off the state
+    // token is `undefined` on both sides too, which leaves `dateStatus` itself as the
+    // only thing that moved — the row re-issues only if it is folded.
+    rows: (phase) =>
+      rowsFor([phase === 'before' ? datedTask(null, DUE) : datedTask(DUE, DUE)], {
+        showDateIndicators: false,
+      }),
+  },
+  {
+    field: 'source',
+    name: 'a recurring family starts occupying a task row',
+    // Occupancy is merged onto instances AFTER expansion (the controller's calendar-item
+    // stage), so the scenario attaches it at the shaper's input, where the real one does.
+    rows: (phase) => {
+      const instances = [...expandInstances([task({ path: 'R.md' })]).instances];
+      return shape(
+        phase === 'before'
+          ? instances
+          : instances.map((instance) => ({ ...instance, occupancy: [recurringOccupancy('2026-01-01')] })),
+      );
+    },
+  },
+];
+
+/** Every row's visibility projection, by row id. */
+function projections(rows: Iterable<SvarTask>): Map<string, RowVisibilityInput> {
+  return new Map([...rows].map((row) => [row.id, toRowVisibilityInput(row.custom)]));
+}
+
+describe('a live refresh leaves no row-visibility input stale', () => {
+  it('has a scenario for every member of the visibility projection', () => {
+    // Derived from the projection itself, not from a list kept by hand: a member added
+    // to `RowVisibilityInput` and `toRowVisibilityInput` fails here until it has a
+    // scenario proving a live refresh carries it.
+    const members = Object.keys(toRowVisibilityInput(undefined)).sort();
+    expect([...new Set(SCENARIOS.map((scenario) => scenario.field))].sort()).toEqual(members);
+  });
+
+  describe.each(SCENARIOS)('$name', (scenario) => {
+    const before = scenario.rows('before');
+    const after = scenario.rows('after');
+
+    it(`moves ${scenario.field} between the two vault states`, () => {
+      // The floor. Without it the property below passes vacuously on a scenario that
+      // stopped exercising the member it claims — the failure mode that let #469's
+      // first guard go green with the predicate entirely dead.
+      const from = projections(before);
+      const to = projections(after);
+      const moved = [...to].some(
+        ([id, projection]) =>
+          !from.has(id) ||
+          JSON.stringify(from.get(id)?.[scenario.field]) !== JSON.stringify(projection[scenario.field]),
+      );
+      expect(moved).toBe(true);
+    });
+
+    it('leaves the store holding exactly what a fresh reopen would compute', () => {
+      expect(projections(liveRefresh(before, after).values())).toEqual(projections(after));
+    });
   });
 });

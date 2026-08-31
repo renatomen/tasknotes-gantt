@@ -1123,10 +1123,11 @@ describe('taskStateKey', () => {
     expect(taskStateKey(a)).toBe(taskStateKey(b));
   });
 
-  it('is identical regardless of custom.dateStatus (KTD3 diff-safety guard)', () => {
-    // dateStatus rides into custom for the view filter but MUST NOT enter the
-    // task-update fingerprint — otherwise a date-status change would inflate the
-    // SVAR diff (#161). Same content, different dateStatus → same key.
+  it('re-issues the row when custom.dateStatus changes with indicators off', () => {
+    // With indicators off the state token is `undefined` and `type` flags only a
+    // swapped span, so nothing else carries the classification: this is the one
+    // configuration in which the fold is the sole route to the store, and the
+    // display filter reads the stored value.
     const [a] = buildSvarTasks(
       inputs({ instances: [inst({ id: 'a', dateStatus: 'complete' })], showDateIndicators: false }),
     );
@@ -1137,7 +1138,7 @@ describe('taskStateKey', () => {
       }),
     );
     expect(a.custom.dateStatus).not.toBe(b.custom.dateStatus);
-    expect(taskStateKey(a)).toBe(taskStateKey(b));
+    expect(taskStateKey(a)).not.toBe(taskStateKey(b));
   });
 });
 
@@ -1257,8 +1258,7 @@ describe('taskStateKey — folded-field census', () => {
       perturb: withCustom({ sourceTaskId: 'other.md' }),
     },
     dateStatus: {
-      effect: 'ignored',
-      why: 'it rides custom for the view filter; folding it would inflate the SVAR diff',
+      effect: 'changes',
       perturb: withCustom({ dateStatus: 'placeholder' }),
     },
     isReplicated: {
