@@ -300,7 +300,9 @@ const FIELD_DELIVERY: Record<keyof RowVisibilitySource, FieldDelivery> = {
  * An index signature on that interface — or on the switcher source it extends — widens
  * `keyof` to `string`, which turns the table below into an index-signature record that
  * any set of entries satisfies. The completeness gate would then be off with nothing
- * failing, so the degeneration is caught here instead, at compile time.
+ * failing, so the degeneration is caught here instead — under `npm run typecheck`, which
+ * the pre-commit hook and CI both run. The suite cannot see it: the transform strips
+ * types rather than checking them.
  */
 type LiteralKeys<T> = string extends keyof T ? never : true;
 const SOURCE_KEYS_ARE_LITERAL: LiteralKeys<RowVisibilitySource> = true;
@@ -319,10 +321,11 @@ function perturbedValue(current: unknown): unknown {
 describe('every field the visibility filter reads reaches the store', () => {
   const baseRow = (): SvarTask => rowsFor([task({ path: 'X.md' })])[0]!;
 
-  it('keys the routing table on a literal member list', () => {
-    // Guards the guard: the assertion that matters is the type above, which stops
-    // compiling if `keyof` widens. This case exists so the protection is visible in the
-    // run rather than living only in a declaration nothing references.
+  it('keeps the literal-keys assertion referenced, so it cannot be deleted as unused', () => {
+    // Deliberately NOT named for the invariant it touches. The transform strips types, so
+    // this expectation is unconditionally true at run time and would tick green with the
+    // key union already widened; `npm run typecheck` is the tier that fires. The case
+    // earns its place only by making that declaration load-bearing at run time too.
     expect(SOURCE_KEYS_ARE_LITERAL).toBe(true);
   });
 
