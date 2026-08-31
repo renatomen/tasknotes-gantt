@@ -222,7 +222,7 @@ export interface SvarTask {
      * The instance belongs to an also-top-level DUPLICATE placement (the extra
      * root copy of an already-nested task + its subtree). The view hides these via
      * SVAR `filter-tasks` when "Hide top-level subtasks" is on — a pure display
-     * filter over a STABLE task set, so the toggle can't churn the chart (#161).
+     * filter over a STABLE task set. Folded into {@link taskStateKey}.
      */
     isTopLevelPlacement: boolean;
     /**
@@ -682,6 +682,11 @@ export function taskStateKey(t: SvarTask): string {
     t.custom.showHasDeps,
     t.custom.isVirtual,
     t.custom.isCollapsed,
+    // Hide-top's filter input, read off the STORE: the also-top-level duplicate
+    // shares its row id with the genuine root it replaces, so a note that gains a
+    // parent keeps its id and only this flag moves. Without the fold no
+    // `update-task` carries the flip, and the filter goes on hiding nothing.
+    t.custom.isTopLevelPlacement,
     // Icon-chip spec (U4): fold so toggling the icon source or a config icon
     // change re-issues the task (the chip would otherwise go stale).
     barIconKey(t.custom.barIcon),
