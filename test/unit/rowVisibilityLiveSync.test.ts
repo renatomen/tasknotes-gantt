@@ -3,27 +3,15 @@
  * note whose parenting changes WHILE THE VIEW IS OPEN stops occupying a row — and
  * comes back when the note is un-nested again.
  *
- * The view never re-seeds SVAR's `tasks` array on a refresh — that would re-init the
- * store and throw away zoom/scroll. It diffs (`planGanttSync`), execs the resulting
- * ops (`applyIncrementalGanttSync`), and then re-applies the composed `filter-tasks`
- * predicate over whatever the store now holds. So a field the predicate READS is only
- * ever as fresh as the diff that carried it there: a field the fingerprint does not
- * fold produces no `update-task`, and the filter keeps deciding on the state the row
- * was seeded with.
+ * Each module is individually correct — the expander flags the duplicate, the shaper
+ * copies the flag, the predicate hides a flagged row — and only the composition is
+ * stale, so this spec drives expansion → shaping → diff → store → filter and asserts
+ * the VISIBLE ROW SET rather than a fingerprint.
  *
- * That staleness is invisible to every module on its own — the expander flags the
- * duplicate correctly, the shaper copies the flag correctly, and the predicate hides
- * a flagged row correctly. Only the composition is wrong. So this spec drives the real
- * chain: expansion → SVAR shaping → diff → store → filter. It asserts the VISIBLE ROW
- * SET, never a fingerprint, so it cannot be satisfied by any particular fold shape.
- *
- * It stays at the fastest tier — no SVAR, no Obsidian — by driving the coordinator
- * through its injected port rather than standing a second plan applier up beside it.
- * Two hops stay OUT of reach here and are named so nobody reads more into a green run
- * than it earns: SVAR's own store and its `filterTree` walk (which keeps a hidden
- * ancestor whose descendant passes), and the view's hand-written mapping from a row's
- * `custom` record to the predicate's input — dropping a field from THAT literal would
- * reintroduce this defect with this spec still green.
+ * What a green run here does NOT earn: it stops at the coordinator's injected port, so
+ * SVAR's own store and filter walk are unproven, and so is the view's hand-written
+ * mapping from a row's `custom` record to the predicate's input — dropping a field from
+ * THAT literal reintroduces this defect with this spec still green.
  */
 
 import { describe, it, expect } from '@jest/globals';
@@ -165,13 +153,11 @@ describe('Hide top-level subtasks — a live parenting edit', () => {
     expect(visibleAfterLiveRefresh(nested, unNested)).toEqual(UN_NESTED_VISIBLE);
   });
 
-  it('does not depend on how the user got there — a live refresh matches a fresh reopen', () => {
-    // The self-heal path: a fresh seed carries no stale rows, so it says independently
-    // what the live refresh owes the user. Both sides are pinned to the same expected
-    // set as well as to each other — sharing only the equality would let this pass with
-    // the Hide-top predicate entirely dead, since both sides would then be equally wrong.
+  it('hides the duplicate on a fresh reopen too, with no diff involved', () => {
+    // The path the user reaches by closing and reopening the view. A fresh seed carries
+    // no stale rows, so it owes the same answer without the diff — which is what makes
+    // the two cases above a bug rather than the design.
     const reopened = new Map(rowsFor(nested).map((row) => [row.id, row]));
     expect(visibleIds(reopened)).toEqual(NESTED_VISIBLE);
-    expect(visibleAfterLiveRefresh(unNested, nested)).toEqual(visibleIds(reopened));
   });
 });

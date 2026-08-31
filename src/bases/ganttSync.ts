@@ -222,9 +222,7 @@ export interface SvarTask {
      * The instance belongs to an also-top-level DUPLICATE placement (the extra
      * root copy of an already-nested task + its subtree). The view hides these via
      * SVAR `filter-tasks` when "Hide top-level subtasks" is on — a pure display
-     * filter over a STABLE task set. Folded into {@link taskStateKey}: the duplicate
-     * shares its row id with the genuine root, so a live parenting edit moves only
-     * this flag and the filter would otherwise never see it.
+     * filter over a STABLE task set. Folded into {@link taskStateKey}.
      */
     isTopLevelPlacement: boolean;
     /**
