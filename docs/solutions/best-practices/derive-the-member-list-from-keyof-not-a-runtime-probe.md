@@ -328,9 +328,10 @@ grep -rn "Record<keyof" test/            # test/unit/ganttSync.test.ts:1205 — 
   derivation without the guarantee* — the same distinction it draws about a census committed with no
   completeness assertion over it.
 - ["I cannot write a test that executes this" names a seam](../architecture-patterns/a-guard-that-restates-its-subject-names-a-missing-seam.md)
-  — where this guard's *evidence* came from, landed alongside it. The table here ranges over a
-  type; that doc is why a table alone would not have been trustworthy until the projection it
-  describes became something the fast tier could execute.
+  — what made this guard's evidence *obtainable*, landed alongside it. Keep obtainable and
+  obtained apart: the staleness scenarios do run the real projection, so that half is evidenced;
+  the population check of limit 3 became writable for the same reason and is still unwritten. A
+  table over a type is trustworthy only so far as something executes the code meant to populate it.
 - [A guard on the wrong proposition defends the defect](assert-the-claim-not-the-mechanism.md) — the
   sibling axis. That one asks whether the property being protected is the right property; this one
   asks where the member list it iterates comes from. Both were live in the same branch.

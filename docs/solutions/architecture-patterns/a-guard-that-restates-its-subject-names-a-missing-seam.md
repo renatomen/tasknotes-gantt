@@ -330,7 +330,8 @@ it.
   branch: what tells you to extract, and what the extraction unlocks, when no state has to cross.
 - [A probe sees the fields one call touched — derive a static member list from the
   declaration](../best-practices/derive-the-member-list-from-keyof-not-a-runtime-probe.md)
-  — the guard whose *evidence* this extraction supplies. Read that doc for what the guard must
+  — the guard this extraction makes evidence *obtainable* for: its staleness half runs the real
+  projection, its population half is writable and unwritten. Read that doc for what the guard must
   look like; read this one for why a table alone would not have been trustworthy.
 - [A guard on the wrong proposition defends the defect — assert the claim, not the mechanism](../best-practices/assert-the-claim-not-the-mechanism.md)
   — the defect whose fix carried this extraction. Different axis: that doc is about a guard aimed at
