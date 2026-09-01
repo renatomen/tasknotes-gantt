@@ -1,5 +1,5 @@
 ---
-title: "A guard that must restate its subject is naming a missing seam"
+title: '"I cannot write a test that executes this" names a seam — and the extraction is sometimes what makes the guard checkable, not just tidier'
 date: 2026-09-01
 category: docs/solutions/architecture-patterns
 module: bases-gantt
@@ -14,7 +14,7 @@ applies_when:
   - "A guard cannot be written without restating the mapping it is meant to verify, so the test becomes a second implementation of its own subject"
   - "Logic lives in a module the fast test tier cannot execute — a `.svelte` file under a jest stub mapping, a template, a config block"
   - "Deciding whether a move out of a ranked-defect file is a genuine seam extraction or a source-level relocation"
-  - "A completeness guard needs `Record<keyof T, ...>` over a shape that currently exists only as an inline object literal"
+  - "A completeness table over a type is writable, but nothing on the fast tier can execute the code that is supposed to populate it"
   - "A spec and the code it verifies have silently diverged because each holds its own copy of the same mapping"
 symptoms:
   - "Every test of a behavior begins by hand-rebuilding the exact input the production code builds"
@@ -306,9 +306,6 @@ type LiteralKeys<T> = string extends keyof T ? never : true;
 const SOURCE_KEYS_ARE_LITERAL: LiteralKeys<RowVisibilitySource> = true;
 ```
 
-`RowVisibilitySource` is the name the extraction created. Delete the extraction and both
-lines lose their subject — there is no `keyof` of an inline object literal.
-
 **The discriminator, in two commands**
 
 ```bash
@@ -333,12 +330,10 @@ it.
   "Do not use it for pure logic. If the logic can take data in and return decisions out, extract a
   pure module instead... A bridge wrapped around pure logic is ceremony." This doc is that excluded
   branch: what tells you to extract, and what the extraction unlocks, when no state has to cross.
-- [A probe sees the fields one call happens to touch — derive a member list from `keyof`, not from
-  runtime introspection](../best-practices/derive-the-member-list-from-keyof-not-a-runtime-probe.md)
-  — the guard this extraction made possible. A strict dependency, not a sibling coincidence: its
-  `Record<keyof RowVisibilitySource, ...>` table and its `LiteralKeys` degeneracy guard both name a
-  type that arrived in the same commit as `toRowVisibilityInput`. Read that doc for what the guard
-  must look like; read this one for why a table alone would not have been trustworthy.
+- [A probe sees the fields one call touched — derive a static member list from the
+  declaration](../best-practices/derive-the-member-list-from-keyof-not-a-runtime-probe.md)
+  — the guard whose *evidence* this extraction supplies. Read that doc for what the guard must
+  look like; read this one for why a table alone would not have been trustworthy.
 - [A guard on the wrong proposition defends the defect — assert the claim, not the mechanism](../best-practices/assert-the-claim-not-the-mechanism.md)
   — the defect whose fix carried this extraction. Different axis: that doc is about a guard aimed at
   the wrong proposition; this one is about a mapping no guard could aim at.

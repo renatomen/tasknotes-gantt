@@ -1,5 +1,5 @@
 ---
-title: "A probe sees the fields one call happens to touch - derive a member list from `keyof`, not from runtime introspection"
+title: 'A probe sees the fields one call touched — derive a static member list from the declaration'
 date: 2026-09-01
 category: docs/solutions/best-practices
 module: testing / member-list-derivation
@@ -108,7 +108,9 @@ Third, and easiest to miss because the table looks like it covers it: the table 
 by the predicate, fingerprinted, and dutifully recorded in the table — but simply never written by
 the projection — satisfies the key set, typechecks, and leaves the suite green while production
 reads `undefined` for it forever. Completeness over a declaration is not completeness over a
-function body; proving the second needs something that executes the mapping and compares. A table
+function body; proving the second needs something that executes the mapping and compares. Unlike
+the first two, this one is not a boundary the pattern has to accept: the projection is a plain
+exported function now, so that check is writable on the fast tier today. It is not written. A table
 that inherits any of these three silently is back to being a mechanism-shaped comment.
 
 ## Guidance
@@ -143,12 +145,13 @@ last — which is the tell that the *shape* is wrong rather than the instance.
   symbol index signature also widens `keyof`, but it *adds* `number` or `symbol` beside the
   **string-named** keys rather than absorbing them, so `Record<keyof T, V>` still demands each of
   those. The qualifier is load-bearing: a numerically-named member is absorbed by `[key: number]`,
-  and a unique-symbol member by `[key: symbol]`, so a contract carrying either needs the assertion
-  widened to reject those signatures too. The contract here carries only string-named members. Measured
-  on TypeScript 5.9.2: with `[key: number]: unknown` planted, the complete table compiles clean — and
-  dropping one member from it still fails `TS2741`. Observing that the honest tree still compiles is
-  not evidence the gate is off; the gate is tested by removing a member and watching it go red.
-  The gate would then be off with nothing failing. `type LiteralKeys<T> = string extends keyof T ?
+  and a unique-symbol member by `[key: symbol]` — the gate would then be off with nothing failing —
+  so a contract carrying either needs the assertion widened to reject those signatures too. The
+  contract here carries only string-named members. Measured on TypeScript 5.9.2: with
+  `[key: number]: unknown` planted, the complete table compiles clean — and dropping one member from
+  it still fails `TS2741`. Observing that the honest tree still compiles is not evidence the gate is
+  off; the gate is tested by removing a member and watching it go red.
+  `type LiteralKeys<T> = string extends keyof T ?
   never : true` fails `TS2322` instead (`test/unit/rowVisibilityLiveSync.test.ts:307-308`). It has to
   be *referenced* at run time as well, or it reads as an unused declaration and gets deleted
   (`:324-330`) — and note that the reference case is deliberately not named for the invariant, because
@@ -324,6 +327,10 @@ grep -rn "Record<keyof" test/            # test/unit/ganttSync.test.ts:1205 — 
   What it does not say, and what cost three rounds here, is that a runtime probe *has the shape of a
   derivation without the guarantee* — the same distinction it draws about a census committed with no
   completeness assertion over it.
+- ["I cannot write a test that executes this" names a seam](../architecture-patterns/a-guard-that-restates-its-subject-names-a-missing-seam.md)
+  — where this guard's *evidence* came from, landed alongside it. The table here ranges over a
+  type; that doc is why a table alone would not have been trustworthy until the projection it
+  describes became something the fast tier could execute.
 - [A guard on the wrong proposition defends the defect](assert-the-claim-not-the-mechanism.md) — the
   sibling axis. That one asks whether the property being protected is the right property; this one
   asks where the member list it iterates comes from. Both were live in the same branch.
