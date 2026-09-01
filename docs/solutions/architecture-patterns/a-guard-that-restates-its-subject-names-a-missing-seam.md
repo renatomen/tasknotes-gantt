@@ -127,26 +127,7 @@ a pure mapping rather than to stateful coordination.
 |---|---|---|
 | 1 | The mapping became executable by jest for the first time | No — it is the stated goal |
 | 2 | One mapping instead of two, and the copies had **already** diverged | Mildly — worth checking, rarely checked |
-| 3 | It made a completeness guard **checkable** — the type was always nameable, the mapping was not runnable | Yes |
-
-**A seam extraction can be what makes a guard checkable, rather than merely tidier — and it pays to
-be exact about which half it supplies.** Naming the member set never needed the extraction:
-`RowVisibilityInput` was already exported before #473, and
-`Exclude<keyof RowVisibilityInput, 'source'> | keyof NonNullable<RowVisibilityInput['source']>`
-yields the same four members, failing `TS2741` on an omission — measured. A table could have been
-written the week before.
-
-What could not be written is the half that matters. A completeness table proves that every member of
-a *type* is accounted for; it says nothing about whether the code actually populates them. Checking
-that requires running the mapping, and the mapping was an argument expression inside a module the
-test tier replaces with a stub. So the extraction did not supply the guard's subject — it supplied
-the guard's *evidence*. Keep the two apart when arguing for a seam: a type-level table is available
-to you today; a table anyone can trust is available only once something can execute what it
-describes.
-
-**Before assuming the copies agree, check.** De-duplication is the least interesting of the
-three consequences right up until you measure it, and here the two mappings had already
-drifted apart in a way no gate could see (below, under *Why This Matters*).
+| 3 | It made a completeness guard **checkable** (see *Subject and evidence*) | Yes |
 
 **A shrink is not the discriminator; independent testability is.** AGENTS.md and the
 2026-08-27 Farley alignment audit make "a source-level relocation is not a seam extraction"
@@ -155,6 +136,32 @@ a review contract — the trend tool prints that sentence under every ranked-fil
 `docs/reports/2026-08-27-001-farley-alignment-audit.md:37`). Relocations shrink files too.
 The question that separates them is not *did the line count fall* but **can the moved code
 now be executed by a test that could not execute it before**.
+
+**Before assuming the copies agree, check.** De-duplication is the least interesting of the
+three consequences right up until you measure it, and here the two mappings had already
+drifted apart in a way no gate could see (below, under *Why This Matters*).
+
+### Subject and evidence
+
+**The distinction this document turns on. It is stated here once; every other passage points back
+to this section instead of restating it.** Six review rounds went on reconciling independent copies
+of it — the hand-maintained member list this pair of documents exists to warn about, reproduced in
+its own prose.
+
+**The extraction did not supply the guard's subject.** Naming the member set never needed it:
+`RowVisibilityInput` was already exported before #473, and
+`Exclude<keyof RowVisibilityInput, 'source'> | keyof NonNullable<RowVisibilityInput['source']>`
+yields the same four members, failing `TS2741` on an omission — measured. A table could have been
+written the week before.
+
+**What it supplied is the guard's evidence — and only by making it *obtainable*.** A completeness
+table proves every member of a *type* is accounted for; it says nothing about whether the code
+populates them. Checking that means running the mapping, and the mapping was an argument expression
+inside a module the test tier replaces with a stub.
+
+**Obtainable is not obtained**, and the guard that exists splits on exactly that line: the staleness
+scenarios do run the real projection, so that half is evidenced; the population check — limit 3 of
+the sibling learning — became writable for the same reason and is still unwritten.
 
 ## Why This Matters
 
@@ -184,11 +191,9 @@ of the first is a well-typed, green, silent lie.
 — `Record<keyof RowVisibilitySource, FieldDelivery>` (`test/unit/rowVisibilityLiveSync.test.ts:287`)
 and its degeneracy guard `LiteralKeys<RowVisibilitySource>` (`:307-308`) — keys on an interface that
 arrived with `toRowVisibilityInput` (`git show b3f6b92 -- src/bases/rowVisibility.ts`). But it did
-not *need* to: the pre-existing `RowVisibilityInput` could have supplied the same member set. What
-the extraction bought is that the projection those members describe can now be executed and
-compared against, and that the three defeated runtime probes had something to be an alternative
-*to*. The probes were attempts to recover by observation a list the declaration could always have
-given; the seam is what made checking the list against real behaviour possible.
+not *need* to — see *Subject and evidence*. What the extraction added here is that the three
+defeated runtime probes had something to be an alternative *to*: they were attempts to recover by
+observation a list the declaration could always have given.
 
 **The rank-1 evidence, and what it does and does not establish.**
 `src/bases/GanttContainer.svelte` is rank 1 in `maintainability-registry.json`. The
@@ -330,9 +335,9 @@ it.
   branch: what tells you to extract, and what the extraction unlocks, when no state has to cross.
 - [A probe sees the fields one call touched — derive a static member list from the
   declaration](../best-practices/derive-the-member-list-from-keyof-not-a-runtime-probe.md)
-  — the guard this extraction makes evidence *obtainable* for: its staleness half runs the real
-  projection, its population half is writable and unwritten. Read that doc for what the guard must
-  look like; read this one for why a table alone would not have been trustworthy.
+  — the guard whose evidence this extraction makes obtainable (see *Subject and evidence*). Read
+  that doc for what the guard must look like; read this one for why a table alone would not have
+  been trustworthy.
 - [A guard on the wrong proposition defends the defect — assert the claim, not the mechanism](../best-practices/assert-the-claim-not-the-mechanism.md)
   — the defect whose fix carried this extraction. Different axis: that doc is about a guard aimed at
   the wrong proposition; this one is about a mapping no guard could aim at.
