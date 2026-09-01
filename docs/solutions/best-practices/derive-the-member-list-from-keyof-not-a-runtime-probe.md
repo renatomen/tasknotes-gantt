@@ -50,7 +50,7 @@ and each was evaded by a different shape.
 
 **1. Enumerate the projection's output keys.** `Object.keys(toRowVisibilityInput(...))`. The
 projection nests the source-switcher members under a single `source` key
-(`src/bases/rowVisibility.ts:55-66`), so `calendarItemFamily` and `hasRecurringOccupancy` never
+(`src/bases/rowVisibility.ts:54-65`), so `calendarItemFamily` and `hasRecurringOccupancy` never
 appear in that key set at all — the enumeration returns three names for a four-member contract. A
 switcher member added tomorrow would ship dead with every guard at this tier green — an e2e
 journey that toggles that source would still catch it, minutes later and a tier away.

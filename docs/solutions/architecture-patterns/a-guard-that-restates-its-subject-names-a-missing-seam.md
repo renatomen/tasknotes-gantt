@@ -92,7 +92,7 @@ deliberately deferred. Per the session record, one reviewer rated it P1 and argu
 closing it inside that PR; the maintainer had not ruled, so it was left as an open call
 rather than silently picked.
 
-It was closed by #473. `src/bases/rowVisibility.ts:39-66` now declares the input type and
+It was closed by #473. `src/bases/rowVisibility.ts:39-65` now declares the input type and
 the projection; `src/bases/GanttContainer.svelte:1013` and both specs call it.
 
 ## Guidance
@@ -181,7 +181,7 @@ straight through:
 while `RowVisibilityInput.source` is **optional and nested**
 (`src/bases/rowVisibility.ts:31`). Structural typing accepted it, `source` was silently
 `undefined`, `shouldHideRow` fell through `custom.source ?? {}`
-(`src/bases/rowVisibility.ts:99`) into `isRowHiddenBySwitcher({}, …)`, and that returns
+(`src/bases/rowVisibility.ts:98`) into `isRowHiddenBySwitcher({}, …)`, and that returns
 `false` at its first guard (`src/bases/sourceSwitcher.ts:51`). **Switcher-based hiding could
 not have been exercised by that spec under any flags** — and its flags carried no
 `hiddenSources` either. The view, meanwhile, built the nested `source` correctly.
