@@ -20,7 +20,7 @@ symptoms:
   - "A Proxy over a projection's INPUT misses a member the consumer reads that the producer never supplies"
   - "A Proxy misses a member read only behind a value-guarded branch the probe never entered"
   - "4,021 tests, tsc and svelte-check all green while the live filter reads an unfolded field"
-  - "An index signature widens keyof to string and silently disables a Record<keyof T, ...> completeness gate"
+  - "A string index signature widens keyof to string and silently disables a Record<keyof T, ...> completeness gate"
 root_cause: wrong_api
 resolution_type: test_fix
 tags:
@@ -121,6 +121,17 @@ type you keyed on, rather than being patched one at a time — a narrower guaran
 can escape", and the narrowing is load-bearing: it holds for the members of that type, not for a
 contract assembled from more than one.
 
+**Scope: this is stated for an interface of string-named members, which is what was measured here.**
+Three shapes change what `keyof` gives you, and a table over any of them needs more than the rule
+above. Nothing below was needed for this contract; they are named so a reader adopting the pattern
+can tell whether they are inside its domain.
+
+| Shape | What `keyof` yields | What a complete table then needs |
+|---|---|---|
+| A **union** of object types | only the keys common to *every* member — for `{kind:'a';a:number} \| {kind:'b';b:number}` it is `kind` alone, and a `Record<keyof T, V>` omitting `a` and `b` compiles clean (measured, tsc 5.9.2) | distribute it — `T extends unknown ? keyof T : never` — or assert discriminant exhaustiveness instead |
+| A **string** index signature, from anywhere up the extends chain | `string \| number`, so the record accepts any set of entries | the literal-key assertion below |
+| **Symbol-named** members | the symbols, correctly — but `Object.keys`/`entries`/`values` never visit them, so the runtime companion below skips their routes while staying green | `Reflect.ownKeys`, or keep the contract to string-named members |
+
 A runtime probe answers *what did this execution touch?* A member-list rule asks *what may exist?*
 Those coincide only when one call happens to exercise the whole contract, which nothing enforces and
 which is exactly what the rule was written because you cannot assume. The three defeats above are
@@ -135,7 +146,9 @@ that gap wearing three costumes:
 Patching any one of these leaves the other two live, and there is no argument that the third is the
 last — which is the tell that the *shape* is wrong rather than the instance.
 
-**A type-level completeness table degenerates silently, so it needs two companions.**
+**A type-level completeness table degenerates silently, so it needs two companions.** Both are
+written here over enumerable string keys — see the scope note above before applying them to a
+contract that carries symbols.
 
 - **A literal-key assertion.** `keyof T` widens to include `string` — in fact `string | number`,
   since numeric keys stringify — the moment `T` gains a **string** index signature — from anywhere in its extends chain — and `Record<string, V>` is satisfied by any set of
@@ -188,8 +201,12 @@ things.**
 | Is the property being protected the right property? | a guard locked onto a mechanism instead of a claim | [assert-the-claim-not-the-mechanism.md](assert-the-claim-not-the-mechanism.md) |
 | Where does this rule's member list come from? | a rule that is complete only over what one call touched | this doc |
 
-The probes would have passed both sibling tests. Their assertions observed exactly what they claimed,
-about exactly the right proposition — over an incomplete set.
+The probes' assertions observed exactly what they claimed, about exactly the right proposition — over
+an incomplete set. That clears the second question but not the first: a test named for *every* field
+that passes while a branch-only field goes unfolded is passing while the guard it names is broken,
+which is precisely what the name-is-a-claim check exists to catch. What this doc adds is not a defect
+that check cannot see — it is why the defect keeps recurring, and the repair: change where the member
+list comes from.
 
 ## Why This Matters
 
@@ -288,7 +305,7 @@ const FIELD_DELIVERY: Record<keyof RowVisibilitySource, FieldDelivery> = {
   },
 };
 
-// Without this, an index signature anywhere up the extends chain widens `keyof` to
+// Without this, a string index signature anywhere up the extends chain widens `keyof` to
 // `string` and the record above accepts any entries at all — measured: the table
 // raised nothing, and this line was the only error in the program.
 type LiteralKeys<T> = string extends keyof T ? never : true;
