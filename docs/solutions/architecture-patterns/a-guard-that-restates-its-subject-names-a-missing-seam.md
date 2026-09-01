@@ -143,8 +143,6 @@ test tier replaces with a stub. So the extraction did not supply the guard's sub
 the guard's *evidence*. Keep the two apart when arguing for a seam: a type-level table is available
 to you today; a table anyone can trust is available only once something can execute what it
 describes.
-When a rule needs a member list and the thing it ranges over is anonymous, giving it a name
-is the first unit of work, not a refactor to do afterwards.
 
 **Before assuming the copies agree, check.** De-duplication is the least interesting of the
 three consequences right up until you measure it, and here the two mappings had already
@@ -265,7 +263,7 @@ reach; it does not move the boundary of what the view is.
 ## Examples
 
 **The seam, with the reason written where the next reader will hit it**
-(`src/bases/rowVisibility.ts:44-66`)
+(`src/bases/rowVisibility.ts`, `toRowVisibilityInput`)
 
 ```ts
 /**
@@ -275,8 +273,8 @@ reach; it does not move the boundary of what the view is.
  * rather than in the view because the view is a `.svelte` module that Jest maps
  * to a stub: a mapping written inline there could never be executed by a unit
  * test, so every guard written against it would be a second implementation of
- * it … Being a plain function, it is also what lets a
- * guard DERIVE the filter's field list instead of restating it by hand.
+ * it, and dropping a field from that copy would reintroduce a staleness defect
+ * with the whole suite green.
  */
 export function toRowVisibilityInput(custom: RowVisibilitySource | undefined): RowVisibilityInput
 ```
