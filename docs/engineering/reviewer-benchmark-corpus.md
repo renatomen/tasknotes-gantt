@@ -68,52 +68,65 @@ aggregates the six reviewer returns already counted). The first run's roster nam
 
 **Layer 1, by run** (C = clean, F(n) = n findings; subjects are stated only where the run's own artifacts pin them):
 
-| Run | Passes | Subject |
+| Run | Passes | Subject (pin evidence) |
 |---|---|---|
-| `20260831-213901` | adversarial F(2), correctness F(2), maintainability F(1), performance C, project-standards F(1), testing C | `02d229a` (pinned by its `metadata.json`) |
-| `20260831-r2` | adversarial F(2), correctness F(2), project-standards F(2), testing F(1) | — |
-| `20260901-r3` | adversarial F(2), correctness F(1), project-standards F(2) | — |
-| `20260901-r4` | adversarial F(2), correctness C, project-standards F(1) | — |
-| `20260901-r5` | adversarial F(2), project-standards F(1) | — |
-| `20260901-r6` | correctness C, project-standards C | — |
-| `docs-r1` | correctness F(1), correctness-r2 C, project-standards C | — |
-| `closeout` | correctness F(2), project-standards C | — |
-| `closeout2` | correctness F(2), project-standards F(1) | — |
-| `closeout3` | correctness F(2), project-standards C | — |
-| `closeout4` | correctness C, project-standards C | `4c9d380` (pinned by its own verification notes) |
-| `closeout5` | correctness F(2), project-standards C | — |
-| `closeout6` | correctness F(4), project-standards C | — |
-| `closeout7` | correctness F(1), project-standards C | — |
-| `closeout8` | correctness F(1) | — |
-| `final` | correctness C, project-standards C | — |
+| `20260831-213901` | adversarial F(2), correctness F(2), maintainability F(1), performance C, project-standards F(1), testing C | `02d229a` (A: its `metadata.json` lists `commits: [e0cae52, 02d229a]`) |
+| `20260831-r2` | adversarial F(2), correctness F(2), project-standards F(2), testing F(1) | unpinned |
+| `20260901-r3` | adversarial F(2), correctness F(1), project-standards F(2) | unpinned |
+| `20260901-r4` | adversarial F(2), correctness C, project-standards F(1) | unpinned |
+| `20260901-r5` | adversarial F(2), project-standards F(1) | unpinned |
+| `20260901-r6` | correctness C, project-standards C | unpinned |
+| `docs-r1` | correctness F(1), correctness-r2 C, project-standards C | correctness only: `4e9a05f` (B: its finding quotes text present at `4e9a05f:128`, gone at `7d478b0`); other two passes unpinned |
+| `closeout` | correctness F(2), project-standards C | `3662fcf` (A: `HEAD 3662fcf` in its notes) |
+| `closeout2` | correctness F(2), project-standards F(1) | unpinned |
+| `closeout3` | correctness F(2), project-standards C | unpinned |
+| `closeout4` | correctness C, project-standards C | `4c9d380` (A: `HEAD 4c9d380` in its verification notes) |
+| `closeout5` | correctness F(2), project-standards C | `7529db3` (A: `HEAD 7529db3` in its notes) |
+| `closeout6` | correctness F(4), project-standards C | `9dada9e` (A: `HEAD 9dada9e` in its notes) |
+| `closeout7` | correctness F(1), project-standards C | unpinned |
+| `closeout8` | correctness F(1) | `25e2395` (B: its finding cites the `rowVisibility.ts:99` doc state, present at `25e2395`, fixed by `b67f47d` — whose diff is exactly the finding's three-citation fix) |
+| `final` | correctness C, project-standards C | unpinned |
+
+**Adjudicability requires a pinned subject.** A pass can be adjudicated only when the text it reviewed is
+locatable: every layer-2 pass self-pins (its `SAW-DIFF: PEER-<sha>-<n>` header), and a layer-1 pass is pinned
+either by artifact content naming its run's commit — a `metadata.json` commit list, a `HEAD <sha>` verification
+note, both per-run (grade A) — or by its own finding quoting text locatable to exactly one commit state
+(grade B, per-pass). **45 of the 69 passes are currently adjudicable** (29 layer-2 + 16 layer-1: grade A runs
+`20260831-213901`, `closeout`, `closeout4`, `closeout5`, `closeout6` = 14 passes; grade B `docs-r1/correctness`
+and `closeout8/correctness` = 2). The 24 unpinned passes count as passes — the artifacts prove they happened —
+but can contribute no adjudication and never advance the trigger; some may yet be upgraded by finding-text
+matching while the raw artifacts survive.
 
 **Adjudication scope rules** (applied to the entries below; they keep a clean verdict from being blamed for a
 finding it never claimed to cover):
 
-- A CLEAN verdict contradicts only findings **within the reviewer's charge**. Layer 2's prompt
-  (`scripts/cross-model-peer-review.sh`) says *"Report only CORRECTNESS defects … Ignore style and naming"* —
-  so a standards-lens finding (e.g. volatile issue refs in a comment) is not a layer-2 miss, however real.
-- A CLEAN verdict contradicts only findings **at or above the reviewer's demonstrated severity floor**. All 29
-  layer-2 reports contain P1 and P2 findings only, so a P3 a later pass raises is not a layer-2 miss.
+- A CLEAN verdict contradicts only findings **within the reviewer's explicitly contracted charge**. Layer 2's
+  prompt (`scripts/cross-model-peer-review.sh`) says *"Report only CORRECTNESS defects … Ignore style and
+  naming"* — so a standards-lens finding (e.g. volatile issue refs in a comment) is not a layer-2 miss, however
+  real. Exclusions come **only from the written contract, never from observed output**: layer 2's contract
+  states no severity floor, so severity alone never excludes a correctness finding — inferring a floor from the
+  reports' P1/P2-only distribution would silently improve the score of a reviewer that systematically misses
+  small defects. (The distribution is recorded as stratification data, nothing more.)
 - A FINDINGS verdict claims nothing about the rest of the text: only a **clean** verdict can be a `miss`.
 
-**Not admitted under those rules** (recorded so they are not re-adjudicated): the `docs-r1` P3 citation defect
-and `closeout8`'s P3 off-by-one citations (both below layer 2's floor); the run-1 project-standards P1 on
-`#469`/`#470` comment refs at `02d229a` (real, fixed in `a00de48`, but outside layer 2's charge); layer-2 r15's
-non-flagging of the bare-union remedy it read at `b7dc922` (its verdict was FINDINGS, not clean — later caught
-by r16, fixed in `eff432e`).
+**Not admitted under those rules** (recorded so they are not re-adjudicated): the run-1 project-standards P1 on
+`#469`/`#470` comment refs at `02d229a` (real, fixed in `a00de48`, but outside layer 2's contracted charge);
+layer-2 r15's non-flagging of the bare-union remedy it read at `b7dc922` (its verdict was FINDINGS, not clean —
+later caught by r16, fixed in `eff432e`).
 
-**Adjudicated so far: 11 of the 69 recorded opportunities** (an opportunity is adjudicated when an entry below
-settles its verdict against the source — a clean verdict settled wrong, or a finding settled right or wrong).
-Entry 2026-09-02-01 settles 2; entry 2026-09-02-02 settles 9. The two 2026-08-30 entries predate the preserved
-window (PR #466; artifacts gone) and sit outside this denominator.
+**Adjudicated so far: 15 of the 45 adjudicable opportunities** (an opportunity is adjudicated when an entry
+below settles its verdict against the source — a clean verdict settled wrong, or a finding settled right or
+wrong). Entry 2026-09-02-01 settles 2; -02 settles 9; -03 settles 2; -04 settles 2. The two 2026-08-30 entries
+predate the preserved window (PR #466; artifacts gone) and sit outside this denominator.
 
 ## Labelled defect set (deferred, with trigger)
 
 E11's benchmark set — known defects candidate reviewers are scored against — is **not built yet**. Trigger, so
 the deferral is not open-ended (ruled 2026-09-02): **assemble it when this file's adjudications cover 40
-recorded evaluation opportunities** (currently 11/69). The preserved artifacts already hold further same-subject
-disagreements adjudicable toward the trigger without running any new review round.
+evaluation opportunities** (currently 15, of 45 adjudicable among the 69 recorded — so reaching the trigger
+takes either near-complete adjudication of the preserved window, pin upgrades, or opportunities from future
+recorded campaigns). The preserved artifacts already hold further same-subject disagreements adjudicable toward
+the trigger without running any new review round.
 
 ---
 
@@ -188,3 +201,33 @@ disagreements adjudicable toward the trigger without running any new review roun
 - **outcome:** `b7dc922` scoped the rule to the shape it was measured over (string-named interface members) and
   added the union row; `eff432e` corrected the union remedy to a generic helper (`KeysOfUnion`) after r16 showed
   the bare conditional does not distribute over a concrete alias. Both survive on `main` via `b5f0c63`.
+
+## 2026-09-02-03 — miss
+
+- **reviewer:** cross-model peer layer (Codex CLI), docs-r2
+- **subject:** `4e9a05f`, `docs/solutions/best-practices/assert-the-claim-not-the-mechanism.md:128`
+- **pass-a:** layer 2 (`PEER-4e9a05f-28198`) — `VERDICT: CLEAN`
+- **pass-b:** layer 1 `docs-r1/correctness` — P3: the doc says the plan's disproof sits **three** sections above
+  the guard it undermines; it is **one** (the quoted reasoning sits under `### U1.`, the guard under `### U2.`,
+  with no intervening heading).
+- **kind:** `miss`
+- **adjudication:** pass-b correct, verified against the text: "three sections above" is present at
+  `4e9a05f:128` and absent at `7d478b0`, the amend that fixed it. A false structural claim is a correctness
+  defect, and layer 2's contract states no severity floor, so its CLEAN over the same text is contradicted.
+- **outcome:** corrected in the `7d478b0` amend; merged via PR #474 (`34fa5c0`).
+
+## 2026-09-02-04 — miss
+
+- **reviewer:** cross-model peer layer (Codex CLI), closeout-r14
+- **subject:** `25e2395`, `docs/solutions/architecture-patterns/a-guard-that-restates-its-subject-names-a-missing-seam.md:184`
+  (plus two sibling citations the same fix names)
+- **pass-a:** layer 2 (`PEER-25e2395-13646`) — `VERDICT: CLEAN`
+- **pass-b:** layer 1 `closeout8/correctness` — P3: three `file:line` citations into `src/bases/rowVisibility.ts`
+  are off by one; the branch's own JSDoc trim (`4c9d380`) removed a net line above them, so they were stale at
+  the commit that wrote them.
+- **kind:** `miss`
+- **adjudication:** pass-b correct, verified: at `25e2395` the doc cites `rowVisibility.ts:99` while
+  `custom.source ?? {}` sits at `:98`. Both documents argue from measured citations, so a stale citation is a
+  false evidenced claim — correctness-class, no severity floor in the contract.
+- **outcome:** fixed in `b67f47d` ("correct three citations this branch's own JSDoc trim shifted" — its diff is
+  exactly the finding's fix); survives on `main`, which cites `:98`.
