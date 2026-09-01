@@ -49,8 +49,7 @@ export interface RowVisibilitySource extends SwitcherRowSource {
  * to a stub: a mapping written inline there could never be executed by a unit
  * test, so every guard written against it would be a second implementation of
  * it, and dropping a field from that copy would reintroduce a staleness defect
- * with the whole suite green. Being a plain function, it is also what lets a
- * guard DERIVE the filter's field list instead of restating it by hand.
+ * with the whole suite green.
  */
 export function toRowVisibilityInput(
   custom: RowVisibilitySource | undefined,
