@@ -352,8 +352,10 @@ grep -rn "Record<keyof" test/            # test/unit/ganttSync.test.ts:1205 — 
   sibling axis. That one asks whether the property being protected is the right property; this one
   asks where the member list it iterates comes from. Both were live in the same branch.
 - [A test's name is a claim — and a mutation only counts if it reproduced the defect](a-test-name-is-a-claim-verify-the-mutation.md)
-  — the third axis. All three probes would have passed it: their assertions observed exactly what
-  they claimed, over an incomplete set.
+  — the third axis, and the one that does catch these probes. Each generated assertion was truthful
+  about what it observed; the enclosing claim to cover *every* field was not, which is that check's
+  failure condition. What this doc adds is why the false completeness keeps arising and how to
+  remove it, not a defect that check cannot see.
 - [Orchestrate an existing tool over rebuilding one](../tooling-decisions/orchestrate-existing-tool-over-rebuilding.md)
   — the same principle-4 shape at the toolchain boundary; this is its in-repo, in-test instance.
 - `CONCEPTS.md` § Derived member list — the recognition rule and the repair, both of which applied
