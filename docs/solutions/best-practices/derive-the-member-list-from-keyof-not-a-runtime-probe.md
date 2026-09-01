@@ -128,9 +128,9 @@ can tell whether they are inside its domain.
 
 | Shape | What `keyof` yields | What a complete table then needs |
 |---|---|---|
-| A **union** of object types | only the keys common to *every* member — for `{kind:'a';a:number} \| {kind:'b';b:number}` it is `kind` alone, and a `Record<keyof T, V>` omitting `a` and `b` compiles clean (measured, tsc 5.9.2) | distribute it — `T extends unknown ? keyof T : never` — or assert discriminant exhaustiveness instead |
+| A **union** of object types | only the keys common to *every* member — for `{kind:'a';a:number} \| {kind:'b';b:number}` it is `kind` alone, and a `Record<keyof T, V>` omitting `a` and `b` compiles clean (measured, tsc 5.9.2) | distribute through a **generic helper** — `type KeysOfUnion<T> = T extends unknown ? keyof T : never`, then `KeysOfUnion<U>`. The bare expression over a concrete alias does not work: a conditional type distributes only over a naked type *parameter*, so `U extends unknown ? keyof U : never` is still `kind` alone and the omitting table still compiles (both forms measured, tsc 5.9.2). Or assert discriminant exhaustiveness instead |
 | A **string** index signature, from anywhere up the extends chain | `string \| number`, so the record accepts any set of entries | the literal-key assertion below |
-| **Symbol-named** members | the symbols, correctly — but `Object.keys`/`entries`/`values` never visit them, so the runtime companion below skips their routes while staying green | `Reflect.ownKeys`, or keep the contract to string-named members |
+| **Symbol-named** members | the symbols, correctly — a `Record<keyof T, V>` omitting a symbol route is a type error — but `Object.keys`/`entries`/`values` never visit them, so the runtime companion below skips those routes while staying green (measured: on a two-member shape `Object.keys` returns 1 key, `Reflect.ownKeys` 2) | `Reflect.ownKeys`, or keep the contract to string-named members |
 
 A runtime probe answers *what did this execution touch?* A member-list rule asks *what may exist?*
 Those coincide only when one call happens to exercise the whole contract, which nothing enforces and
