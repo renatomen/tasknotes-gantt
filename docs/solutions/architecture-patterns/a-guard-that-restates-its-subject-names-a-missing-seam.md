@@ -143,10 +143,10 @@ drifted apart in a way no gate could see (below, under *Why This Matters*).
 
 ### Subject and evidence
 
-**The distinction this document turns on. It is stated here once; every other passage points back
-to this section instead of restating it.** Six review rounds went on reconciling independent copies
-of it — the hand-maintained member list this pair of documents exists to warn about, reproduced in
-its own prose.
+**The distinction this document turns on. It is argued here and nowhere else; other passages name it
+and point here rather than re-deriving it.** (The frontmatter keys describe the situation, not the
+attribution.) Six review rounds went on reconciling independent copies of it — the hand-maintained
+member list this pair of documents exists to warn about, reproduced in its own prose.
 
 **The extraction did not supply the guard's subject.** Naming the member set never needed it:
 `RowVisibilityInput` was already exported before #473, and
@@ -162,6 +162,9 @@ inside a module the test tier replaces with a stub.
 **Obtainable is not obtained**, and the guard that exists splits on exactly that line: the staleness
 scenarios do run the real projection, so that half is evidenced; the population check — limit 3 of
 the sibling learning — became writable for the same reason and is still unwritten.
+
+Keep the two apart when arguing for a seam: a type-level table is available to you today; a table
+anyone can trust is available only once something can execute what it describes.
 
 ## Why This Matters
 
@@ -191,9 +194,9 @@ of the first is a well-typed, green, silent lie.
 — `Record<keyof RowVisibilitySource, FieldDelivery>` (`test/unit/rowVisibilityLiveSync.test.ts:287`)
 and its degeneracy guard `LiteralKeys<RowVisibilitySource>` (`:307-308`) — keys on an interface that
 arrived with `toRowVisibilityInput` (`git show b3f6b92 -- src/bases/rowVisibility.ts`). But it did
-not *need* to — see *Subject and evidence*. What the extraction added here is that the three
-defeated runtime probes had something to be an alternative *to*: they were attempts to recover by
-observation a list the declaration could always have given.
+not *need* to — see *Subject and evidence*. The three defeated runtime probes were attempts to
+recover by observation a list the declaration could always have given; what the extraction added is
+that the list could then be checked against real behaviour.
 
 **The rank-1 evidence, and what it does and does not establish.**
 `src/bases/GanttContainer.svelte` is rank 1 in `maintainability-registry.json`. The

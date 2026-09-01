@@ -329,8 +329,8 @@ grep -rn "Record<keyof" test/            # test/unit/ganttSync.test.ts:1205 — 
   completeness assertion over it.
 - ["I cannot write a test that executes this" names a seam](../architecture-patterns/a-guard-that-restates-its-subject-names-a-missing-seam.md)
   — what made this guard's evidence obtainable, landed alongside it. Its *Subject and evidence*
-  section states that distinction once, including which half of this guard is evidenced today and
-  which is limit 3 above; this document does not restate it.
+  section carries the argument, including which half of this guard is evidenced today and which is
+  limit 3 above.
 - [A guard on the wrong proposition defends the defect](assert-the-claim-not-the-mechanism.md) — the
   sibling axis. That one asks whether the property being protected is the right property; this one
   asks where the member list it iterates comes from. Both were live in the same branch.
