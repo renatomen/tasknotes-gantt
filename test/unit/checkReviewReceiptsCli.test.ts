@@ -338,18 +338,21 @@ describe('check-review-receipts check', () => {
       }
     });
 
-    it('refuses a subject ref whose object is not a commit', () => {
+    it('refuses a blob object pushed under its own id', () => {
       const blob = git(['rev-parse', `${docsCommit}:docs/note.md`]);
-      git(['tag', '-a', '-m', 'subject-blob', 'subject-blob-tag', blob]);
-      const blobTag = git(['rev-parse', 'refs/tags/subject-blob-tag']);
-      try {
-        const run = runCheck(refLine(blobTag, ZERO, subjectRef(blobTag)));
 
-        expect(run.status).toBe(1);
-        expect(run.stderr).toContain('archival');
-      } finally {
-        git(['tag', '-d', 'subject-blob-tag']);
-      }
+      const run = runCheck(refLine(blob, ZERO, subjectRef(blob)));
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('is a blob, not a commit');
+    });
+
+    it('refuses a pin whose name carries a non-ASCII whitespace byte after the id', () => {
+      // git would create that ref; the gate must not read the name as the bare id.
+      const run = runCheck(refLine(codeCommit, ZERO, `${subjectRef(codeCommit)}\u00a0`));
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('full object id');
     });
 
     it('refuses updating a subject ref that already exists on the remote: pins are write-once', () => {

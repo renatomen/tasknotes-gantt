@@ -135,6 +135,30 @@ describe('parsePushedRefLines', () => {
     });
   });
 
+  it('keeps a non-ASCII whitespace byte inside the ref token instead of treating it as a separator', () => {
+    // git accepts U+00A0 inside a refname; JS \s would have split on it and
+    // handed the validator a name shorter than the ref git will create.
+    const stdin = `refs/e11-subjects/e0cae52\u00a0 ${SHA} refs/e11-subjects/e0cae52\u00a0 ${DELETED}\n`;
+
+    expect(parsePushedRefLines(stdin)).toEqual({
+      shas: [],
+      invalid: [],
+      archival: [{ ref: 'refs/e11-subjects/e0cae52\u00a0', sha: SHA, remoteSha: DELETED }],
+    });
+  });
+
+  it('refuses a line whose fields are separated by anything but one ASCII space', () => {
+    const stdin = `refs/heads/a  ${SHA} refs/heads/a ${OTHER_SHA}\n`;
+
+    expect(parsePushedRefLines(stdin).invalid).toHaveLength(1);
+  });
+
+  it('tolerates a trailing carriage return on a ref line', () => {
+    const stdin = `refs/heads/a ${SHA} refs/heads/a ${OTHER_SHA}\r\n`;
+
+    expect(parsePushedRefLines(stdin)).toEqual({ shas: [SHA], invalid: [], archival: [] });
+  });
+
   it('still refuses a malformed line even when it names the archival namespace', () => {
     const stdin = `refs/e11-subjects/x ${SHA} refs/e11-subjects/x\n`;
 
@@ -182,14 +206,12 @@ describe('validateArchivalSubjects', () => {
   const subjectRef = (name: string) => `${ARCHIVAL_SUBJECT_REF_PREFIX}${name}`;
   const creation = (name: string, sha: string) => ({ ref: subjectRef(name), sha, remoteSha: DELETED });
   // Answers like `git cat-file -t`; unknown objects throw.
-  const resolvers = (objects: Record<string, string>) => ({
-    objectType: (sha: string): string => {
-      const type = objects[sha];
-      if (type === undefined) throw new Error(`fatal: unknown object ${sha}`);
-      return type;
-    },
-  });
-  const twoCommits = resolvers({ [COMMIT]: 'commit', [OTHER_SHA]: 'commit' });
+  const typeOf = (objects: Record<string, string>) => (sha: string): string => {
+    const type = objects[sha];
+    if (type === undefined) throw new Error(`fatal: unknown object ${sha}`);
+    return type;
+  };
+  const twoCommits = typeOf({ [COMMIT]: 'commit', [OTHER_SHA]: 'commit' });
 
   it('accepts a pin named by the full object id of the pushed commit', () => {
     expect(validateArchivalSubjects([creation(COMMIT, COMMIT)], twoCommits)).toEqual([]);
@@ -213,7 +235,7 @@ describe('validateArchivalSubjects', () => {
   it('refuses an annotated tag object, even one that points at the subject commit', () => {
     // The remote ref would hold the tag, so the pin would resolve to an object
     // other than the commit it names.
-    const problems = validateArchivalSubjects([creation(COMMIT, TAG)], resolvers({ [COMMIT]: 'commit', [TAG]: 'tag' }));
+    const problems = validateArchivalSubjects([creation(COMMIT, TAG)], typeOf({ [COMMIT]: 'commit', [TAG]: 'tag' }));
 
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('tag');
@@ -221,17 +243,17 @@ describe('validateArchivalSubjects', () => {
   });
 
   it('refuses a blob object', () => {
-    const problems = validateArchivalSubjects([creation(BLOB, BLOB)], resolvers({ [COMMIT]: 'commit', [BLOB]: 'blob' }));
+    const problems = validateArchivalSubjects([creation(BLOB, BLOB)], typeOf({ [COMMIT]: 'commit', [BLOB]: 'blob' }));
 
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('not a commit');
   });
 
   it('refuses an object this repository does not hold', () => {
-    const problems = validateArchivalSubjects([creation(COMMIT, COMMIT)], resolvers({}));
+    const problems = validateArchivalSubjects([creation(COMMIT, COMMIT)], typeOf({}));
 
     expect(problems).toHaveLength(1);
-    expect(problems[0]).toContain('not a commit');
+    expect(problems[0]).toContain('cannot be read as an object');
   });
 
   it('refuses a deletion of an archival ref', () => {

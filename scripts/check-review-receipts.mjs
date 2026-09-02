@@ -115,9 +115,12 @@ export function parsePushedRefLines(stdinText) {
   const invalid = [];
   const archival = [];
   for (const line of stdinText.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed === '') continue;
-    const tokens = trimmed.split(/\s+/);
+    if (line.trim() === '') continue;
+    // Git separates the four fields with single ASCII spaces. A Unicode-aware
+    // split would also cut on bytes git accepts inside a refname (U+00A0 and
+    // friends), handing the validator a name shorter than the ref git creates.
+    const trimmed = line.replace(/\r$/, '');
+    const tokens = trimmed.split(' ');
     const localSha = tokens[1];
     if (tokens.length !== 4 || !SHA_PATTERN.test(localSha) || !SHA_PATTERN.test(tokens[3])) {
       invalid.push(trimmed);
@@ -143,8 +146,6 @@ function objectType(sha) {
   return git(['cat-file', '-t', sha]).trim();
 }
 
-const GIT_RESOLVERS = { objectType };
-
 /**
  * A pin is a write-once ref created under the full id of its own commit. Each
  * clause is checked as stated, not through a proxy: the pushed object IS a
@@ -155,28 +156,29 @@ const GIT_RESOLVERS = { objectType };
  * the corpus recorded). One problem string per offending ref; empty means
  * clean.
  */
-export function validateArchivalSubjects(archival, resolvers = GIT_RESOLVERS) {
+export function validateArchivalSubjects(archival, resolveType = objectType) {
   const problems = [];
   for (const entry of archival) {
-    const problem = archivalSubjectProblem(entry, resolvers);
+    const problem = archivalSubjectProblem(entry, resolveType);
     if (problem !== null) problems.push(`${entry.ref}: ${problem}`);
   }
   return problems;
 }
 
-function archivalSubjectProblem({ ref, sha, remoteSha }, resolvers) {
+function archivalSubjectProblem({ ref, sha, remoteSha }, resolveType) {
   if (isDeletion(sha)) return 'deleting an archival subject is refused; the corpus rebuilds its ranges from it';
   if (!isDeletion(remoteSha)) return `archival subjects are write-once; this ref already exists on the remote (at ${remoteSha.slice(0, 7)})`;
-  const type = typeOrMissing(sha, resolvers);
+  const type = typeOrMissing(sha, resolveType);
+  if (type === 'missing') return `pushed object ${sha.slice(0, 7)} cannot be read as an object here`;
   if (type !== 'commit') return `pushed object ${sha.slice(0, 7)} is a ${type}, not a commit`;
   const name = ref.slice(ARCHIVAL_SUBJECT_REF_PREFIX.length);
   if (name !== sha) return `must be named by the full object id of the pushed commit ${sha.slice(0, 7)}, not "${name}"`;
   return null;
 }
 
-function typeOrMissing(sha, resolvers) {
+function typeOrMissing(sha, resolveType) {
   try {
-    return resolvers.objectType(sha);
+    return resolveType(sha);
   } catch {
     return 'missing';
   }
