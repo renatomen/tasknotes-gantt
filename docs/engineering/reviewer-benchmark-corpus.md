@@ -38,7 +38,13 @@ claim a pass reported; a *false alarm* is a finding adjudicated wrong against th
    it hunts for minus its own "What you don't flag" list. Exclusions come **only from the written contract,
    never from observed output**: inferring a severity floor or a class boundary from what a reviewer happened
    to emit silently improves the score of a reviewer that systematically misses that class. (Severity
-   distribution is recorded as stratification data, nothing more.)
+   distribution is recorded as stratification data, nothing more.) **The contract of record is pinned at
+   adjudication, not read live.** Layer 2's prompt is repository text, pinned by the reviewed commit. A
+   layer-1 persona is a plugin file that can change under a routine update, so each entry quotes the clause
+   it charges against, and the quoted clause — not the file as it stands later — is the contract that pair
+   was settled under. Provenance of the quotes in this record: the `ce-code-review` persona files installed
+   here (compound-engineering 3.23.4), dated 2026-08-04, before every pass recorded, and byte-identical to
+   the 3.21.1 copies in the same cache.
 
 **Outcomes.** A charged (pass, defect) pair settles as exactly one of **caught** (the pass reported the defect,
 at whatever severity or anchor line) or **miss** (it did not). Each (pass, finding) pair settles as **caught**
@@ -192,8 +198,14 @@ text their head commit did not itself change.
   `git show 34fa5c0:…`); `docs-r1/correctness` (its cited line was "added by this diff", and its subject is
   one commit off F). Increment only, `S^..S`: `closeout4`, `closeout5`, `closeout6` — each artifact names
   its head commit's own delta (sizes and hunk headers match the commits exactly, table above), so each is
-  charged only with text that commit changed. A future layer-1 run is range-pinned by a recorded base in its
-  `metadata.json`; one that records none is head-pinned only.
+  charged only with text that commit changed. A base and a head alone do not reconstruct a layer-1 pass's
+  reviewed text: on a dirty tree the skill's scope falls to the working copy instead, so the pin is the
+  artifact's own statement of what it reviewed — `20260831-213901` scopes its run to its commit list
+  (`scope_mode: local-aligned`, `commits: [e0cae52, 02d229a]`); `closeout4` states "Working tree clean at HEAD
+  4c9d380"; `docs-r1` states the charged line was "added by this diff"; `closeout` and `closeout8` describe
+  the branch diff against `34fa5c0`. A future layer-1 run is range-pinned only by a recorded base **and** a
+  clean-tree statement (or a digest of the reviewed diff) in its `metadata.json`; one that records neither
+  is head-pinned only.
 
 **Adjudicable: 45 of the 69 passes** — recomputed under this pin: 29 layer-2 (head from the sentinel, base from
 each pass's recorded range) + 16 layer-1, all grade A (runs `20260831-213901`, `closeout`, `closeout4`,
@@ -309,7 +321,9 @@ running any new review round.
   - layer 2 `final` (`PEER-b67f47d-12825`) — **caught**: P1 `:118`.
   - layer 1 correctness, **miss** ×2: `closeout` (`3662fcf`, F(2): the `:157` git-log claim and the seam doc's
     `:177`), `closeout8` (`25e2395`, F(1): citations). A false technical claim in the reviewed text is
-    correctness-class and nothing in the persona's exclusions removes it.
+    correctness-class — the persona hunts "bugs that pass tests because nobody thought to test that input",
+    and its "What you don't flag" list (style preferences, harmless duplicate setup lines, missing
+    optimization, naming opinions, defensive-coding suggestions) removes none of it.
   - Not charged: `closeout4`, `closeout5`, `closeout6` correctness — increment-only runs (§ Reviewed text set)
     whose deltas do not carry the sentence; the four `project-standards` passes of `closeout`, `closeout4`,
     `closeout5`, `closeout6` (out of charge; `closeout8` ran correctness only).
@@ -400,5 +414,8 @@ running any new review round.
     established here, left open.
 - **adjudication:** real: the rule is written in `AGENTS.md`, the refs are present at both subjects, and
   `a00de48` ("drop the weaker duplicate of the folded-field census") removed them with the docblock.
-- **outcome:** removed in `a00de48`; the pre-commit hook's volatile-reference guard covers `src`/`test` comment
-  lines.
+- **outcome:** removed in `a00de48`. No mechanism guards the class: the pre-commit volatile-reference guard
+  (`.husky/pre-commit`) matches plan and decision ids, `docs/` paths, `file:line` citations and "see
+  `<file>.md`" in new `src`/`test` comment lines — not issue numbers — so the exact violation recorded here
+  recurs with the hook green. Extending the guard to issue references is a recorded follow-up, not a claim
+  this entry makes.
