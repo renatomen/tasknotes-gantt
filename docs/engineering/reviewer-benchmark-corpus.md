@@ -90,8 +90,9 @@ severity plus `file:line`, plus the finding's title where the artifact carries o
 one line where it does not (layer 2) — and every settled (pass, claim) pair names it, whether caught or false
 alarm, so the false-alarm denominator can be rebuilt from this file alone once the raw artifacts are gone.
 Two findings that name one defect are two claims both caught, and one (pass, defect) pair — and for the
-false-alarm rate they count **once**: caught claims are deduplicated by defect identity within a pass, so
-repeating a correct finding cannot dilute the rate; one finding that names two defects is two claims, both
+false-alarm rate the rate is over **distinct** claims, deduplicated symmetrically within a pass: caught claims
+by the defect they name, refuted claims by the assertion they make about the same text, so a repeated claim
+counts once whichever way it settles and repetition can neither dilute nor inflate the rate; one finding that names two defects is two claims, both
 caught, and two (pass, defect) pairs; one finding with a valid and a refuted claim is one caught and one
 false alarm. A finding an entry does not name is **open**: not yet
 adjudicated either way, and it counts as one claim until adjudication splits it.
@@ -102,9 +103,9 @@ pass settled solely by false alarms is adjudicated for the false-alarm rate but 
 known defects, so it does not advance the trigger. Once the labelled set exists, the two rates have different scopes.
 **Catch rate = caught ÷ every settled charged (pass, defect) pair**, with no completeness filter: a settled miss
 counts whatever else the pass reported, or the model would again let a reviewer escape a miss by emitting any
-finding — `r15`'s miss on entry -05 counts although its own finding is open. **False-alarm rate = refuted
-claims ÷ adjudicated claims** (caught claims deduplicated by defect, true-uncharged claims excluded from both
-terms), **over passes whose reported findings are all adjudicated** — a pass with any open finding contributes
+finding — `r15`'s miss on entry -05 counts although its own finding is open. **False-alarm rate = distinct refuted
+claims ÷ distinct adjudicated claims** (deduplicated symmetrically per **Identity**, true-uncharged claims
+excluded from both terms), **over passes whose reported findings are all adjudicated** — a pass with any open finding contributes
 nothing to this rate, because adjudicating one refuted finding out of ten would read as 100% and one confirmed
 finding as 0%. Alongside the rate, report
 coverage in claims: adjudicated claims ÷ reported claims across the passes in scope, a finding being one
@@ -327,8 +328,8 @@ the range now comes from the run's own artifact rather than from an invocation c
 passes count as passes (the artifacts prove they happened) but contribute no adjudication and never advance
 the trigger; some may yet be upgraded by finding-text matching while the raw artifacts survive.
 
-**Adjudicated so far: 27 of the 45 adjudicable opportunities**, over 33 settled pairs (32 (pass, defect) pairs
-and 1 (pass, claim) false alarm). Per entry: -01 settles 5 passes; -02 settles 15; -03 settles 3; -04 settles 6
+**Adjudicated so far: 27 of the 45 adjudicable opportunities**, over 32 settled (pass, defect) pairs and 8
+adjudicated (pass, claim) pairs (7 caught, 1 refuted) — two units, counted separately, never summed. Per entry: -01 settles 5 passes; -02 settles 15; -03 settles 3; -04 settles 6
 plus the false alarm; -05 settles 2; -06 settles 1 — 21 distinct layer-2
 passes and 6 distinct layer-1 passes. Still open among the adjudicable: layer 2 `review-r3`–`r9` (no known
 defect exposed), `docs-r3`, `r17`; layer 1 `20260831-213901/maintainability` and `/performance`, both
