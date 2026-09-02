@@ -65,9 +65,12 @@ against the source.
 at whatever severity or anchor line) or **miss** (it did not). A finding is adjudicated **claim by claim**: a
 finding that asserts one thing is one claim; a compound finding is split into its claims at adjudication,
 each identified by the finding's identity plus a claim ordinal (`#1`, `#2`, …). Each (pass, claim) pair
-settles as **caught** (the claim names a defect — which settles the matching (pass, defect) pair too) or
-**false alarm** (refuted against the source), so a finding with one valid and one refuted claim yields one of
-each rather than suppressing either. One pass can hold a caught, a miss and a false alarm at once. A FINDINGS pass is charged
+settles as **caught** (the claim names a defect inside the pass's range and contract — which settles the
+matching (pass, defect) pair too), **false alarm** (refuted against the source), or **true, uncharged** (the
+claim names a real defect that lies outside the pass's recorded range or written contract — a pre-existing
+defect read in context, say — so no (pass, defect) pair may be charged: adjudicated, so the pass can be
+complete, and counted in neither rate). A finding with one valid and one refuted claim yields one caught and
+one false alarm rather than suppressing either. One pass can hold a caught, a miss and a false alarm at once. A FINDINGS pass is charged
 exactly like a CLEAN one, and a CLEAN pass is charged nothing outside its contract.
 
 **Verdicts are derived.** `VERDICT: CLEAN|FINDINGS`, `findings: []`, and the P-levels are recorded as
@@ -86,19 +89,22 @@ one entry records more than one defect, so each (pass, defect) pair names exactl
 severity plus `file:line`, plus the finding's title where the artifact carries one (layer 1) or its claim in
 one line where it does not (layer 2) — and every settled (pass, claim) pair names it, whether caught or false
 alarm, so the false-alarm denominator can be rebuilt from this file alone once the raw artifacts are gone.
-Two findings that name one defect are two claims both caught, and one (pass, defect) pair; one finding that
-names two defects is two claims, both caught, and two (pass, defect) pairs; one finding with a valid and a
-refuted claim is one caught and one false alarm. A finding an entry does not name is **open**: not yet
+Two findings that name one defect are two claims both caught, and one (pass, defect) pair — and for the
+false-alarm rate they count **once**: caught claims are deduplicated by defect identity within a pass, so
+repeating a correct finding cannot dilute the rate; one finding that names two defects is two claims, both
+caught, and two (pass, defect) pairs; one finding with a valid and a refuted claim is one caught and one
+false alarm. A finding an entry does not name is **open**: not yet
 adjudicated either way, and it counts as one claim until adjudication splits it.
 
 **Counts.** An opportunity is **adjudicated** when at least one of its pairs is settled. The trigger in
 § Labelled defect set counts only opportunities adjudicated through at least one **(pass, defect)** pair — a
 pass settled solely by false alarms is adjudicated for the false-alarm rate but contributes nothing to a set of
 known defects, so it does not advance the trigger. Once the labelled set exists, catch rate = caught ÷ charged
-(pass, defect) pairs, and false-alarm rate = refuted claims ÷ adjudicated claims, **over passes whose reported
-findings are all adjudicated** — a pass with any open finding contributes nothing to the rate, because adjudicating one
+(pass, defect) pairs, and false-alarm rate = refuted claims ÷ adjudicated claims (caught claims deduplicated by defect,
+true-uncharged claims excluded from both terms), **over passes whose reported findings are all adjudicated** — a pass with any open finding contributes nothing to the rate, because adjudicating one
 refuted finding out of ten would read as 100% and one confirmed finding as 0%. Alongside the rate, report
-coverage: adjudicated findings ÷ reported findings across the passes in scope. Current state, from § Finding
+coverage in claims: adjudicated claims ÷ reported claims across the passes in scope, a finding being one
+claim until adjudication splits it. Current state, from § Finding
 inventory: 4 passes are completely adjudicated (`docs-r1/correctness`, `closeout8/correctness`,
 `20260831-213901/project-standards`, layer 2 `r16` — each reported one finding; `closeout8`'s splits into
 two claims, one caught and one refuted), 5 claims, 1 refuted — a 1/5 subset, too small to read as a rate.
