@@ -19,9 +19,10 @@ side was right, then record that. Never admit the raw disagreement.
 
 Stated once, here. Every other section and every entry cites this section; none restates it.
 
-**Unit.** The benchmark's unit is the **(pass, defect) pair**, never the verdict. A *pass* is one review pass
-over one subject (§ Evaluation opportunities). A *defect* is text adjudicated wrong against the source. A
-*false alarm* is a finding adjudicated wrong against the source.
+**Unit.** The benchmark's unit is a **pair**, never the verdict. Catch rate is scored over **(pass, defect)**
+pairs; false-alarm rate over **(pass, finding)** pairs. A *pass* is one review pass over one subject
+(§ Evaluation opportunities). A *defect* is text adjudicated wrong against the source. A *finding* is one
+claim a pass reported; a *false alarm* is a finding adjudicated wrong against the source.
 
 **Charge.** A pass is charged with a defect iff both hold:
 
@@ -39,10 +40,11 @@ over one subject (§ Evaluation opportunities). A *defect* is text adjudicated w
    to emit silently improves the score of a reviewer that systematically misses that class. (Severity
    distribution is recorded as stratification data, nothing more.)
 
-**Outcomes.** A charged pair settles as exactly one of **caught** (the pass reported the defect, at whatever
-severity or anchor line) or **miss** (it did not). A finding refuted against the source is a **false alarm**
-for the pass that made it. One pass can hold a caught and a miss at once. A FINDINGS pass is charged exactly
-like a CLEAN one, and a CLEAN pass is charged nothing outside its contract.
+**Outcomes.** A charged (pass, defect) pair settles as exactly one of **caught** (the pass reported the defect,
+at whatever severity or anchor line) or **miss** (it did not). Each (pass, finding) pair settles as **caught**
+(the finding names a defect — which settles the matching (pass, defect) pair too) or **false alarm** (refuted
+against the source). One pass can hold a caught, a miss and a false alarm at once. A FINDINGS pass is charged
+exactly like a CLEAN one, and a CLEAN pass is charged nothing outside its contract.
 
 **Verdicts are derived.** `VERDICT: CLEAN|FINDINGS`, `findings: []`, and the P-levels are recorded as
 metadata. None of them is a scoring unit. Under a per-verdict rule ("a clean verdict a later round
@@ -55,8 +57,9 @@ exposes — where a pass's charge over that class is not established, say so and
 unsettled pairs remain open opportunities. Never admit a pair that is not settled against the source.
 
 **Counts.** An opportunity is **adjudicated** when at least one of its pairs is settled; the trigger in
-§ Labelled defect set counts adjudicated opportunities. Catch rate and false-alarm rate, once the labelled set
-exists, are computed over pairs.
+§ Labelled defect set counts adjudicated opportunities. Once the labelled set exists, catch rate = caught ÷
+charged (pass, defect) pairs, and false-alarm rate = refuted ÷ adjudicated (pass, finding) pairs — a finding is
+counted only once it has been adjudicated either way, so an unexamined finding neither inflates nor flatters.
 
 ## Fields
 
@@ -66,7 +69,7 @@ exists, are computed over pairs.
 | `ground-truth` | `defect` (text adjudicated wrong against the source) or `false-alarm` (a finding adjudicated wrong against the source) |
 | `text` | what is wrong, with `file:line` at a subject where it was measured |
 | `present-at` | every subject whose tree carries the text — measured per commit (the exposure half of § Scoring model) |
-| `settles` | each charged pass with its outcome — `caught` / `miss` / `false-alarm` — and, for an exposed pass left uncharged, why (the charge half of § Scoring model) |
+| `settles` | each pair the entry settles — `(pass, defect)` as `caught` / `miss`, `(pass, finding)` as `false-alarm` — and, for an exposed pass left uncharged, why (the charge half of § Scoring model) |
 | `adjudication` | the source evidence that settles the ground truth |
 | `outcome` | what changed as a result |
 
@@ -94,10 +97,10 @@ aggregates the six reviewer returns already counted). The first run's roster nam
 (`learnings`) that left no artifact; absent artifact, not counted. A layer-1 pass is CLEAN iff `findings: []`.
 CLEAN/FINDINGS is metadata (§ Scoring model), kept here as stratification.
 
-**Layer 2, chronological** (subject = the head commit the pass reviewed; range per § Reviewed text set). Fork
-points, measured with `git merge-base <subject> origin/main`: `198b2556` for the review series (PR #473, eight
-branch commits), `b3f6b92e` for the docs series (#474 — each subject is a single amend off it), `34fa5c03` for
-the closeout series through r17 (#475, eleven branch commits):
+**Layer 2, chronological** (subject = the head commit the pass reviewed; its base is recorded per pass — see
+§ Reviewed text set — and is the series' fork point in every case: `198b2556` for the review series (PR #473,
+eight branch commits), `b3f6b92e` for the docs series (#474 — each subject is a single amend off it), `34fa5c03`
+for the closeout series through r17 (#475, eleven branch commits)):
 
 | Subject | Pass | Verdict | | Subject | Pass | Verdict |
 |---|---|---|---|---|---|---|
@@ -143,38 +146,43 @@ the closeout series through r17 (#475, eleven branch commits):
 
 ### Reviewed text set
 
-Exposure (§ Scoring model) needs each pass's `base..head`, and neither layer's artifact records the base
-directly: the peer's `SAW-DIFF: PEER-<sha>-<n>` carries only the head, and a layer-1 JSON carries its head only
-through the pin evidence above. The range is **derived**, by the rule below, and the derivation was checked
-against every subject in this record.
+Exposure (§ Scoring model) needs each pass's `base..head`. The pin is an **artifact, never a rule**: a pass is
+range-pinned iff some artifact of its own run records its base, and only range-pinned passes are charged with
+text their head commit did not itself change.
 
-- **Head.** Layer 2: the sentinel sha — the wrapper builds it from `rev-parse --short HEAD`. Layer 1: grade A,
-  the run's own artifact names its commit (a `metadata.json` commit list, a `HEAD <sha>` verification note);
-  grade B, a finding quotes text locatable to exactly one commit state.
-- **Base.** Both layers review the branch against main, so the base is the branch's **fork point F** — the
-  nearest ancestor of the head on main, measured per series above. Layer 2 reviews `BASE_SHA..REVIEWED_SHA`
-  and *refuses* a base that is not an ancestor of the head (exit 13) and, when recording, a base ahead of the
-  last pushed state (exit 11); the documented invocation (`cross-model-peer-review.sh main …`, the
-  review-receipts row of every plan) resolves `main`, and the exit-13 guard makes that a commit at or before F.
-  Layer 1's diff-scope rule reviews `merge-base(HEAD, main)..HEAD` on a clean tree — F again — and the one run
-  whose `metadata.json` records its base (`20260831-213901`) records exactly F. An explicit `main` can also
-  resolve to a *stale* local main — an ancestor of F — and both guards accept it, so a pass's set may be `B..S`
-  with B before F: a superset of `F..S` that adds only main-side text between B and F. **Every pass in this
-  record therefore reviewed at least `F..S`, and adjudication charges only exposure inside `F..S` — text
-  guaranteed shown under every admissible base.** Main-side text a stale base may have added is unrecorded
-  exposure: open, never charged.
-- **Boundary of the rule.** A layer-2 pass invoked with *no* base argument on a branch already pushed with an
-  upstream of its own would review only the increment since that push. No such invocation is recorded for
-  these campaigns; a future pass of that shape is unpinned unless its report records the base. A citation in
-  a report to a line its own head commit did not change is *consistent with* a fork-point base but is not
-  proof of one — the prompt invites reading tracked source for context — so the rule rests on the wrapper's
-  guards and the documented invocation, not on citations.
+- **Layer 2 — recorded per pass.** The report carries only the head (`SAW-DIFF: PEER-<sha>-<n>`), but the
+  wrapper keeps the CLI's stderr beside every report (`<report>.stderr`), and the CLI echoes its prompt there —
+  including the line *"The change under review (`<BASE_SHA>..<REVIEWED_SHA>`)"*. All 30 companions survive in
+  the preserved artifact set and the range was read from each: **every one of the 29 counted passes reviewed
+  exactly `F..S`**, base `198b2556` for the eight review-series passes, `b3f6b92e` for the three docs-series
+  passes, `34fa5c03` for the eighteen closeout-series passes through r17 (the excluded 0-byte `review-r6`
+  targeted `aeeb37a`, the subject r7 then reviewed). Preserve the companion with the report: without it a
+  layer-2 pass is head-pinned only.
+- **Why it came out that way, and what could have gone otherwise.** The wrapper reviews
+  `BASE_SHA..REVIEWED_SHA` and refuses a base that is not an ancestor of the head (exit 13) or, when recording,
+  one ahead of the last pushed state (exit 11); the documented invocation (`cross-model-peer-review.sh main …`,
+  the review-receipts row of every plan) resolves `main`, which those guards hold at or before F. Two ways the
+  range could still have differed, neither of which happened here: a *stale* local `main` (an ancestor of F)
+  passes both guards and yields a superset of `F..S`; and an *omitted* base on a branch already pushed with an
+  upstream of its own defaults to that upstream's tip, yielding only the increment since the push. The second
+  was live for #475 — its branch was pushed at `4c9d380` (both receipts recorded 02:13:03Z, PR opened
+  02:13:21Z), so from `closeout-r11` on an omitted base would have hidden every earlier branch line — which is
+  why the per-pass companions, not the invocation convention, are the pin. A report citation to a line its own
+  head did not change is *consistent with* a wide base but never proof of one: the prompt invites reading
+  tracked source for context.
+- **Layer 1.** Head: grade A, the run's own artifact names its commit (a `metadata.json` commit list, a
+  `HEAD <sha>` verification note); grade B, a finding quotes text locatable to exactly one commit state. Range:
+  the skill's diff-scope rule reviews `merge-base(HEAD, main)..HEAD` on a clean tree — F, main-relative
+  whatever the branch's upstream — and the artifacts corroborate it where they speak: `20260831-213901`'s
+  `metadata.json` records `base: 198b2556` (= F), and `closeout8/correctness` reasons its finding explicitly
+  against `34fa5c0` (= F). A future layer-1 run is range-pinned by a recorded base in its `metadata.json`;
+  one that records none is head-pinned only.
 
-**Adjudicable: 45 of the 69 passes** — recomputed under this rule: 29 layer-2 (head from the sentinel, base at
-or before F by the rule) + 16 layer-1 (grade A runs `20260831-213901`, `closeout`, `closeout4`, `closeout5`, `closeout6` =
-14 passes; grade B `docs-r1/correctness` and `closeout8/correctness` = 2). The figure is unchanged from the
-per-verdict record because the rule applies uniformly; its basis changed — the sentinel pins a head, not a
-range. The 24 unpinned passes count as passes (the artifacts prove they happened) but contribute no
+**Adjudicable: 45 of the 69 passes** — recomputed under this pin: 29 layer-2 (head from the sentinel, base from
+each pass's recorded range) + 16 layer-1 (grade A runs `20260831-213901`, `closeout`, `closeout4`, `closeout5`,
+`closeout6` = 14 passes; grade B `docs-r1/correctness` and `closeout8/correctness` = 2). The figure is unchanged
+from the per-verdict record; its basis changed — the sentinel pins a head, and the range now comes from the
+run's own artifact rather than from an invocation convention. The 24 unpinned passes count as passes (the artifacts prove they happened) but contribute no
 adjudication and never advance the trigger; some may yet be upgraded by finding-text matching while the raw
 artifacts survive.
 
