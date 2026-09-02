@@ -164,8 +164,23 @@ list are preserved verbatim, because eligibility depends on both.
   **Generic best practices not in any standards file**; **Opinions on the quality of the standards
   themselves**.
 
-Personas not charged in any entry (maintainability, performance) are not pinned here; a first charge against
-one adds it. A pair settled under a contract whose text later changes stays settled under the pinned text.
+- `maintainability-reviewer.md` — `772a3d80c2a14641b5f0f8bbfc057ef5eb17de90d7e8d0bd3ad065c0afd02519`. Not yet
+  charged in any entry; pinned because `20260831-213901/maintainability` is adjudicable. Charge summary: "You
+  are a structural code-quality reviewer. Your job is to catch changes that make the codebase harder to
+  change, delete, or reason about." Excludes, verbatim: **Complexity that mirrors domain complexity**;
+  **Justified abstractions with multiple real consumers**; **Framework-mandated patterns**; **Style-only
+  preferences** (formatting, import order, minor naming taste with no maintenance cost); **Philosophy without
+  a concrete structural fix**; **Future extension points without current evidence**.
+- `performance-reviewer.md` — `cbf35d3e6bccf5051ec5ac7493a1c53b61352f8f4cc81e8bc27219ba7b9e5753`. Not yet
+  charged in any entry; pinned because `20260831-213901/performance` is adjudicable. Charge summary: "You are
+  a runtime performance and scalability expert … measurable, production-observable performance problems --
+  not theoretical micro-optimizations." Excludes, verbatim: **Micro-optimizations in cold paths**;
+  **Premature caching suggestions**; **Theoretical scale issues in MVP/prototype code**; **Style-based
+  performance opinions**.
+
+All six personas behind the 16 pinned layer-1 passes are pinned above; every hash was verified identical
+across the 3.21.1 and 3.23.4 caches on 2026-09-02, with both caches present. A pair settled under a contract
+whose text later changes stays settled under the pinned text.
 
 ## Fields
 
