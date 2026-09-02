@@ -157,8 +157,12 @@ against every subject in this record.
   last pushed state (exit 11); the documented invocation (`cross-model-peer-review.sh main …`, the
   review-receipts row of every plan) resolves `main`, and the exit-13 guard makes that a commit at or before F.
   Layer 1's diff-scope rule reviews `merge-base(HEAD, main)..HEAD` on a clean tree — F again — and the one run
-  whose `metadata.json` records its base (`20260831-213901`) records exactly F. **The reviewed text set of every
-  pass in this record is therefore `F..S`.**
+  whose `metadata.json` records its base (`20260831-213901`) records exactly F. An explicit `main` can also
+  resolve to a *stale* local main — an ancestor of F — and both guards accept it, so a pass's set may be `B..S`
+  with B before F: a superset of `F..S` that adds only main-side text between B and F. **Every pass in this
+  record therefore reviewed at least `F..S`, and adjudication charges only exposure inside `F..S` — text
+  guaranteed shown under every admissible base.** Main-side text a stale base may have added is unrecorded
+  exposure: open, never charged.
 - **Boundary of the rule.** A layer-2 pass invoked with *no* base argument on a branch already pushed with an
   upstream of its own would review only the increment since that push. No such invocation is recorded for
   these campaigns; a future pass of that shape is unpinned unless its report records the base. A citation in
@@ -166,8 +170,8 @@ against every subject in this record.
   proof of one — the prompt invites reading tracked source for context — so the rule rests on the wrapper's
   guards and the documented invocation, not on citations.
 
-**Adjudicable: 45 of the 69 passes** — recomputed under this rule: 29 layer-2 (head from the sentinel, base F
-by the rule) + 16 layer-1 (grade A runs `20260831-213901`, `closeout`, `closeout4`, `closeout5`, `closeout6` =
+**Adjudicable: 45 of the 69 passes** — recomputed under this rule: 29 layer-2 (head from the sentinel, base at
+or before F by the rule) + 16 layer-1 (grade A runs `20260831-213901`, `closeout`, `closeout4`, `closeout5`, `closeout6` =
 14 passes; grade B `docs-r1/correctness` and `closeout8/correctness` = 2). The figure is unchanged from the
 per-verdict record because the rule applies uniformly; its basis changed — the sentinel pins a head, not a
 range. The 24 unpinned passes count as passes (the artifacts prove they happened) but contribute no
@@ -259,9 +263,10 @@ running any new review round.
   `526cbba`, `:107` at `3662fcf`, `:118` at `b67f47d`). For a union of object types `keyof` yields only the keys
   common to every member, so a `Record<keyof T, V>` completeness table can omit members while compiling clean:
   the unqualified rule prescribes the false-green guard the document exists to prevent.
-- **present-at:** every closeout-series subject from `526cbba` through `b67f47d` — the 14 layer-2 subjects
-  `526cbba`, `fb4a1e9`, `5776a6a`, `c6798dc`, `b90518b`, `3662fcf`, `caf11d9`, `9bba490`, `2e1d11a`, `4c9d380`,
-  `7529db3`, `9dada9e`, `c62d082`, `25e2395`, and `b67f47d`. Measured per commit: the sentence exists at each, in
+- **present-at:** every closeout-series subject from `526cbba` through `b67f47d` — 15 layer-2 subjects: the 14
+  that missed it (`526cbba`, `fb4a1e9`, `5776a6a`, `c6798dc`, `b90518b`, `3662fcf`, `caf11d9`, `9bba490`,
+  `2e1d11a`, `4c9d380`, `7529db3`, `9dada9e`, `c62d082`, `25e2395`) plus `b67f47d`, where `final` caught it.
+  Measured per commit: the sentence exists at each, in
   two wordings (`526cbba`/`fb4a1e9`, then byte-identical from `5776a6a` through `b67f47d`), both prescribing
   bare `keyof`; the doc's five pre-fix mentions of "union" all concern key unions or the cases of a union type,
   none the object-union case. Branch-created file (absent at F = `34fa5c03`), so in `F..S` for every one.
