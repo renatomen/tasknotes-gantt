@@ -39,7 +39,14 @@ against the source.
    charged only where the reviewed text is proven**: mechanically (layer 2's wrapper refuses a dirty tree and its companion records the range), or by
    the run's own artifacts — a recorded scope that contains the text *and* an attestation that the text was in
    the tree reviewed (a pass of the same run quoting the line, or a clean-tree statement). Plausibility that a
-   pass "must have" seen a line is not exposure.
+   pass "must have" seen a line is not exposure. **Boundary, open.** Exposure as ruled covers the defect's
+   own text. A defect the diff *causes* in text it does not touch — a citation whose target a reviewed hunk
+   moved — is outside it, so `closeout4/correctness` is uncharged on entry -04 although its delta was the
+   JSDoc trim that made those citations stale. Whether exposure should extend to tracked text whose truth a
+   reviewed hunk changes is a maintainer call on the ruled definition, raised 2026-09-02 with a
+   recommendation to extend it (the `ce-code-review` diff-scope rule already puts such "secondary" text —
+   unchanged code the diff makes newly relevant — inside a layer-1 reviewer's scope, and layer 2's contract
+   names "broken contracts"); until ruled, such pairs stay open, never charged.
 2. **Charge** — the defect's class is inside the pass's **written** contract. Layer 2's is its prompt
    (`scripts/cross-model-peer-review.sh`: *"Report only CORRECTNESS defects … behaviour changes, edge cases,
    broken contracts, silent-failure paths, and assertions that cannot fail … Ignore style and naming"*, with
@@ -73,7 +80,8 @@ is present, and every pair it settles with the source evidence. An entry may set
 exposes — where a pass's charge over that class is not established, say so and leave the pair open — and the
 unsettled pairs remain open opportunities. Never admit a pair that is not settled against the source.
 
-**Identity.** A defect is identified by its entry id. A finding is identified as the pass reported it —
+**Identity.** A defect is identified by its entry id — or by the entry id plus a letter (`-01a`, `-01b`) where
+one entry records more than one defect, so each (pass, defect) pair names exactly one. A finding is identified as the pass reported it —
 severity plus `file:line`, plus the finding's title where the artifact carries one (layer 1) or its claim in
 one line where it does not (layer 2) — and every settled (pass, claim) pair names it, whether caught or false
 alarm, so the false-alarm denominator can be rebuilt from this file alone once the raw artifacts are gone.
@@ -419,7 +427,7 @@ running any new review round.
 - **subject:** `0198d18`, `docs/plans/2026-08-29-001-…-plan.md` U2 test scenarios and U3 unit
 - **pass-a:** round 7 — `VERDICT: CLEAN`
 - **pass-b:** round 8 — two P1s in that same text, unchanged between the passes
-- **ground-truth:** two `defect`s reported separately, kept under one id because they share every other field — (a) U2's field list omits a load-bearing field; (b) U3 carries only a prose promise of the characterization U1 owed. Each settles round 7 as `miss` and round 8 as `caught`: four pairs, two per defect, so a later candidate that catches only (a) is charged a miss on (b).
+- **ground-truth:** two `defect`s reported separately, kept in one entry because they share every other field — `2026-08-30-01a`: U2's field list omits a load-bearing field; `2026-08-30-01b`: U3 carries only a prose promise of the characterization U1 owed. Each settles round 7 as `miss` and round 8 as `caught`: four pairs, two per defect, so a later candidate that catches only `-01a` is charged a miss on `-01b`.
 - **adjudication:** pass-b correct, verified in source. `src/bases/cellRender.ts:150` builds each synthetic
   entry's `frontmatter` from the file-meta port, so U2's two-field list (`basename`, `extension`) omitted a
   load-bearing field; U3 carried only a prose promise of the characterization U1 stated it owed.
@@ -558,8 +566,9 @@ running any new review round.
     tests because nobody thought to test that input"; a false evidenced claim in reviewed text is inside it.
   - Not charged: layer 2 `closeout`–`closeout-r9` and layer 1 `closeout/correctness` (text not yet defective at
     their subjects); `closeout4`, `closeout5`, `closeout6` correctness — increment-only runs (§ Reviewed text
-    set): `4c9d380`'s delta carries the JSDoc trim that caused the drift but neither citation line, and neither
-    later delta carries them; the closeout-series `project-standards` passes (out of charge).
+    set): `4c9d380`'s delta carries the JSDoc trim that caused the drift but neither citation line — the open
+    exposure boundary in § Scoring model, and the case it is named for — and neither later delta carries
+    them; the closeout-series `project-standards` passes (out of charge).
 - **adjudication:** verified at `25e2395`: the doc cites `rowVisibility.ts:99` while `custom.source ?? {}` sits
   at `:98`. Both documents argue from measured citations, so a stale citation is a false evidenced claim —
   correctness-class, no severity floor in the contract.
