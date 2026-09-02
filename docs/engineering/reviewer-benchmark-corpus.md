@@ -20,9 +20,11 @@ side was right, then record that. Never admit the raw disagreement.
 Stated once, here. Every other section and every entry cites this section; none restates it.
 
 **Unit.** The benchmark's unit is a **pair**, never the verdict. Catch rate is scored over **(pass, defect)**
-pairs; false-alarm rate over **(pass, finding)** pairs. A *pass* is one review pass over one subject
+pairs; false-alarm rate over **(pass, claim)** pairs. A *pass* is one review pass over one subject
 (§ Evaluation opportunities). A *defect* is text adjudicated wrong against the source. A *finding* is one
-claim a pass reported; a *false alarm* is a finding adjudicated wrong against the source.
+item a pass reported; a *claim* is one assertion inside a finding — most findings carry exactly one, and a
+finding counts as one claim until adjudication splits it; a *false alarm* is a claim adjudicated wrong
+against the source.
 
 **Charge.** A pass is charged with a defect iff both hold:
 
@@ -153,7 +155,7 @@ one adds it. A pair settled under a contract whose text later changes stays sett
 | `ground-truth` | `defect` (text adjudicated wrong against the source) or `false-alarm` (a finding adjudicated wrong against the source) |
 | `text` | what is wrong, with `file:line` at a subject where it was measured |
 | `present-at` | every subject whose tree carries the text — measured per commit (the exposure half of § Scoring model) |
-| `settles` | each pair the entry settles — `(pass, defect)` as `caught` / `miss`, `(pass, finding)` as `caught` / `false-alarm`, each finding named by its identity (§ Scoring model) — and, for an exposed pass left uncharged, why (the charge half of § Scoring model) |
+| `settles` | each pair the entry settles — `(pass, defect)` as `caught` / `miss`, `(pass, claim)` as `caught` / `false-alarm`, each finding named by its identity (§ Scoring model) — and, for an exposed pass left uncharged, why (the charge half of § Scoring model) |
 | `adjudication` | the source evidence that settles the ground truth |
 | `outcome` | what changed as a result |
 
@@ -417,7 +419,7 @@ running any new review round.
 - **subject:** `0198d18`, `docs/plans/2026-08-29-001-…-plan.md` U2 test scenarios and U3 unit
 - **pass-a:** round 7 — `VERDICT: CLEAN`
 - **pass-b:** round 8 — two P1s in that same text, unchanged between the passes
-- **ground-truth:** `defect` — settles round 7 as `miss`, round 8 as `caught`
+- **ground-truth:** two `defect`s reported separately, kept under one id because they share every other field — (a) U2's field list omits a load-bearing field; (b) U3 carries only a prose promise of the characterization U1 owed. Each settles round 7 as `miss` and round 8 as `caught`: four pairs, two per defect, so a later candidate that catches only (a) is charged a miss on (b).
 - **adjudication:** pass-b correct, verified in source. `src/bases/cellRender.ts:150` builds each synthetic
   entry's `frontmatter` from the file-meta port, so U2's two-field list (`basename`, `extension`) omitted a
   load-bearing field; U3 carried only a prose promise of the characterization U1 stated it owed.
