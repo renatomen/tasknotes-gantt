@@ -30,9 +30,11 @@ claim a pass reported; a *false alarm* is a finding adjudicated wrong against th
    given (§ Reviewed text set), not the head tree alone and not the file as a whole. Exposure is a property
    of the **text**, not the file: a file that predates the branch still exposes the lines the branch added
    or changed, and a file the branch created exposes every line under any base at or before the fork point.
-   Presence is measured per subject commit, never inferred from the commit that fixed it. **A caught pair
-   proves its own exposure** — the pass reported the text. **A miss is charged only where the reviewed text is
-   proven**: mechanically (layer 2's wrapper refuses a dirty tree and its companion records the range), or by
+   Presence is measured per subject commit, never inferred from the commit that fixed it. A finding proves
+   the pass *saw* the text, not that the text was in its diff — reviewers read tracked source for context and
+   may report a pre-existing defect outside the change — so **a caught pair, too, is charged only when the
+   defect's text is inside the pass's recorded range**; every caught pair below passes that test. **A miss is
+   charged only where the reviewed text is proven**: mechanically (layer 2's wrapper refuses a dirty tree and its companion records the range), or by
    the run's own artifacts — a recorded scope that contains the text *and* an attestation that the text was in
    the tree reviewed (a pass of the same run quoting the line, or a clean-tree statement). Plausibility that a
    pass "must have" seen a line is not exposure.
@@ -82,8 +84,11 @@ known defects, so it does not advance the trigger. Once the labelled set exists,
 (pass, defect) pairs, and false-alarm rate = refuted ÷ reported findings, **over passes whose reported findings
 are all adjudicated** — a pass with any open finding contributes nothing to the rate, because adjudicating one
 refuted finding out of ten would read as 100% and one confirmed finding as 0%. Alongside the rate, report
-coverage: adjudicated findings ÷ reported findings across the passes in scope. No pass in this record is yet
-completely adjudicated, so the false-alarm rate is currently undefined, not zero.
+coverage: adjudicated findings ÷ reported findings across the passes in scope. Current state, from § Finding
+inventory: 4 passes are completely adjudicated (`docs-r1/correctness`, `closeout8/correctness`,
+`20260831-213901/project-standards`, layer 2 `r16` — each reported one finding, each settled caught), 4
+findings, 0 refuted — a 0/4 subset, too small to read as a rate. Coverage: 7 of the 65 reported findings are
+adjudicated (layer 2: 2 of 25; layer 1: 5 of 40); the other 58 are open.
 
 ## Fields
 
@@ -126,25 +131,25 @@ CLEAN/FINDINGS is metadata (§ Scoring model), kept here as stratification.
 eight branch commits), `b3f6b92e` for the docs series (#474 — each subject is a single amend off it), `34fa5c03`
 for the closeout series through r17 (#475, eleven branch commits)):
 
-| Subject | Pass | Verdict | | Subject | Pass | Verdict |
+| Subject | Pass | Verdict (findings) | | Subject | Pass | Verdict (findings) |
 |---|---|---|---|---|---|---|
-| `e0cae52` | review | FINDINGS | | `526cbba` | closeout | FINDINGS |
-| `02d229a` | review-r2 | CLEAN | | `fb4a1e9` | closeout-r2 | FINDINGS |
-| `a00de48` | review-r3 | CLEAN | | `5776a6a` | closeout-r3 | FINDINGS |
-| `ba22309` | review-r4 | FINDINGS | | `c6798dc` | closeout-r4 | FINDINGS |
-| `a0cb883` | review-r5 | CLEAN | | `b90518b` | closeout-r5 | FINDINGS |
+| `e0cae52` | review | FINDINGS (1) | | `526cbba` | closeout | FINDINGS (7) |
+| `02d229a` | review-r2 | CLEAN | | `fb4a1e9` | closeout-r2 | FINDINGS (1) |
+| `a00de48` | review-r3 | CLEAN | | `5776a6a` | closeout-r3 | FINDINGS (1) |
+| `ba22309` | review-r4 | FINDINGS (1) | | `c6798dc` | closeout-r4 | FINDINGS (1) |
+| `a0cb883` | review-r5 | CLEAN | | `b90518b` | closeout-r5 | FINDINGS (2) |
 | `aeeb37a` | review-r7 | CLEAN | | `3662fcf` | closeout-r6 | CLEAN |
-| `c25dbf5` | review-r8 | CLEAN | | `caf11d9` | closeout-r7 | FINDINGS |
-| `cc9ebba` | review-r9 | CLEAN | | `9bba490` | closeout-r8 | FINDINGS |
-| `4c61e8c` | docs | FINDINGS | | `2e1d11a` | closeout-r9 | CLEAN |
+| `c25dbf5` | review-r8 | CLEAN | | `caf11d9` | closeout-r7 | FINDINGS (1) |
+| `cc9ebba` | review-r9 | CLEAN | | `9bba490` | closeout-r8 | FINDINGS (3) |
+| `4c61e8c` | docs | FINDINGS (1) | | `2e1d11a` | closeout-r9 | CLEAN |
 | `4e9a05f` | docs-r2 | CLEAN | | `4c9d380` | closeout-r10 | CLEAN |
 | `7d478b0` | docs-r3 | CLEAN | | `7529db3` | closeout-r11 | CLEAN |
 | | | | | `9dada9e` | closeout-r12 | CLEAN |
 | | | | | `c62d082` | closeout-r13 | CLEAN |
 | | | | | `25e2395` | closeout-r14 | CLEAN |
-| | | | | `b67f47d` | final | FINDINGS |
-| | | | | `b7dc922` | r15 | FINDINGS |
-| | | | | `9d64559` | r16 | FINDINGS |
+| | | | | `b67f47d` | final | FINDINGS (4) |
+| | | | | `b7dc922` | r15 | FINDINGS (1) |
+| | | | | `9d64559` | r16 | FINDINGS (1) |
 | | | | | `eff432e` | r17 | CLEAN |
 
 **Layer 1, by run** (C = clean, F(n) = n findings; subjects are stated only where the run's own artifacts pin them):
@@ -214,7 +219,8 @@ text their head commit did not itself change.
   the branch diff against `34fa5c0`. None of these is a clean-tree proof — `local-aligned` scope diffs the
   working tree against the base, uncommitted edits included — so a layer-1 **miss** is charged only where a
   pass of the same run quotes the defective line (`20260831-213901/adversarial` quotes `:279`), or the run
-  states a clean tree (`closeout4`); a caught pair needs nothing more than its own report. A future layer-1
+  states a clean tree (`closeout4`); a caught pair needs the text inside the recorded range, which its own
+  report then confirms was in the tree. A future layer-1
   run is range-pinned for misses only by a recorded base **and** a clean-tree statement (or a digest of the
   reviewed diff) in its `metadata.json`; one that records neither is head-pinned only.
 
@@ -236,6 +242,61 @@ sentence in the tree it reviewed), `closeout8/correctness` on entry -02 for the 
 of `closeout4`, `closeout5` and `closeout6` (increment-only runs; no known defect sits in the text their
 commits changed). The two 2026-08-30 entries predate the preserved window (PR #466; artifacts gone) and sit
 outside this denominator.
+
+### Finding inventory
+
+Every finding each counted pass reported, by identity (§ Scoring model), with its adjudication status — the
+record the false-alarm denominator is rebuilt from once the raw artifacts are gone. `→ -NN` = caught, settled
+by that entry; `open` = not yet adjudicated either way; `(unpinned run)` = adjudication would first need a
+pin. Layer 2: 25 findings over 13 passes; layer 1: 40 over 24 passes. Abbreviations: *derive* =
+`docs/solutions/best-practices/derive-the-member-list-from-keyof-not-a-runtime-probe.md`; *seam* =
+`docs/solutions/architecture-patterns/a-guard-that-restates-its-subject-names-a-missing-seam.md`; *test* =
+`test/unit/rowVisibilityLiveSync.test.ts`; *assert* = `docs/solutions/best-practices/assert-the-claim-not-the-mechanism.md`.
+
+**Layer 2** (the 16 CLEAN passes report nothing):
+
+- `review` (1): P2 test `:295` — open
+- `review-r4` (1): P1 test `:267` — open
+- `docs` (1): P2 assert `:209` — open
+- `closeout` (7): P1 seam `:15`; P1 derive `:41-84`; P1 derive `:196-218`; P2 `CONCEPTS.md:111`; P2 seam
+  `:128-135`; P2 seam `:190-194`; P2 derive `:116-124` — all open
+- `closeout-r2` (1): P2 derive `:41` — open
+- `closeout-r3` (1): P1 derive `:127` — open
+- `closeout-r4` (1): P1 `CONCEPTS.md:111` — open
+- `closeout-r5` (2): P2 derive `:133`; P2 seam `:193` — open
+- `closeout-r7` (1): P2 seam `:22,73` — open
+- `closeout-r8` (3): P1 derive `:109`; P2 seam `:140`; P2 derive `:130` — open
+- `final` (4): P1 derive `:118` → -02; P2 derive `:138`; P2 derive `:191`; P2 derive `:291` — open
+- `r15` (1): P1 derive `:355` — open
+- `r16` (1): P1 derive `:131` → -05
+
+**Layer 1** (the 16 CLEAN passes report nothing; titles live in the artifacts, identities here are severity +
+`file:line`):
+
+- `20260831-213901/adversarial` (2): P1 test `:279` → -01; P2 test `:263` — open
+- `20260831-213901/correctness` (2): P2 `src/bases/rowVisibility.ts:61` → -01; P2 test `:18` — open
+- `20260831-213901/maintainability` (1): P3 test `:220` — open
+- `20260831-213901/project-standards` (1): P1 test `:10` → -06
+- `20260831-r2/adversarial` (2): P1 test `:21`; P2 test `:15` — open (unpinned run)
+- `20260831-r2/correctness` (2): P1 test `:256`; P2 test `:18` — open (unpinned run)
+- `20260831-r2/project-standards` (2): P2 test `:10`; P2 test `:225` — open (unpinned run)
+- `20260831-r2/testing` (1): P1 test `:19` — open (unpinned run)
+- `20260901-r3/adversarial` (2): P1 test `:278`; P2 test `:294` — open (unpinned run)
+- `20260901-r3/correctness` (1): P2 test `:280` — open (unpinned run)
+- `20260901-r3/project-standards` (2): P1 test `:310`; P2 test `:7` — open (unpinned run)
+- `20260901-r4/adversarial` (2): P1 test `:331`; P2 test `:287` — open (unpinned run)
+- `20260901-r4/project-standards` (1): P2 test `:291` — open (unpinned run)
+- `20260901-r5/adversarial` (2): P2 test `:287`; P2 test `:322` — open (unpinned run)
+- `20260901-r5/project-standards` (1): P1 test `:322` — open (unpinned run)
+- `closeout/correctness` (2): P2 derive `:157`; P3 seam `:177` — open
+- `closeout2/correctness` (2): P1 seam `:309`; P2 seam `:338` — open (unpinned run)
+- `closeout2/project-standards` (1): P2 seam `:2` — open (unpinned run)
+- `closeout3/correctness` (2): P1 seam `:279`; P2 seam `:146` — open (unpinned run)
+- `closeout5/correctness` (2): P2 seam `:142`; P2 seam `:334` — open
+- `closeout6/correctness` (4): P1 derive `:333`; P1 seam `:194`; P2 seam `:146`; P2 seam `:164` — open
+- `closeout7/correctness` (1): P2 seam `:166` — open (unpinned run)
+- `closeout8/correctness` (1): P3 seam `:184` → -04
+- `docs-r1/correctness` (1): P3 assert `:128` → -03
 
 ## Labelled defect set (deferred, with trigger)
 
