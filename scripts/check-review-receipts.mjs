@@ -12,9 +12,10 @@
  *
  * `check` reads git's pre-push stdin lines ("<local-ref> <local-sha>
  * <remote-ref> <remote-sha>") and demands receipts for every distinct pushed
- * local sha (deletions skipped, tag objects peeled to their commit, the
- * archival review-subject namespace exempt - see ARCHIVAL_SUBJECT_REF_PREFIX);
- * any malformed line fails the push. Run manually without piped input it falls
+ * local sha (deletions skipped, tag objects peeled to their commit); the
+ * archival review-subject namespace is exempt once each of its refs proves to
+ * name the commit it carries (see ARCHIVAL_SUBJECT_REF_PREFIX); any malformed
+ * line fails the push. Run manually without piped input it falls
  * back to HEAD. Receipts live in .git/ (per-clone, never committed), keyed by
  * commit sha: {"receipts": {"<sha>": {"<layer>": "<iso timestamp>"}}}.
  *
@@ -93,15 +94,19 @@ function readReceipts() {
  * stays gated exactly as before.
  */
 export const ARCHIVAL_SUBJECT_REF_PREFIX = 'refs/e11-subjects/';
+const SUBJECT_SUFFIX_PATTERN = /^[0-9a-f]{7,64}$/;
 
 /**
- * The distinct pushed local shas plus every nonblank line that is not a valid
- * ref record - the caller must fail closed on any invalid line, because a
- * silently discarded line would let its ref through ungated.
+ * The distinct pushed local shas, the archival subject refs (kept apart so the
+ * caller can validate them - the prefix alone grants nothing), and every
+ * nonblank line that is not a valid ref record - the caller must fail closed
+ * on any invalid line, because a silently discarded line would let its ref
+ * through ungated.
  */
 export function parsePushedRefLines(stdinText) {
   const shas = new Set();
   const invalid = [];
+  const archival = [];
   for (const line of stdinText.split('\n')) {
     const trimmed = line.trim();
     if (trimmed === '') continue;
@@ -111,15 +116,43 @@ export function parsePushedRefLines(stdinText) {
       invalid.push(trimmed);
       continue;
     }
-    if (tokens[2].startsWith(ARCHIVAL_SUBJECT_REF_PREFIX)) continue;
-    if (!isDeletion(localSha)) shas.add(localSha);
+    if (isDeletion(localSha)) continue;
+    if (tokens[2].startsWith(ARCHIVAL_SUBJECT_REF_PREFIX)) archival.push({ ref: tokens[2], sha: localSha });
+    else shas.add(localSha);
   }
-  return { shas: [...shas], invalid };
+  return { shas: [...shas], invalid, archival };
 }
 
 /** Annotated tags push their tag object's sha; receipts key on commits. */
 function peelToCommit(sha) {
   return git(['rev-parse', '--verify', `${sha}^{commit}`]).trim();
+}
+
+function peelOrNull(sha, peel) {
+  try {
+    return peel(sha);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The exemption is granted to a NAME, so the name has to be honest: the pushed
+ * object must be a commit and the ref's suffix must abbreviate that commit's
+ * sha. Otherwise a blob, or an unrelated commit, could be parked under a
+ * subject's name and the corpus's recorded ranges would rebuild against the
+ * wrong tree. Returns one problem string per dishonest ref; empty means clean.
+ */
+export function validateArchivalSubjects(archival, peel = peelToCommit) {
+  const problems = [];
+  for (const { ref, sha } of archival) {
+    const suffix = ref.slice(ARCHIVAL_SUBJECT_REF_PREFIX.length);
+    const commit = peelOrNull(sha, peel);
+    if (commit === null) problems.push(`${ref}: pushed object ${sha.slice(0, 7)} is not a commit`);
+    else if (!SUBJECT_SUFFIX_PATTERN.test(suffix)) problems.push(`${ref}: "${suffix}" is too short to name a commit`);
+    else if (!commit.startsWith(suffix)) problems.push(`${ref}: names ${suffix} but the pushed object is commit ${commit.slice(0, 7)}`);
+  }
+  return problems;
 }
 
 export function evaluateReceipts(store, shas, requiredLayers = REQUIRED_LAYERS) {
@@ -221,6 +254,12 @@ function refuseInvalidRefLines(invalid) {
   process.exit(1);
 }
 
+function refuseArchivalSubjects(problems) {
+  console.error('pre-push: archival subject ref(s) do not name the commit they carry - refusing:');
+  for (const problem of problems) console.error(`  ${problem}`);
+  process.exit(1);
+}
+
 function peelPushedCommits(pushed) {
   try {
     return [...new Set(pushed.map(peelToCommit))];
@@ -231,18 +270,24 @@ function peelPushedCommits(pushed) {
   }
 }
 
-function pushedCommitShas(stdinText) {
-  const { shas, invalid } = parsePushedRefLines(stdinText);
+/** The commits to gate and the archival subjects the push carries alongside them. */
+function pushToCheck(stdinText) {
+  if (stdinText.trim() === '') return { shas: [headSha()], archival: [] };
+  const { shas, invalid, archival } = parsePushedRefLines(stdinText);
   if (invalid.length > 0) refuseInvalidRefLines(invalid);
-  return peelPushedCommits(shas);
+  const problems = validateArchivalSubjects(archival);
+  if (problems.length > 0) refuseArchivalSubjects(problems);
+  return { shas: peelPushedCommits(shas), archival };
 }
 
-function shasToCheck(stdinText) {
-  if (stdinText.trim() === '') return [headSha()];
-  return pushedCommitShas(stdinText);
+function reportArchivalSubjects(archival) {
+  if (archival.length === 0) return;
+  const names = archival.map(({ ref }) => ref.slice(ARCHIVAL_SUBJECT_REF_PREFIX.length)).join(', ');
+  console.log(`archival review subjects accepted without receipts (${ARCHIVAL_SUBJECT_REF_PREFIX}*): ${names}`);
 }
 
-function reportCleanReceipts(shas) {
+function reportCleanReceipts(shas, archivalOnly) {
+  if (archivalOnly) return;
   const short = shas.map((sha) => sha.slice(0, 7)).join(', ') || 'deletion-only push';
   console.log(`review receipts OK for ${short}: ${REQUIRED_LAYERS.join(' + ')}`);
 }
@@ -277,12 +322,13 @@ function check() {
   const { text: stdinText, failed } = readPipedStdin();
   if (failed) refuseUnreadableRefLines();
 
-  const shas = shasToCheck(stdinText);
+  const { shas, archival } = pushToCheck(stdinText);
   const store = readReceipts();
   const verdict = evaluateReceipts(store, shas);
   if (!verdict.ok) refuseMissingReceipts(verdict);
   reportAcceptedFindings(acknowledgedFindings(store, shas));
-  reportCleanReceipts(shas);
+  reportArchivalSubjects(archival);
+  reportCleanReceipts(shas, shas.length === 0 && archival.length > 0);
 }
 
 const isDirectRun = process.argv[1]?.endsWith('check-review-receipts.mjs');

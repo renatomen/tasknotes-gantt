@@ -1,7 +1,9 @@
 import {
+  ARCHIVAL_SUBJECT_REF_PREFIX,
   evaluateReceipts,
   parsePushedRefLines,
   REQUIRED_LAYERS,
+  validateArchivalSubjects,
 } from '../../scripts/check-review-receipts.mjs';
 
 const SHA = 'a'.repeat(40);
@@ -84,13 +86,13 @@ describe('parsePushedRefLines', () => {
       `refs/heads/a ${SHA} refs/heads/a ${OTHER_SHA}\n` +
       `refs/heads/b ${OTHER_SHA} refs/heads/b ${DELETED}\n`;
 
-    expect(parsePushedRefLines(stdin)).toEqual({ shas: [SHA, OTHER_SHA], invalid: [] });
+    expect(parsePushedRefLines(stdin)).toEqual({ shas: [SHA, OTHER_SHA], invalid: [], archival: [] });
   });
 
   it('skips branch deletions (local sha all zeros)', () => {
     const stdin = `refs/heads/gone ${DELETED} refs/heads/gone ${SHA}\n`;
 
-    expect(parsePushedRefLines(stdin)).toEqual({ shas: [], invalid: [] });
+    expect(parsePushedRefLines(stdin)).toEqual({ shas: [], invalid: [], archival: [] });
   });
 
   it('deduplicates the same sha pushed under two refs', () => {
@@ -98,13 +100,23 @@ describe('parsePushedRefLines', () => {
       `refs/heads/a ${SHA} refs/heads/a ${OTHER_SHA}\n` +
       `refs/tags/v1 ${SHA} refs/tags/v1 ${DELETED}\n`;
 
-    expect(parsePushedRefLines(stdin)).toEqual({ shas: [SHA], invalid: [] });
+    expect(parsePushedRefLines(stdin)).toEqual({ shas: [SHA], invalid: [], archival: [] });
   });
 
-  it('does not gate a push into the archival subject namespace, which holds review subjects, not reviewed code', () => {
+  it('does not gate a push into the archival subject namespace, but reports it for validation', () => {
     const stdin = `refs/e11-subjects/e0cae52 ${SHA} refs/e11-subjects/e0cae52 ${DELETED}\n`;
 
-    expect(parsePushedRefLines(stdin)).toEqual({ shas: [], invalid: [] });
+    expect(parsePushedRefLines(stdin)).toEqual({
+      shas: [],
+      invalid: [],
+      archival: [{ ref: 'refs/e11-subjects/e0cae52', sha: SHA }],
+    });
+  });
+
+  it('reports nothing for a deletion of an archival ref', () => {
+    const stdin = `refs/e11-subjects/e0cae52 ${DELETED} refs/e11-subjects/e0cae52 ${SHA}\n`;
+
+    expect(parsePushedRefLines(stdin)).toEqual({ shas: [], invalid: [], archival: [] });
   });
 
   it('still gates the same sha when it is also pushed to a branch alongside an archival ref', () => {
@@ -112,7 +124,11 @@ describe('parsePushedRefLines', () => {
       `refs/e11-subjects/e0cae52 ${SHA} refs/e11-subjects/e0cae52 ${DELETED}\n` +
       `refs/heads/a ${SHA} refs/heads/a ${OTHER_SHA}\n`;
 
-    expect(parsePushedRefLines(stdin)).toEqual({ shas: [SHA], invalid: [] });
+    expect(parsePushedRefLines(stdin)).toEqual({
+      shas: [SHA],
+      invalid: [],
+      archival: [{ ref: 'refs/e11-subjects/e0cae52', sha: SHA }],
+    });
   });
 
   it('still refuses a malformed line even when it names the archival namespace', () => {
@@ -121,12 +137,13 @@ describe('parsePushedRefLines', () => {
     expect(parsePushedRefLines(stdin)).toEqual({
       shas: [],
       invalid: [`refs/e11-subjects/x ${SHA} refs/e11-subjects/x`],
+      archival: [],
     });
   });
 
   it('yields nothing for empty or blank stdin (manual invocation falls back to HEAD)', () => {
-    expect(parsePushedRefLines('')).toEqual({ shas: [], invalid: [] });
-    expect(parsePushedRefLines('\n  \n')).toEqual({ shas: [], invalid: [] });
+    expect(parsePushedRefLines('')).toEqual({ shas: [], invalid: [], archival: [] });
+    expect(parsePushedRefLines('\n  \n')).toEqual({ shas: [], invalid: [], archival: [] });
   });
 
   it('surfaces malformed lines instead of silently discarding them', () => {
@@ -150,6 +167,45 @@ describe('parsePushedRefLines', () => {
       `refs/heads/a ${sha256} refs/heads/a ${'d'.repeat(64)}\n` +
       `refs/heads/gone ${'0'.repeat(64)} refs/heads/gone ${sha256}\n`;
 
-    expect(parsePushedRefLines(stdin)).toEqual({ shas: [sha256], invalid: [] });
+    expect(parsePushedRefLines(stdin)).toEqual({ shas: [sha256], invalid: [], archival: [] });
+  });
+});
+
+describe('validateArchivalSubjects', () => {
+  const COMMIT = 'e0cae5257' + 'f'.repeat(31);
+  const peelTo = (commit: string) => () => commit;
+  const notACommit = () => {
+    throw new Error('fatal: not a commit');
+  };
+
+  it('accepts an archival ref whose suffix is a prefix of the commit the object peels to', () => {
+    const archival = [{ ref: `${ARCHIVAL_SUBJECT_REF_PREFIX}e0cae52`, sha: COMMIT }];
+
+    expect(validateArchivalSubjects(archival, peelTo(COMMIT))).toEqual([]);
+  });
+
+  it('refuses an archival ref whose suffix names a different commit than the one pushed', () => {
+    const archival = [{ ref: `${ARCHIVAL_SUBJECT_REF_PREFIX}e0cae52`, sha: OTHER_SHA }];
+
+    const problems = validateArchivalSubjects(archival, peelTo(OTHER_SHA));
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('e0cae52');
+    expect(problems[0]).toContain(OTHER_SHA.slice(0, 7));
+  });
+
+  it('refuses an archival object that does not peel to a commit', () => {
+    const archival = [{ ref: `${ARCHIVAL_SUBJECT_REF_PREFIX}e0cae52`, sha: SHA }];
+
+    const problems = validateArchivalSubjects(archival, notACommit);
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('not a commit');
+  });
+
+  it('refuses a suffix too short to name a commit', () => {
+    const archival = [{ ref: `${ARCHIVAL_SUBJECT_REF_PREFIX}e0c`, sha: COMMIT }];
+
+    expect(validateArchivalSubjects(archival, peelTo(COMMIT))).toHaveLength(1);
   });
 });

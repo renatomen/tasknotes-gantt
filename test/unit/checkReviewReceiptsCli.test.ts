@@ -296,6 +296,49 @@ describe('check-review-receipts check', () => {
     expect(run.stdout).toContain('deletion-only push');
   });
 
+  describe('archival review-subject refs', () => {
+    const subjectRef = (sha: string): string => `refs/e11-subjects/${short(sha)}`;
+
+    it('accepts a subject ref whose suffix names the pushed commit, without receipts, and says so', () => {
+      const run = runCheck(refLine(codeCommit, ZERO, subjectRef(codeCommit)));
+
+      expect(run.status).toBe(0);
+      expect(run.stdout).toContain('archival review subjects accepted');
+      expect(run.stdout).not.toContain('deletion-only push');
+    });
+
+    it('refuses a subject ref whose suffix names a different commit than the one pushed', () => {
+      // The prefix alone must not be the exemption: an archived object that is
+      // not the named subject leaves the recorded review range unrebuildable.
+      const run = runCheck(refLine(docsCommit, ZERO, subjectRef(codeCommit)));
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('archival');
+      expect(run.stderr).toContain(short(codeCommit));
+    });
+
+    it('refuses a subject ref whose object is not a commit', () => {
+      const blob = git(['rev-parse', `${docsCommit}:docs/note.md`]);
+      git(['tag', '-a', '-m', 'subject-blob', 'subject-blob-tag', blob]);
+      const blobTag = git(['rev-parse', 'refs/tags/subject-blob-tag']);
+      try {
+        const run = runCheck(refLine(blobTag, ZERO, subjectRef(blobTag)));
+
+        expect(run.status).toBe(1);
+        expect(run.stderr).toContain('archival');
+      } finally {
+        git(['tag', '-d', 'subject-blob-tag']);
+      }
+    });
+
+    it('still gates a branch pushed alongside a subject ref', () => {
+      const run = runCheck(refLine(codeCommit, ZERO, subjectRef(codeCommit)) + refLine(docsCommit, baseCommit, 'refs/heads/a'));
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain(short(docsCommit));
+    });
+  });
+
   it('peels an annotated tag to the commit receipts are keyed on', () => {
     // The tag targets a commit that is NOT HEAD, so a broken path falling back
     // to gating HEAD would name the wrong sha and fail here.
