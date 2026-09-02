@@ -12,8 +12,9 @@
  *
  * `check` reads git's pre-push stdin lines ("<local-ref> <local-sha>
  * <remote-ref> <remote-sha>") and demands receipts for every distinct pushed
- * local sha (deletions skipped, tag objects peeled to their commit); any
- * malformed line fails the push. Run manually without piped input it falls
+ * local sha (deletions skipped, tag objects peeled to their commit, the
+ * archival review-subject namespace exempt - see ARCHIVAL_SUBJECT_REF_PREFIX);
+ * any malformed line fails the push. Run manually without piped input it falls
  * back to HEAD. Receipts live in .git/ (per-clone, never committed), keyed by
  * commit sha: {"receipts": {"<sha>": {"<layer>": "<iso timestamp>"}}}.
  *
@@ -84,6 +85,16 @@ function readReceipts() {
 }
 
 /**
+ * Commits pushed here are the SUBJECTS of recorded review passes (the E11
+ * benchmark corpus), preserved so a fresh clone can rebuild the diff each pass
+ * read. They are intermediate states that were later squash-merged, so by
+ * construction they carry no receipts of their own; nothing under this prefix
+ * is a branch or a tag, and nothing deploys from it. Every other namespace
+ * stays gated exactly as before.
+ */
+export const ARCHIVAL_SUBJECT_REF_PREFIX = 'refs/e11-subjects/';
+
+/**
  * The distinct pushed local shas plus every nonblank line that is not a valid
  * ref record - the caller must fail closed on any invalid line, because a
  * silently discarded line would let its ref through ungated.
@@ -100,6 +111,7 @@ export function parsePushedRefLines(stdinText) {
       invalid.push(trimmed);
       continue;
     }
+    if (tokens[2].startsWith(ARCHIVAL_SUBJECT_REF_PREFIX)) continue;
     if (!isDeletion(localSha)) shas.add(localSha);
   }
   return { shas: [...shas], invalid };

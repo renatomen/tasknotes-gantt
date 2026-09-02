@@ -101,6 +101,29 @@ describe('parsePushedRefLines', () => {
     expect(parsePushedRefLines(stdin)).toEqual({ shas: [SHA], invalid: [] });
   });
 
+  it('does not gate a push into the archival subject namespace, which holds review subjects, not reviewed code', () => {
+    const stdin = `refs/e11-subjects/e0cae52 ${SHA} refs/e11-subjects/e0cae52 ${DELETED}\n`;
+
+    expect(parsePushedRefLines(stdin)).toEqual({ shas: [], invalid: [] });
+  });
+
+  it('still gates the same sha when it is also pushed to a branch alongside an archival ref', () => {
+    const stdin =
+      `refs/e11-subjects/e0cae52 ${SHA} refs/e11-subjects/e0cae52 ${DELETED}\n` +
+      `refs/heads/a ${SHA} refs/heads/a ${OTHER_SHA}\n`;
+
+    expect(parsePushedRefLines(stdin)).toEqual({ shas: [SHA], invalid: [] });
+  });
+
+  it('still refuses a malformed line even when it names the archival namespace', () => {
+    const stdin = `refs/e11-subjects/x ${SHA} refs/e11-subjects/x\n`;
+
+    expect(parsePushedRefLines(stdin)).toEqual({
+      shas: [],
+      invalid: [`refs/e11-subjects/x ${SHA} refs/e11-subjects/x`],
+    });
+  });
+
   it('yields nothing for empty or blank stdin (manual invocation falls back to HEAD)', () => {
     expect(parsePushedRefLines('')).toEqual({ shas: [], invalid: [] });
     expect(parsePushedRefLines('\n  \n')).toEqual({ shas: [], invalid: [] });
