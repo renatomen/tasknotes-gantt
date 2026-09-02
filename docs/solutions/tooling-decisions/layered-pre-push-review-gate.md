@@ -50,7 +50,7 @@ and `scripts/check-review-receipts.mjs` does the following. Cited by name rather
 than by line, because line numbers rot — an earlier revision of this section
 pointed at lines that a later shrink had already moved:
 
-- `REQUIRED_LAYERS` names both layers, and **both** are required for **every** pushed ref tip.
+- `REQUIRED_LAYERS` names both layers, and **both** are required for **every** pushed ref tip. The one namespace the hook does not gate is the archival review-subject namespace `refs/e11-subjects/*` (`ARCHIVAL_SUBJECT_REF_PREFIX`), which preserves the E11 reviewer-benchmark corpus's subject commits so any clone can rebuild the ranges it records; those refs carry review *subjects*, not reviewed code, and they are validated rather than receipted — each must name, as an unambiguous object abbreviation, exactly the commit it carries, and deleting one is refused.
 - Receipts live in the runtime-resolved Git directory (`git rev-parse --git-dir`) as `review-receipts.json`, keyed by commit sha: `{"receipts": {"<sha>": {"<layer>": "<iso timestamp>"}}}`. The store is local to the current worktree and never committed; linked worktrees therefore have separate stores. A receipt attests that *this* worktree ran *this* review and cannot be inherited by fetching a branch.
 - `record <layer>` stamps the current `HEAD` with an ISO timestamp, and rejects any layer name outside `REQUIRED_LAYERS`.
 - `check` reads git's pre-push stdin ref lines (`<local-ref> <local-sha> <remote-ref> <remote-sha>`) and gates every distinct pushed local sha — the tip of each ref being pushed, not the checkout's `HEAD`.
@@ -77,7 +77,7 @@ decision logic is easy and its perception is hard, so an optimisation that buys
 speed by perceiving more is usually a bad trade. Removing it returned the file
 from 383 lines to 188.
 
-The consequence that makes the whole thing stick: **a new commit voids receipts.** Receipts key on sha, so a fix to a review finding is a new commit with no receipts of its own — it must itself be reviewed by both layers before it can be pushed. There is no "small follow-up fix" escape hatch. The mechanism has modest scope: when the hook is installed and not bypassed, it refuses a pushed tip without both receipts. Repository policy remains responsible for requiring the reviews and ensuring that each review honestly covered its range.
+The consequence that makes the whole thing stick: **a new commit voids receipts.** Receipts key on sha, so a fix to a review finding is a new commit with no receipts of its own — it must itself be reviewed by both layers before it can be pushed. There is no "small follow-up fix" escape hatch. The mechanism has modest scope: when the hook is installed and not bypassed, it refuses a pushed tip without both receipts (the archival subject namespace above excepted, where it validates the pin instead). Repository policy remains responsible for requiring the reviews and ensuring that each review honestly covered its range.
 
 **The design-contract preamble.** Adopted mid-campaign as a secondary discipline: for any fix touching concurrency, ordering, or invalidation, write — *before code* — (a) which waits and contracts change, (b) the post-change wait/lock graph, and (c) the failure direction of a false positive. This was adopted after a regression that the post-hoc review caught but the design should have (see Examples).
 
@@ -100,7 +100,7 @@ Both of those are regressions *from the fixes*, which is precisely the failure m
 
 ## When to Apply
 
-In this repository, the installed local hook requires the two-layer gate for **every non-deletion ref tip it processes**. There is no risk-based or docs-only exemption encoded in that mechanism. When the hook is installed and not explicitly bypassed, it refuses any pushed tip without both exact-tip receipts. Hooks are a local enforcement layer, not remote proof: a clone without installed hooks or a push made with `--no-verify` can evade the mechanism. Repository policy therefore remains responsible for requiring honest reviews before receipts are recorded. The triggering incident involved concurrency-, ordering-, and invalidation-critical code, but the later exemption experiment showed that deciding which changes deserved review created a larger and less trustworthy mechanism than reviewing the smallest coherent delta.
+In this repository, the installed local hook requires the two-layer gate for **every non-deletion ref tip it processes**. There is no risk-based or docs-only exemption encoded in that mechanism; the only exemption is the archival review-subject namespace, which holds review subjects rather than reviewed code and is validated, not receipted. When the hook is installed and not explicitly bypassed, it refuses any pushed tip without both exact-tip receipts. Hooks are a local enforcement layer, not remote proof: a clone without installed hooks or a push made with `--no-verify` can evade the mechanism. Repository policy therefore remains responsible for requiring honest reviews before receipts are recorded. The triggering incident involved concurrency-, ordering-, and invalidation-critical code, but the later exemption experiment showed that deciding which changes deserved review created a larger and less trustworthy mechanism than reviewing the smallest coherent delta.
 
 Keep the cost proportional through batch size and mapped verification, not exemptions. Review one coherent delta, run the fastest reliable checks that can prove its behavior, and add the relevant integration or real-Obsidian journey when the changed boundary requires it. The receipt hook requires two honest reviews of the exact candidate; it does not prescribe one fixed test matrix for every kind of change.
 
@@ -137,7 +137,8 @@ fix -> commit
                   -> node scripts/check-review-receipts.mjs record ce-code-review
                      (layer 2 records ITSELF: the wrapper with --record when clean,
                       or --acknowledge to accept findings rather than fix them)
-    -> git push   (pre-push hook gates every pushed ref tip against BOTH layers)
+    -> git push   (pre-push hook gates every pushed ref tip against BOTH layers;
+                   refs/e11-subjects/* are validated pins, not gated tips)
 ```
 
 The first range must start at the last pushed state, and each later range must
