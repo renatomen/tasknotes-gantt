@@ -56,10 +56,20 @@ is present, and every pair it settles with the source evidence. An entry may set
 exposes — where a pass's charge over that class is not established, say so and leave the pair open — and the
 unsettled pairs remain open opportunities. Never admit a pair that is not settled against the source.
 
-**Counts.** An opportunity is **adjudicated** when at least one of its pairs is settled; the trigger in
-§ Labelled defect set counts adjudicated opportunities. Once the labelled set exists, catch rate = caught ÷
-charged (pass, defect) pairs, and false-alarm rate = refuted ÷ adjudicated (pass, finding) pairs — a finding is
-counted only once it has been adjudicated either way, so an unexamined finding neither inflates nor flatters.
+**Identity.** A defect is identified by its entry id. A finding is identified as the pass reported it —
+severity plus `file:line`, plus the finding's title where the artifact carries one (layer 1) — and every
+settled (pass, finding) pair names it, whether caught or false alarm, so the false-alarm denominator can be
+rebuilt from this file alone once the raw artifacts are gone. Two findings that name one defect are two
+(pass, finding) pairs both caught, and one (pass, defect) pair; one finding that names two defects is one
+(pass, finding) pair and two (pass, defect) pairs. A finding an entry does not name is **open**: not yet
+adjudicated either way.
+
+**Counts.** An opportunity is **adjudicated** when at least one of its pairs is settled. The trigger in
+§ Labelled defect set counts only opportunities adjudicated through at least one **(pass, defect)** pair — a
+pass settled solely by false alarms is adjudicated for the false-alarm rate but contributes nothing to a set of
+known defects, so it does not advance the trigger. Once the labelled set exists, catch rate = caught ÷ charged
+(pass, defect) pairs, and false-alarm rate = refuted ÷ adjudicated (pass, finding) pairs — open findings count
+in neither, so an unexamined finding neither inflates nor flatters.
 
 ## Fields
 
@@ -69,7 +79,7 @@ counted only once it has been adjudicated either way, so an unexamined finding n
 | `ground-truth` | `defect` (text adjudicated wrong against the source) or `false-alarm` (a finding adjudicated wrong against the source) |
 | `text` | what is wrong, with `file:line` at a subject where it was measured |
 | `present-at` | every subject whose tree carries the text — measured per commit (the exposure half of § Scoring model) |
-| `settles` | each pair the entry settles — `(pass, defect)` as `caught` / `miss`, `(pass, finding)` as `false-alarm` — and, for an exposed pass left uncharged, why (the charge half of § Scoring model) |
+| `settles` | each pair the entry settles — `(pass, defect)` as `caught` / `miss`, `(pass, finding)` as `caught` / `false-alarm`, each finding named by its identity (§ Scoring model) — and, for an exposed pass left uncharged, why (the charge half of § Scoring model) |
 | `adjudication` | the source evidence that settles the ground truth |
 | `outcome` | what changed as a result |
 
@@ -134,12 +144,12 @@ for the closeout series through r17 (#475, eleven branch commits)):
 | `20260901-r5` | adversarial F(2), project-standards F(1) | unpinned |
 | `20260901-r6` | correctness C, project-standards C | unpinned |
 | `docs-r1` | correctness F(1), correctness-r2 C, project-standards C | correctness only: `4e9a05f` (A: its finding's provenance line names `4e9a05f` as the commit that added line 128 — unique, because the other subject carrying that line, `4c61e8c`, is a sibling amend, so blame at that head would have named `4c61e8c`); other two passes unpinned |
-| `closeout` | correctness F(2), project-standards C | `3662fcf` (A: `HEAD 3662fcf` in its notes) |
+| `closeout` | correctness F(2), project-standards C | `3662fcf` (A: `HEAD 3662fcf` in its notes; range F..S — the same artifact names `34fa5c0` as "this branch's BASE on main") |
 | `closeout2` | correctness F(2), project-standards F(1) | unpinned |
 | `closeout3` | correctness F(2), project-standards C | unpinned |
-| `closeout4` | correctness C, project-standards C | `4c9d380` (A: `HEAD 4c9d380` in its verification notes) |
-| `closeout5` | correctness F(2), project-standards C | `7529db3` (A: `HEAD 7529db3` in its notes) |
-| `closeout6` | correctness F(4), project-standards C | `9dada9e` (A: `HEAD 9dada9e` in its notes) |
+| `closeout4` | correctness C, project-standards C | `4c9d380` (A: `HEAD 4c9d380` in its verification notes; range = that commit's own delta — "the 47-line delta", and `4c9d380^..4c9d380` is 47 diff lines) |
+| `closeout5` | correctness F(2), project-standards C | `7529db3` (A: `HEAD 7529db3` in its notes; range = that commit's own delta — "the 32-line delta (7529db3 …)", and `7529db3^..7529db3` is 32 diff lines) |
+| `closeout6` | correctness F(4), project-standards C | `9dada9e` (A: `HEAD 9dada9e` in its notes; range = that commit's own delta — its evidence cites `delta.diff` hunks `@@ -127,26 +127,7 @@`, `@@ -184,11 +191,9 @@`, `@@ -328,10 +328,9 @@`, which are exactly `9dada9e^..9dada9e`'s) |
 | `closeout7` | correctness F(1), project-standards C | unpinned |
 | `closeout8` | correctness F(1) | `25e2395` (A: its finding's provenance line names `25e2395` as the commit behind the cited line, so the head is at or after it; the `rowVisibility.ts:99` text it cites is fixed by `b67f47d`, that commit's direct child, so the head is before that — exactly `25e2395`) |
 | `final` | correctness C, project-standards C | unpinned |
@@ -174,34 +184,39 @@ text their head commit did not itself change.
   `HEAD <sha>` verification note, or a finding's blame-provenance line that, with the cited text's fix commit,
   brackets the head to one commit; grade B, a finding quotes text locatable to exactly one commit state
   (quoted text alone rarely does — it usually survives several commits — and no pass in this record rests on
-  it). Range:
-  the skill's diff-scope rule reviews `merge-base(HEAD, main)..HEAD` on a clean tree — F, main-relative
-  whatever the branch's upstream — and the artifacts corroborate it where they speak: `20260831-213901`'s
-  `metadata.json` records `base: 198b2556` (= F), and `closeout8/correctness` reasons its finding explicitly
-  against `34fa5c0` (= F). A future layer-1 run is range-pinned by a recorded base in its `metadata.json`;
-  one that records none is head-pinned only.
+  it). Range: **by artifact only**, per run — the skill resolves one diff per run and hands it to every
+  reviewer, so a range evidenced by any pass of a run pins the run. Its diff-scope default is the branch
+  against main, but a caller may hand it a narrower diff, and three runs here were given one, so the default
+  is not the pin. Full range `F..S`: `20260831-213901` (`metadata.json` records `base: 198b2556`);
+  `closeout` (names `34fa5c0` as "this branch's BASE on main"); `closeout8` (reasons "against base main",
+  `git show 34fa5c0:…`); `docs-r1/correctness` (its cited line was "added by this diff", and its subject is
+  one commit off F). Increment only, `S^..S`: `closeout4`, `closeout5`, `closeout6` — each artifact names
+  its head commit's own delta (sizes and hunk headers match the commits exactly, table above), so each is
+  charged only with text that commit changed. A future layer-1 run is range-pinned by a recorded base in its
+  `metadata.json`; one that records none is head-pinned only.
 
 **Adjudicable: 45 of the 69 passes** — recomputed under this pin: 29 layer-2 (head from the sentinel, base from
 each pass's recorded range) + 16 layer-1, all grade A (runs `20260831-213901`, `closeout`, `closeout4`,
 `closeout5`, `closeout6` = 14 passes by run-level notes; `docs-r1/correctness` and `closeout8/correctness` = 2 by
-their findings' provenance lines). The figure is unchanged
-from the per-verdict record; its basis changed — the sentinel pins a head, and the range now comes from the
-run's own artifact rather than from an invocation convention. The 24 unpinned passes count as passes (the artifacts prove they happened) but contribute no
-adjudication and never advance the trigger; some may yet be upgraded by finding-text matching while the raw
-artifacts survive.
+their findings' provenance lines) — ten of the sixteen over the full branch, six over their head commit's own
+delta. The figure is unchanged from the per-verdict record; its basis changed — the sentinel pins a head, and
+the range now comes from the run's own artifact rather than from an invocation convention. The 24 unpinned
+passes count as passes (the artifacts prove they happened) but contribute no adjudication and never advance
+the trigger; some may yet be upgraded by finding-text matching while the raw artifacts survive.
 
-**Adjudicated so far: 31 of the 45 adjudicable opportunities**, over 40 settled pairs. Per entry: -01 settles
-5 passes; -02 settles 20; -03 settles 3; -04 settles 9; -05 settles 2; -06 settles 1 — 21 distinct layer-2
-passes and 10 distinct layer-1 passes. Still open among the adjudicable: layer 2 `review-r3`–`r9` (no known
-defect exposed), `docs-r3`, `r17`; layer 1 `20260831-213901/maintainability` and `/performance`, and the
-`project-standards` passes of `closeout`, `closeout4`, `closeout5`, `closeout6`. The two 2026-08-30 entries
-predate the preserved window (PR #466; artifacts gone) and sit outside this denominator.
+**Adjudicated so far: 28 of the 45 adjudicable opportunities**, over 34 settled pairs. Per entry: -01 settles
+5 passes; -02 settles 17; -03 settles 3; -04 settles 6; -05 settles 2; -06 settles 1 — 21 distinct layer-2
+passes and 7 distinct layer-1 passes. Still open among the adjudicable: layer 2 `review-r3`–`r9` (no known
+defect exposed), `docs-r3`, `r17`; layer 1 `20260831-213901/maintainability` and `/performance`,
+`closeout/project-standards`, and both passes of `closeout4`, `closeout5` and `closeout6` (increment-only
+runs; no known defect sits in the text their commits changed). The two 2026-08-30 entries predate the preserved
+window (PR #466; artifacts gone) and sit outside this denominator.
 
 ## Labelled defect set (deferred, with trigger)
 
 E11's benchmark set — known defects candidate reviewers are scored against — is **not built yet**. Trigger, so
 the deferral is not open-ended (ruled 2026-09-02): **assemble it when this file's adjudications cover 40
-evaluation opportunities** (currently 31, of 45 adjudicable among the 69 recorded — so reaching the trigger
+evaluation opportunities through (pass, defect) pairs** (currently 28, of 45 adjudicable among the 69 recorded — so reaching the trigger
 takes near-complete adjudication of the preserved window, pin upgrades, or opportunities from future recorded
 campaigns). The preserved artifacts still hold same-subject disagreements adjudicable toward the trigger without
 running any new review round.
@@ -251,9 +266,11 @@ running any new review round.
   - layer 2 `review` (`PEER-e0cae52-30619`, FINDINGS) — **miss**: its one finding is the field-movement guard
     at `:295`; the completeness check went unflagged.
   - layer 2 `review-r2` (`PEER-02d229a-22056`, CLEAN) — **miss**.
-  - layer 1 `20260831-213901/adversarial` — **caught**: P1 at `:279`, the finding quoted above.
-  - layer 1 `20260831-213901/correctness` — **caught**: P2 anchored at `src/bases/rowVisibility.ts:61`, whose
-    evidence cites `:279 … (three top-level keys only)` and states the same escape.
+  - layer 1 `20260831-213901/adversarial` — **caught**: P1 `:279` "Coverage check derives only top-level keys; a
+    nested source member escapes".
+  - layer 1 `20260831-213901/correctness` — **caught**: P2 `src/bases/rowVisibility.ts:61` "Nested source
+    projection is hand-written; derived guard is top-level only", whose evidence cites `:279 … (three top-level
+    keys only)` and states the same escape.
   - layer 1 `20260831-213901/testing` — **miss** (`findings: []`): a completeness assertion that cannot fail
     for a nested member is inside its written charge ("tests that don't assert behavior (false confidence)").
   - Not charged: `performance` (out of charge); `maintainability` and `project-standards` (their contracts do
@@ -283,18 +300,19 @@ running any new review round.
   bare `keyof`; the doc's five pre-fix mentions of "union" all concern key unions or the cases of a union type,
   none the object-union case. Branch-created file (absent at F = `34fa5c03`), so in `F..S` for every one.
   Qualified at `b7dc922`.
-- **settles (20):**
+- **settles (17):**
   - layer 2, **miss** ×14: `closeout` (`PEER-526cbba-7162`), `closeout-r2` (`fb4a1e9`), `-r3` (`5776a6a`),
     `-r4` (`c6798dc`), `-r5` (`b90518b`), `-r6` (`3662fcf`, CLEAN), `-r7` (`caf11d9`), `-r8` (`9bba490`), `-r9`
     (`2e1d11a`, CLEAN), `-r10`–`-r14` (`4c9d380`, `7529db3`, `9dada9e`, `c62d082`, `25e2395`, all CLEAN). The
-    eight FINDINGS passes among them flagged the neighbouring index-signature and symbol cases (`closeout`
+    seven FINDINGS passes among them flagged the neighbouring index-signature and symbol cases (`closeout`
     `:116-124`, `r3` `:127`, `r5` `:133`, `r8` `:130`) — never the union case.
-  - layer 2 `final` (`PEER-b67f47d-12825`) — **caught**: P1 at `:118`.
-  - layer 1 correctness, **miss** ×5: `closeout` (`3662fcf`, F(2): the `:157` git-log claim and the seam doc's
-    `:177`), `closeout4` (`4c9d380`, `findings: []`), `closeout5` (`7529db3`, F(2), seam doc only), `closeout6`
-    (`9dada9e`, F(4): `:333` and the seam doc), `closeout8` (`25e2395`, F(1): citations). A false technical
-    claim in the reviewed text is correctness-class and nothing in the persona's exclusions removes it.
-  - Not charged: the five `project-standards` passes at the same subjects (out of charge).
+  - layer 2 `final` (`PEER-b67f47d-12825`) — **caught**: P1 `:118`.
+  - layer 1 correctness, **miss** ×2: `closeout` (`3662fcf`, F(2): the `:157` git-log claim and the seam doc's
+    `:177`), `closeout8` (`25e2395`, F(1): citations). A false technical claim in the reviewed text is
+    correctness-class and nothing in the persona's exclusions removes it.
+  - Not charged: `closeout4`, `closeout5`, `closeout6` correctness — increment-only runs (§ Reviewed text set)
+    whose deltas do not carry the sentence; the four `project-standards` passes of `closeout`, `closeout4`,
+    `closeout5`, `closeout6` (out of charge; `closeout8` ran correctness only).
 - **adjudication:** measured (tsc 5.9.2, both measurements recorded in the doc on `main`):
   `keyof ({kind:'a';a:number} | {kind:'b';b:number})` is `'kind'` alone.
 - **outcome:** `b7dc922` scoped the rule to the shape it was measured over (string-named interface members) and
@@ -312,7 +330,8 @@ running any new review round.
 - **settles (3):**
   - layer 2 `docs` (`PEER-4c61e8c-27119`, FINDINGS) — **miss**: its one finding is `:209`.
   - layer 2 `docs-r2` (`PEER-4e9a05f-28198`, CLEAN) — **miss**.
-  - layer 1 `docs-r1/correctness` — **caught**: P3 at `:128`.
+  - layer 1 `docs-r1/correctness` — **caught**: P3 `:128` "Doc says the plan's disproof sits three sections above
+    the guard; it is one".
   - Not charged: `docs-r1/correctness-r2` and `docs-r1/project-standards` (unpinned).
 - **adjudication:** a false structural claim is a correctness defect, and layer 2's contract states no severity
   floor.
@@ -329,12 +348,14 @@ running any new review round.
   when written at `526cbba` and went stale at `4c9d380`; the layer-1 finding's own "already stale at the commit
   that wrote them" is wrong on the *when* and right on the defect. Branch-created file (absent at F), so in
   `F..S` for each.
-- **settles (9):**
+- **settles (6):**
   - layer 2 `closeout-r10`–`r14` (`4c9d380`, `7529db3`, `9dada9e`, `c62d082`, `25e2395`; all CLEAN) — **miss** ×5.
-  - layer 1 correctness `closeout4` (`findings: []`), `closeout5`, `closeout6` — **miss** ×3.
-  - layer 1 `closeout8/correctness` — **caught**: P3 at `:184`; its suggested fix names all three citations.
+  - layer 1 `closeout8/correctness` — **caught**: P3 `:184` "Doc line citations into rowVisibility.ts off by one
+    at HEAD"; its suggested fix names all three citations.
   - Not charged: layer 2 `closeout`–`closeout-r9` and layer 1 `closeout/correctness` (text not yet defective at
-    their subjects); the closeout-series `project-standards` passes (out of charge).
+    their subjects); `closeout4`, `closeout5`, `closeout6` correctness — increment-only runs (§ Reviewed text
+    set): `4c9d380`'s delta carries the JSDoc trim that caused the drift but neither citation line, and neither
+    later delta carries them; the closeout-series `project-standards` passes (out of charge).
 - **adjudication:** verified at `25e2395`: the doc cites `rowVisibility.ts:99` while `custom.source ?? {}` sits
   at `:98`. Both documents argue from measured citations, so a stale citation is a false evidenced claim —
   correctness-class, no severity floor in the contract.
@@ -354,7 +375,7 @@ running any new review round.
 - **settles (2):**
   - layer 2 `r15` (`PEER-b7dc922-27718`, FINDINGS) — **miss**: its one P1 is `:355` (the "test name is a claim"
     contradiction); the union row it read went unflagged.
-  - layer 2 `r16` (`PEER-9d64559-13031`) — **caught**: P1 at `:131`, remedy `KeysOfUnion`.
+  - layer 2 `r16` (`PEER-9d64559-13031`) — **caught**: P1 `:131` (remedy `KeysOfUnion`).
   - No layer-1 pass is pinned at either subject.
 - **adjudication:** measured (tsc 5.9.2, both forms recorded in the doc on `main` at `:131`): the bare
   expression over the alias yields `'kind'`; `KeysOfUnion<U>` distributes. Correctness-class, inside layer 2's
@@ -370,8 +391,8 @@ running any new review round.
 - **present-at:** `e0cae52`, `02d229a` — measured: 4 matches at each, 0 at F = `198b2556` and 0 at `a00de48`.
   Branch-created text in a pre-existing file, so in `F..S` for both.
 - **settles (1):**
-  - layer 1 `20260831-213901/project-standards` — **caught**: P1 at `:10`, citing the AGENTS.md rule (its
-    persona audits the diff against the project's written standards).
+  - layer 1 `20260831-213901/project-standards` — **caught**: P1 `:10` "New test-doc comment cites issue numbers
+    #469/#470", citing the AGENTS.md rule (its persona audits the diff against the project's written standards).
   - Not charged, by contract: layer 2 `review` and `review-r2` — "Ignore style and naming" (the case the
     round-1 volatile-refs argument turned on, now settled by the charge rule rather than argued per case);
     layer 1 `correctness`, `adversarial`, `testing`, `performance` (their exclusion lists route style and
