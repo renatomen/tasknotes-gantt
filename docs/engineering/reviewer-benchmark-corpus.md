@@ -99,9 +99,10 @@ findings are all adjudicated** — a pass with any open finding contributes noth
 refuted finding out of ten would read as 100% and one confirmed finding as 0%. Alongside the rate, report
 coverage: adjudicated findings ÷ reported findings across the passes in scope. Current state, from § Finding
 inventory: 4 passes are completely adjudicated (`docs-r1/correctness`, `closeout8/correctness`,
-`20260831-213901/project-standards`, layer 2 `r16` — each reported one finding, each settled caught), 4
-findings, 0 refuted — a 0/4 subset, too small to read as a rate. Coverage: 7 of the 65 reported findings are
-adjudicated (layer 2: 2 of 25; layer 1: 5 of 40); the other 58 are open.
+`20260831-213901/project-standards`, layer 2 `r16` — each reported one finding; `closeout8`'s splits into
+two claims, one caught and one refuted), 5 claims, 1 refuted — a 1/5 subset, too small to read as a rate.
+Coverage: 8 of 66 claims are adjudicated (layer 2: 2 of 25; layer 1: 6 of 41, the extra claim being
+`closeout8`'s split); the other 58 are open.
 
 ### Contract of record
 
@@ -298,8 +299,9 @@ the range now comes from the run's own artifact rather than from an invocation c
 passes count as passes (the artifacts prove they happened) but contribute no adjudication and never advance
 the trigger; some may yet be upgraded by finding-text matching while the raw artifacts survive.
 
-**Adjudicated so far: 27 of the 45 adjudicable opportunities**, over 32 settled pairs. Per entry: -01 settles
-5 passes; -02 settles 15; -03 settles 3; -04 settles 6; -05 settles 2; -06 settles 1 — 21 distinct layer-2
+**Adjudicated so far: 27 of the 45 adjudicable opportunities**, over 33 settled pairs (32 (pass, defect) pairs
+and 1 (pass, claim) false alarm). Per entry: -01 settles 5 passes; -02 settles 15; -03 settles 3; -04 settles 6
+plus the false alarm; -05 settles 2; -06 settles 1 — 21 distinct layer-2
 passes and 6 distinct layer-1 passes. Still open among the adjudicable: layer 2 `review-r3`–`r9` (no known
 defect exposed), `docs-r3`, `r17`; layer 1 `20260831-213901/maintainability` and `/performance`, both
 `closeout` passes (its correctness pass read the keyof sentence's document but no artifact attests the
@@ -406,7 +408,7 @@ states it):
   describes"; P2 seam `:164` "Move dropped the section's only transferable instruction" — open
 - `closeout7/correctness` (1): P2 seam `:166` "Restored instruction's \"the two\" now resolves to the wrong
   pair" — open (unpinned run)
-- `closeout8/correctness` (1): P3 seam `:184` "Doc line citations into rowVisibility.ts off by one at HEAD" → -04
+- `closeout8/correctness` (1): P3 seam `:184` "Doc line citations into rowVisibility.ts off by one at HEAD" — two claims: `#1` → -04 caught; `#2` ("already stale at the commit that wrote them") false alarm, refuted in -04
 - `docs-r1/correctness` (1): P3 assert `:128` "Doc says the plan's disproof sits three sections above the guard;
   it is one" → -03
 
@@ -559,10 +561,12 @@ running any new review round.
   when written at `526cbba` and went stale at `4c9d380`; the layer-1 finding's own "already stale at the commit
   that wrote them" is wrong on the *when* and right on the defect. Branch-created file (absent at F), so in
   `F..S` for each.
-- **settles (6):**
+- **settles (6 defect pairs + 1 false alarm):**
   - layer 2 `closeout-r10`–`r14` (`4c9d380`, `7529db3`, `9dada9e`, `c62d082`, `25e2395`; all CLEAN) — **miss** ×5.
-  - layer 1 `closeout8/correctness` — **caught**: P3 `:184` "Doc line citations into rowVisibility.ts off by one
-    at HEAD"; its suggested fix names all three citations. Charge clause (persona): "You catch bugs that pass
+  - layer 1 `closeout8/correctness` — P3 `:184` "Doc line citations into rowVisibility.ts off by one at HEAD",
+    two claims: `#1` the citations are off by one at HEAD — **caught** (its suggested fix names all three);
+    `#2` "they were already stale at the commit that wrote them" — **false alarm**, refuted by the measurement
+    above (exact at `526cbba`, stale from `4c9d380`). Charge clause (persona): "You catch bugs that pass
     tests because nobody thought to test that input"; a false evidenced claim in reviewed text is inside it.
   - Not charged: layer 2 `closeout`–`closeout-r9` and layer 1 `closeout/correctness` (text not yet defective at
     their subjects); `closeout4`, `closeout5`, `closeout6` correctness — increment-only runs (§ Reviewed text
