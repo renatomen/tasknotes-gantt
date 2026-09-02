@@ -109,7 +109,7 @@ describe('parsePushedRefLines', () => {
     expect(parsePushedRefLines(stdin)).toEqual({
       shas: [],
       invalid: [],
-      archival: [{ ref: 'refs/e11-subjects/e0cae52', sha: SHA }],
+      archival: [{ ref: 'refs/e11-subjects/e0cae52', sha: SHA, remoteSha: DELETED }],
     });
   });
 
@@ -119,7 +119,7 @@ describe('parsePushedRefLines', () => {
     expect(parsePushedRefLines(stdin)).toEqual({
       shas: [],
       invalid: [],
-      archival: [{ ref: 'refs/e11-subjects/e0cae52', sha: DELETED }],
+      archival: [{ ref: 'refs/e11-subjects/e0cae52', sha: DELETED, remoteSha: SHA }],
     });
   });
 
@@ -131,7 +131,7 @@ describe('parsePushedRefLines', () => {
     expect(parsePushedRefLines(stdin)).toEqual({
       shas: [SHA],
       invalid: [],
-      archival: [{ ref: 'refs/e11-subjects/e0cae52', sha: SHA }],
+      archival: [{ ref: 'refs/e11-subjects/e0cae52', sha: SHA, remoteSha: DELETED }],
     });
   });
 
@@ -179,6 +179,7 @@ describe('validateArchivalSubjects', () => {
   const COMMIT = 'e0cae5257' + 'f'.repeat(31);
   const BLOB = 'e0cae52ab' + 'e'.repeat(31);
   const subjectRef = (suffix: string) => `${ARCHIVAL_SUBJECT_REF_PREFIX}${suffix}`;
+  const creation = (suffix: string, sha: string) => ({ ref: subjectRef(suffix), sha, remoteSha: DELETED });
   // `peel` resolves like `git rev-parse --verify <sha>^{commit}` over full shas;
   // `objectsWithPrefix` lists every object whose name starts with the prefix,
   // like `git rev-parse --disambiguate=<prefix>` - object names only, never refs.
@@ -193,11 +194,11 @@ describe('validateArchivalSubjects', () => {
   const twoCommits = resolvers([COMMIT, OTHER_SHA]);
 
   it('accepts an archival ref whose suffix abbreviates exactly the commit that was pushed', () => {
-    expect(validateArchivalSubjects([{ ref: subjectRef('e0cae52'), sha: COMMIT }], twoCommits)).toEqual([]);
+    expect(validateArchivalSubjects([creation('e0cae52', COMMIT)], twoCommits)).toEqual([]);
   });
 
   it('refuses an archival ref whose suffix names a different commit than the one pushed', () => {
-    const problems = validateArchivalSubjects([{ ref: subjectRef('e0cae52'), sha: OTHER_SHA }], twoCommits);
+    const problems = validateArchivalSubjects([creation('e0cae52', OTHER_SHA)], twoCommits);
 
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('e0cae52');
@@ -207,34 +208,47 @@ describe('validateArchivalSubjects', () => {
   it('refuses a suffix that abbreviates more than one object, even when the pushed commit is among them', () => {
     // A blob sharing the prefix: a prefix test would pass the commit, and the
     // pin would then name two objects.
-    const problems = validateArchivalSubjects([{ ref: subjectRef('e0cae52'), sha: COMMIT }], resolvers([COMMIT, BLOB]));
+    const problems = validateArchivalSubjects([creation('e0cae52', COMMIT)], resolvers([COMMIT, BLOB]));
 
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('2 objects');
   });
 
   it('refuses a suffix that abbreviates no object here', () => {
-    const problems = validateArchivalSubjects([{ ref: subjectRef('e0cae52'), sha: OTHER_SHA }], resolvers([OTHER_SHA]));
+    const problems = validateArchivalSubjects([creation('e0cae52', OTHER_SHA)], resolvers([OTHER_SHA]));
 
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('0 objects');
   });
 
   it('refuses an archival object that does not peel to a commit', () => {
-    const problems = validateArchivalSubjects([{ ref: subjectRef('e0cae52'), sha: BLOB }], resolvers([COMMIT, BLOB]));
+    const problems = validateArchivalSubjects([creation('e0cae52', BLOB)], resolvers([COMMIT, BLOB]));
 
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('not a commit');
   });
 
   it('refuses a suffix too short to name a commit', () => {
-    expect(validateArchivalSubjects([{ ref: subjectRef('e0c'), sha: COMMIT }], twoCommits)).toHaveLength(1);
+    expect(validateArchivalSubjects([creation('e0c', COMMIT)], twoCommits)).toHaveLength(1);
   });
 
   it('refuses a deletion of an archival ref', () => {
-    const problems = validateArchivalSubjects([{ ref: subjectRef('e0cae52'), sha: DELETED }], twoCommits);
+    const deletion = { ref: subjectRef('e0cae52'), sha: DELETED, remoteSha: COMMIT };
+
+    const problems = validateArchivalSubjects([deletion], twoCommits);
 
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('delet');
+  });
+
+  it('refuses replacing an existing archival ref, even with an honestly named commit', () => {
+    // A pin is write-once: a replacement whose new commit shares the prefix would
+    // pass every name check and still orphan the subject the corpus recorded.
+    const replacement = { ref: subjectRef('e0cae52'), sha: COMMIT, remoteSha: OTHER_SHA };
+
+    const problems = validateArchivalSubjects([replacement], twoCommits);
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('write-once');
   });
 });

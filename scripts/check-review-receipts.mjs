@@ -14,8 +14,9 @@
  * <remote-ref> <remote-sha>") and demands receipts for every distinct pushed
  * local sha (deletions skipped, tag objects peeled to their commit); the
  * archival review-subject namespace is exempt once each of its refs proves to
- * name the commit it carries, and is never deleted through this hook (see
- * ARCHIVAL_SUBJECT_REF_PREFIX); any malformed line fails the push. Run manually without piped input it falls
+ * name the commit it carries, and its refs are write-once - never replaced or
+ * deleted through this hook (see ARCHIVAL_SUBJECT_REF_PREFIX); any malformed
+ * line fails the push. Run manually without piped input it falls
  * back to HEAD. Receipts live in .git/ (per-clone, never committed), keyed by
  * commit sha: {"receipts": {"<sha>": {"<layer>": "<iso timestamp>"}}}.
  *
@@ -92,8 +93,9 @@ function readReceipts() {
  * construction they carry no receipts of their own; nothing under this prefix
  * is a branch or a tag, and nothing deploys from it. Every other namespace
  * stays gated exactly as before. A ref here is a pin the corpus's recorded
- * ranges rebuild from, so its deletion is refused rather than waved through as
- * an ordinary branch deletion would be.
+ * ranges rebuild from, so it is write-once: a replacement (even by an honestly
+ * named commit) or a deletion is refused rather than waved through as an
+ * ordinary branch update or deletion would be.
  */
 export const ARCHIVAL_SUBJECT_REF_PREFIX = 'refs/e11-subjects/';
 const SUBJECT_SUFFIX_PATTERN = /^[0-9a-f]{7,64}$/;
@@ -118,7 +120,7 @@ export function parsePushedRefLines(stdinText) {
       invalid.push(trimmed);
       continue;
     }
-    if (tokens[2].startsWith(ARCHIVAL_SUBJECT_REF_PREFIX)) archival.push({ ref: tokens[2], sha: localSha });
+    if (tokens[2].startsWith(ARCHIVAL_SUBJECT_REF_PREFIX)) archival.push({ ref: tokens[2], sha: localSha, remoteSha: tokens[3] });
     else if (!isDeletion(localSha)) shas.add(localSha);
   }
   return { shas: [...shas], invalid, archival };
@@ -154,26 +156,28 @@ function objectsWithPrefix(prefix) {
 const GIT_RESOLVERS = { peel: peelToCommit, objectsWithPrefix };
 
 /**
- * The exemption is granted to a NAME, so the name has to be honest: the pushed
- * object must be a commit, and the ref's suffix must abbreviate exactly one
- * object here, that same commit. A prefix test alone would pass a prefix-twin;
- * revision resolution would let a branch spelled like an abbreviation vouch; a
- * blob or an unrelated commit parked under a subject's name would make the
- * corpus's recorded ranges rebuild against the wrong tree; and a deletion would
- * remove the pin outright. One problem string per dishonest ref; empty means
- * clean.
+ * The exemption is granted to a NAME, so the name has to be honest and the pin
+ * has to stay put. Honest: the pushed object must be a commit, and the ref's
+ * suffix must abbreviate exactly one object here, that same commit - a prefix
+ * test alone would pass a prefix-twin, revision resolution would let a branch
+ * spelled like an abbreviation vouch, and a blob or an unrelated commit parked
+ * under a subject's name would make the corpus's recorded ranges rebuild
+ * against the wrong tree. Stays put: a pin is write-once, so the push must
+ * CREATE the ref - a replacement or a deletion would orphan the subject the
+ * corpus recorded. One problem string per offending ref; empty means clean.
  */
 export function validateArchivalSubjects(archival, resolvers = GIT_RESOLVERS) {
   const problems = [];
-  for (const { ref, sha } of archival) {
-    const problem = archivalSubjectProblem(ref, sha, resolvers);
-    if (problem !== null) problems.push(`${ref}: ${problem}`);
+  for (const entry of archival) {
+    const problem = archivalSubjectProblem(entry, resolvers);
+    if (problem !== null) problems.push(`${entry.ref}: ${problem}`);
   }
   return problems;
 }
 
-function archivalSubjectProblem(ref, sha, resolvers) {
+function archivalSubjectProblem({ ref, sha, remoteSha }, resolvers) {
   if (isDeletion(sha)) return 'deleting an archival subject is refused; the corpus rebuilds its ranges from it';
+  if (!isDeletion(remoteSha)) return `archival subjects are write-once; this ref already exists on the remote (at ${remoteSha.slice(0, 7)})`;
   const suffix = ref.slice(ARCHIVAL_SUBJECT_REF_PREFIX.length);
   const commit = peelOrNull(sha, resolvers.peel);
   if (commit === null) return `pushed object ${sha.slice(0, 7)} is not a commit`;
@@ -284,7 +288,7 @@ function refuseInvalidRefLines(invalid) {
 }
 
 function refuseArchivalSubjects(problems) {
-  console.error('pre-push: archival subject ref(s) do not name the commit they carry - refusing:');
+  console.error('pre-push: archival subject ref(s) refused - a pin is created once, under the name of its own commit:');
   for (const problem of problems) console.error(`  ${problem}`);
   process.exit(1);
 }

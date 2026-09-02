@@ -347,6 +347,14 @@ describe('check-review-receipts check', () => {
       }
     });
 
+    it('refuses updating a subject ref that already exists on the remote: pins are write-once', () => {
+      const run = runCheck(refLine(codeCommit, docsCommit, subjectRef(codeCommit)));
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('archival');
+      expect(run.stderr).toContain('write-once');
+    });
+
     it('refuses deleting a subject ref: the corpus rebuilds its ranges from it', () => {
       const run = runCheck(refLine(ZERO, codeCommit, subjectRef(codeCommit)));
 
