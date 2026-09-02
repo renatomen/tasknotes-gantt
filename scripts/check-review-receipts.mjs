@@ -131,11 +131,16 @@ function peelToCommit(sha) {
   return git(['rev-parse', '--verify', `${sha}^{commit}`]).trim();
 }
 
-function peelOrNull(sha, peel) {
+/**
+ * The pushed object's own type (`git cat-file -t`), or "missing". Not a peel: a
+ * tag object that points at the subject commit is still a tag, and a ref that
+ * stores it resolves to an object other than the commit it names.
+ */
+function objectType(sha) {
   try {
-    return peel(sha);
+    return git(['cat-file', '-t', sha]).trim();
   } catch {
-    return null;
+    return 'missing';
   }
 }
 
@@ -143,7 +148,8 @@ function peelOrNull(sha, peel) {
  * Every object whose name starts with the prefix - object names only. Revision
  * syntax (`git rev-parse <name>`) would also follow a branch or tag that
  * happens to be spelled like an abbreviation, and a pin must never be vouched
- * for by a ref.
+ * for by a ref. Git also matches a prefix LONGER than an object name, so the
+ * caller checks the abbreviation itself and uses this only for uniqueness.
  */
 function objectsWithPrefix(prefix) {
   try {
@@ -153,18 +159,18 @@ function objectsWithPrefix(prefix) {
   }
 }
 
-const GIT_RESOLVERS = { peel: peelToCommit, objectsWithPrefix };
+const GIT_RESOLVERS = { objectType, objectsWithPrefix };
 
 /**
- * The exemption is granted to a NAME, so the name has to be honest and the pin
- * has to stay put. Honest: the pushed object must be a commit, and the ref's
- * suffix must abbreviate exactly one object here, that same commit - a prefix
- * test alone would pass a prefix-twin, revision resolution would let a branch
- * spelled like an abbreviation vouch, and a blob or an unrelated commit parked
- * under a subject's name would make the corpus's recorded ranges rebuild
- * against the wrong tree. Stays put: a pin is write-once, so the push must
- * CREATE the ref - a replacement or a deletion would orphan the subject the
- * corpus recorded. One problem string per offending ref; empty means clean.
+ * A pin is a write-once ref created under the name of its own commit. Each
+ * clause is checked as stated, not through a proxy: the pushed object IS a
+ * commit (its own type - a peel would admit a tag pointing at one); the suffix
+ * IS an abbreviation of that commit (a prefix of its sha, so no longer than it
+ * - git resolves an overlong one, and a bare uniqueness test would let a
+ * prefix-twin or a decoy branch vouch); the abbreviation names exactly one
+ * object here; and the push CREATES the ref (a replacement or a deletion would
+ * orphan the subject the corpus recorded). One problem string per offending
+ * ref; empty means clean.
  */
 export function validateArchivalSubjects(archival, resolvers = GIT_RESOLVERS) {
   const problems = [];
@@ -178,14 +184,22 @@ export function validateArchivalSubjects(archival, resolvers = GIT_RESOLVERS) {
 function archivalSubjectProblem({ ref, sha, remoteSha }, resolvers) {
   if (isDeletion(sha)) return 'deleting an archival subject is refused; the corpus rebuilds its ranges from it';
   if (!isDeletion(remoteSha)) return `archival subjects are write-once; this ref already exists on the remote (at ${remoteSha.slice(0, 7)})`;
+  const type = typeOrMissing(sha, resolvers);
+  if (type !== 'commit') return `pushed object ${sha.slice(0, 7)} is a ${type}, not a commit`;
   const suffix = ref.slice(ARCHIVAL_SUBJECT_REF_PREFIX.length);
-  const commit = peelOrNull(sha, resolvers.peel);
-  if (commit === null) return `pushed object ${sha.slice(0, 7)} is not a commit`;
   if (!SUBJECT_SUFFIX_PATTERN.test(suffix)) return `"${suffix}" is too short to name a commit`;
+  if (!sha.startsWith(suffix)) return `names ${suffix}, which is not an abbreviation of the pushed commit ${sha.slice(0, 7)}`;
   const named = resolvers.objectsWithPrefix(suffix);
   if (named.length !== 1) return `names ${suffix}, which abbreviates ${named.length} objects here, not one`;
-  if (named[0] !== commit) return `names ${suffix}, which is object ${named[0].slice(0, 7)}, but the pushed object is commit ${commit.slice(0, 7)}`;
   return null;
+}
+
+function typeOrMissing(sha, resolvers) {
+  try {
+    return resolvers.objectType(sha);
+  } catch {
+    return 'missing';
+  }
 }
 
 export function evaluateReceipts(store, shas, requiredLayers = REQUIRED_LAYERS) {

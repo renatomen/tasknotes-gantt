@@ -317,6 +317,26 @@ describe('check-review-receipts check', () => {
       expect(run.stderr).toContain(short(codeCommit));
     });
 
+    it('refuses an annotated tag object even when it points at the subject commit', () => {
+      git(['tag', '-a', '-m', 'subject-tag', 'subject-commit-tag', codeCommit]);
+      const tagObject = git(['rev-parse', 'refs/tags/subject-commit-tag']);
+      try {
+        const run = runCheck(refLine(tagObject, ZERO, subjectRef(codeCommit)));
+
+        expect(run.status).toBe(1);
+        expect(run.stderr).toContain('not a commit');
+      } finally {
+        git(['tag', '-d', 'subject-commit-tag']);
+      }
+    });
+
+    it('refuses a suffix longer than the pushed sha', () => {
+      const run = runCheck(refLine(codeCommit, ZERO, `refs/e11-subjects/${codeCommit}${'0'.repeat(24)}`));
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('not an abbreviation');
+    });
+
     it('refuses a subject ref whose object is not a commit', () => {
       const blob = git(['rev-parse', `${docsCommit}:docs/note.md`]);
       git(['tag', '-a', '-m', 'subject-blob', 'subject-blob-tag', blob]);
