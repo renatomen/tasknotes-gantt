@@ -75,8 +75,9 @@ metadata. None of them is a scoring unit. Under a per-verdict rule ("a clean ver
 contradicts") a reviewer that emits any finding can never be charged a miss, which rewards crying wolf — entry
 2026-09-02-05 is the concrete case that rule got wrong, and the reason this section replaced it.
 
-**Adjudication.** An entry records one defect (or one false alarm): its text, the subjects at which the text
-is present, and every pair it settles with the source evidence. An entry may settle fewer pairs than the defect
+**Adjudication.** An entry records one defect (or one false alarm) — or, where several defects share every
+other field, more than one, each lettered per **Identity** and each carrying its own pairs — with its text,
+the subjects at which the text is present, and every pair it settles with the source evidence. An entry may settle fewer pairs than the defect
 exposes — where a pass's charge over that class is not established, say so and leave the pair open — and the
 unsettled pairs remain open opportunities. Never admit a pair that is not settled against the source.
 
@@ -169,7 +170,9 @@ one adds it. A pair settled under a contract whose text later changes stays sett
 | `outcome` | what changed as a result |
 
 The two 2026-08-30 entries predate the preserved window and these fields; their `pass-a`/`pass-b` lines are
-kept as written.
+kept as written. Their pairs were settled under the per-verdict rule of the day and their artifacts are gone,
+so the exposure § Scoring model requires can never be established for them: they are **legacy** — kept as
+history, excluded from every count in this file, and never promoted into the labelled set.
 
 ## Evaluation opportunities (denominator)
 
@@ -429,7 +432,7 @@ running any new review round.
 - **subject:** `0198d18`, `docs/plans/2026-08-29-001-…-plan.md` U2 test scenarios and U3 unit
 - **pass-a:** round 7 — `VERDICT: CLEAN`
 - **pass-b:** round 8 — two P1s in that same text, unchanged between the passes
-- **ground-truth:** two `defect`s reported separately, kept in one entry because they share every other field — `2026-08-30-01a`: U2's field list omits a load-bearing field; `2026-08-30-01b`: U3 carries only a prose promise of the characterization U1 owed. Each settles round 7 as `miss` and round 8 as `caught`: four pairs, two per defect, so a later candidate that catches only `-01a` is charged a miss on `-01b`.
+- **ground-truth:** two `defect`s reported separately, kept in one entry because they share every other field — `2026-08-30-01a`: U2's field list omits a load-bearing field; `2026-08-30-01b`: U3 carries only a prose promise of the characterization U1 owed. Each was settled round 7 as `miss` and round 8 as `caught` under the per-verdict rule of 2026-08-30 — four legacy pairs, two per defect. Exposure was never proven and the artifacts are gone, so these pairs are excluded from every count and from the labelled set (§ Fields).
 - **adjudication:** pass-b correct, verified in source. `src/bases/cellRender.ts:150` builds each synthetic
   entry's `frontmatter` from the file-meta port, so U2's two-field list (`basename`, `extension`) omitted a
   load-bearing field; U3 carried only a prose promise of the characterization U1 stated it owed.
@@ -443,7 +446,7 @@ running any new review round.
 - **pass-a:** round 5 — P1: U1's Jest tests "call only the pure projection", so a same-typed swap of two flags
   and two colours escapes them
 - **pass-b:** adjudication against source
-- **ground-truth:** `false-alarm` (on its stated premise) — settles round 5 as `false-alarm`
+- **ground-truth:** `false-alarm` (on its stated premise) — settled round 5 as `false-alarm` under the rule of 2026-08-30; a legacy pair, excluded from every count (§ Fields)
 - **adjudication:** premise refuted. U1's Approach step 2 moves `hasRecordedRecurringOccurrences`,
   `hasNonAuthoredEdgeInstance` and both `isSafeColor` scans **inside** the extracted module, so all four are
   produced by the projection and covered by its own tests. Recorded honestly: a *different* defect existed
