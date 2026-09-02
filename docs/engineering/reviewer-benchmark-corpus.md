@@ -99,10 +99,14 @@ adjudicated either way, and it counts as one claim until adjudication splits it.
 **Counts.** An opportunity is **adjudicated** when at least one of its pairs is settled. The trigger in
 § Labelled defect set counts only opportunities adjudicated through at least one **(pass, defect)** pair — a
 pass settled solely by false alarms is adjudicated for the false-alarm rate but contributes nothing to a set of
-known defects, so it does not advance the trigger. Once the labelled set exists, catch rate = caught ÷ charged
-(pass, defect) pairs, and false-alarm rate = refuted claims ÷ adjudicated claims (caught claims deduplicated by defect,
-true-uncharged claims excluded from both terms), **over passes whose reported findings are all adjudicated** — a pass with any open finding contributes nothing to the rate, because adjudicating one
-refuted finding out of ten would read as 100% and one confirmed finding as 0%. Alongside the rate, report
+known defects, so it does not advance the trigger. Once the labelled set exists, the two rates have different scopes.
+**Catch rate = caught ÷ every settled charged (pass, defect) pair**, with no completeness filter: a settled miss
+counts whatever else the pass reported, or the model would again let a reviewer escape a miss by emitting any
+finding — `r15`'s miss on entry -05 counts although its own finding is open. **False-alarm rate = refuted
+claims ÷ adjudicated claims** (caught claims deduplicated by defect, true-uncharged claims excluded from both
+terms), **over passes whose reported findings are all adjudicated** — a pass with any open finding contributes
+nothing to this rate, because adjudicating one refuted finding out of ten would read as 100% and one confirmed
+finding as 0%. Alongside the rate, report
 coverage in claims: adjudicated claims ÷ reported claims across the passes in scope, a finding being one
 claim until adjudication splits it. Current state, from § Finding
 inventory: 4 passes are completely adjudicated (`docs-r1/correctness`, `closeout8/correctness`,
