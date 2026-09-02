@@ -113,10 +113,14 @@ describe('parsePushedRefLines', () => {
     });
   });
 
-  it('reports nothing for a deletion of an archival ref', () => {
+  it('reports a deletion of an archival ref, so the check can refuse it', () => {
     const stdin = `refs/e11-subjects/e0cae52 ${DELETED} refs/e11-subjects/e0cae52 ${SHA}\n`;
 
-    expect(parsePushedRefLines(stdin)).toEqual({ shas: [], invalid: [], archival: [] });
+    expect(parsePushedRefLines(stdin)).toEqual({
+      shas: [],
+      invalid: [],
+      archival: [{ ref: 'refs/e11-subjects/e0cae52', sha: DELETED }],
+    });
   });
 
   it('still gates the same sha when it is also pushed to a branch alongside an archival ref', () => {
@@ -173,39 +177,58 @@ describe('parsePushedRefLines', () => {
 
 describe('validateArchivalSubjects', () => {
   const COMMIT = 'e0cae5257' + 'f'.repeat(31);
-  const peelTo = (commit: string) => () => commit;
-  const notACommit = () => {
-    throw new Error('fatal: not a commit');
+  const subjectRef = (suffix: string) => `${ARCHIVAL_SUBJECT_REF_PREFIX}${suffix}`;
+  // Resolves like `git rev-parse --verify <name>^{commit}`: full shas and their
+  // unique abbreviations resolve, anything else (blob, ambiguous, unknown) throws.
+  const peel = (name: string): string => {
+    const resolved = [COMMIT, OTHER_SHA].filter((commit) => commit.startsWith(name));
+    if (resolved.length !== 1) throw new Error(`fatal: ${name} does not resolve to one commit`);
+    return resolved[0]!;
   };
 
-  it('accepts an archival ref whose suffix is a prefix of the commit the object peels to', () => {
-    const archival = [{ ref: `${ARCHIVAL_SUBJECT_REF_PREFIX}e0cae52`, sha: COMMIT }];
-
-    expect(validateArchivalSubjects(archival, peelTo(COMMIT))).toEqual([]);
+  it('accepts an archival ref whose suffix resolves to the commit that was pushed', () => {
+    expect(validateArchivalSubjects([{ ref: subjectRef('e0cae52'), sha: COMMIT }], peel)).toEqual([]);
   });
 
   it('refuses an archival ref whose suffix names a different commit than the one pushed', () => {
-    const archival = [{ ref: `${ARCHIVAL_SUBJECT_REF_PREFIX}e0cae52`, sha: OTHER_SHA }];
-
-    const problems = validateArchivalSubjects(archival, peelTo(OTHER_SHA));
+    const problems = validateArchivalSubjects([{ ref: subjectRef('e0cae52'), sha: OTHER_SHA }], peel);
 
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('e0cae52');
     expect(problems[0]).toContain(OTHER_SHA.slice(0, 7));
   });
 
-  it('refuses an archival object that does not peel to a commit', () => {
-    const archival = [{ ref: `${ARCHIVAL_SUBJECT_REF_PREFIX}e0cae52`, sha: SHA }];
+  it('refuses a suffix that does not resolve to exactly one commit, even when it prefixes the pushed one', () => {
+    // Two local commits sharing the prefix: startsWith would pass both, so the
+    // pushed subject could be silently swapped for its prefix-twin.
+    const ambiguous = 'e0cae5257' + 'f'.repeat(30) + '0';
+    const peelAmbiguous = (name: string): string => {
+      if (name === COMMIT) return COMMIT;
+      if (name === ambiguous) return ambiguous;
+      throw new Error('fatal: short object ID is ambiguous');
+    };
 
-    const problems = validateArchivalSubjects(archival, notACommit);
+    const problems = validateArchivalSubjects([{ ref: subjectRef('e0cae52'), sha: COMMIT }], peelAmbiguous);
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('does not resolve');
+  });
+
+  it('refuses an archival object that does not peel to a commit', () => {
+    const problems = validateArchivalSubjects([{ ref: subjectRef('e0cae52'), sha: SHA }], peel);
 
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('not a commit');
   });
 
   it('refuses a suffix too short to name a commit', () => {
-    const archival = [{ ref: `${ARCHIVAL_SUBJECT_REF_PREFIX}e0c`, sha: COMMIT }];
+    expect(validateArchivalSubjects([{ ref: subjectRef('e0c'), sha: COMMIT }], peel)).toHaveLength(1);
+  });
 
-    expect(validateArchivalSubjects(archival, peelTo(COMMIT))).toHaveLength(1);
+  it('refuses a deletion of an archival ref', () => {
+    const problems = validateArchivalSubjects([{ ref: subjectRef('e0cae52'), sha: DELETED }], peel);
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('delet');
   });
 });

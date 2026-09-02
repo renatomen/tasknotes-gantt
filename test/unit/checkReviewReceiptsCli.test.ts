@@ -331,6 +331,14 @@ describe('check-review-receipts check', () => {
       }
     });
 
+    it('refuses deleting a subject ref: the corpus rebuilds its ranges from it', () => {
+      const run = runCheck(refLine(ZERO, codeCommit, subjectRef(codeCommit)));
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('archival');
+      expect(run.stderr).toContain('delet');
+    });
+
     it('still gates a branch pushed alongside a subject ref', () => {
       const run = runCheck(refLine(codeCommit, ZERO, subjectRef(codeCommit)) + refLine(docsCommit, baseCommit, 'refs/heads/a'));
 

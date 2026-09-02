@@ -14,8 +14,8 @@
  * <remote-ref> <remote-sha>") and demands receipts for every distinct pushed
  * local sha (deletions skipped, tag objects peeled to their commit); the
  * archival review-subject namespace is exempt once each of its refs proves to
- * name the commit it carries (see ARCHIVAL_SUBJECT_REF_PREFIX); any malformed
- * line fails the push. Run manually without piped input it falls
+ * name the commit it carries, and is never deleted through this hook (see
+ * ARCHIVAL_SUBJECT_REF_PREFIX); any malformed line fails the push. Run manually without piped input it falls
  * back to HEAD. Receipts live in .git/ (per-clone, never committed), keyed by
  * commit sha: {"receipts": {"<sha>": {"<layer>": "<iso timestamp>"}}}.
  *
@@ -91,7 +91,9 @@ function readReceipts() {
  * read. They are intermediate states that were later squash-merged, so by
  * construction they carry no receipts of their own; nothing under this prefix
  * is a branch or a tag, and nothing deploys from it. Every other namespace
- * stays gated exactly as before.
+ * stays gated exactly as before. A ref here is a pin the corpus's recorded
+ * ranges rebuild from, so its deletion is refused rather than waved through as
+ * an ordinary branch deletion would be.
  */
 export const ARCHIVAL_SUBJECT_REF_PREFIX = 'refs/e11-subjects/';
 const SUBJECT_SUFFIX_PATTERN = /^[0-9a-f]{7,64}$/;
@@ -116,9 +118,8 @@ export function parsePushedRefLines(stdinText) {
       invalid.push(trimmed);
       continue;
     }
-    if (isDeletion(localSha)) continue;
     if (tokens[2].startsWith(ARCHIVAL_SUBJECT_REF_PREFIX)) archival.push({ ref: tokens[2], sha: localSha });
-    else shas.add(localSha);
+    else if (!isDeletion(localSha)) shas.add(localSha);
   }
   return { shas: [...shas], invalid, archival };
 }
@@ -138,21 +139,32 @@ function peelOrNull(sha, peel) {
 
 /**
  * The exemption is granted to a NAME, so the name has to be honest: the pushed
- * object must be a commit and the ref's suffix must abbreviate that commit's
- * sha. Otherwise a blob, or an unrelated commit, could be parked under a
- * subject's name and the corpus's recorded ranges would rebuild against the
- * wrong tree. Returns one problem string per dishonest ref; empty means clean.
+ * object must be a commit, and the ref's suffix must resolve - as git resolves
+ * an abbreviation, to exactly one commit - to that same commit. A prefix test
+ * would pass a prefix-twin; a blob or an unrelated commit parked under a
+ * subject's name would make the corpus's recorded ranges rebuild against the
+ * wrong tree; and a deletion would remove the pin outright. One problem string
+ * per dishonest ref; empty means clean.
  */
 export function validateArchivalSubjects(archival, peel = peelToCommit) {
   const problems = [];
   for (const { ref, sha } of archival) {
-    const suffix = ref.slice(ARCHIVAL_SUBJECT_REF_PREFIX.length);
-    const commit = peelOrNull(sha, peel);
-    if (commit === null) problems.push(`${ref}: pushed object ${sha.slice(0, 7)} is not a commit`);
-    else if (!SUBJECT_SUFFIX_PATTERN.test(suffix)) problems.push(`${ref}: "${suffix}" is too short to name a commit`);
-    else if (!commit.startsWith(suffix)) problems.push(`${ref}: names ${suffix} but the pushed object is commit ${commit.slice(0, 7)}`);
+    const problem = archivalSubjectProblem(ref, sha, peel);
+    if (problem !== null) problems.push(`${ref}: ${problem}`);
   }
   return problems;
+}
+
+function archivalSubjectProblem(ref, sha, peel) {
+  if (isDeletion(sha)) return 'deleting an archival subject is refused; the corpus rebuilds its ranges from it';
+  const suffix = ref.slice(ARCHIVAL_SUBJECT_REF_PREFIX.length);
+  const commit = peelOrNull(sha, peel);
+  if (commit === null) return `pushed object ${sha.slice(0, 7)} is not a commit`;
+  if (!SUBJECT_SUFFIX_PATTERN.test(suffix)) return `"${suffix}" is too short to name a commit`;
+  const named = peelOrNull(suffix, peel);
+  if (named === null) return `names ${suffix}, which does not resolve to exactly one commit here, while the pushed object is commit ${commit.slice(0, 7)}`;
+  if (named !== commit) return `names ${suffix}, which is commit ${named.slice(0, 7)}, but the pushed object is commit ${commit.slice(0, 7)}`;
+  return null;
 }
 
 export function evaluateReceipts(store, shas, requiredLayers = REQUIRED_LAYERS) {
