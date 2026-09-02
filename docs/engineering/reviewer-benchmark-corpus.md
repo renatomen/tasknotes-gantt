@@ -133,7 +133,7 @@ for the closeout series through r17 (#475, eleven branch commits)):
 | `20260901-r4` | adversarial F(2), correctness C, project-standards F(1) | unpinned |
 | `20260901-r5` | adversarial F(2), project-standards F(1) | unpinned |
 | `20260901-r6` | correctness C, project-standards C | unpinned |
-| `docs-r1` | correctness F(1), correctness-r2 C, project-standards C | correctness only: `4e9a05f` (B: its finding quotes text present at `4e9a05f:128`, gone at `7d478b0`); other two passes unpinned |
+| `docs-r1` | correctness F(1), correctness-r2 C, project-standards C | correctness only: `4e9a05f` (A: its finding's provenance line names `4e9a05f` as the commit that added line 128 — unique, because the other subject carrying that line, `4c61e8c`, is a sibling amend, so blame at that head would have named `4c61e8c`); other two passes unpinned |
 | `closeout` | correctness F(2), project-standards C | `3662fcf` (A: `HEAD 3662fcf` in its notes) |
 | `closeout2` | correctness F(2), project-standards F(1) | unpinned |
 | `closeout3` | correctness F(2), project-standards C | unpinned |
@@ -141,7 +141,7 @@ for the closeout series through r17 (#475, eleven branch commits)):
 | `closeout5` | correctness F(2), project-standards C | `7529db3` (A: `HEAD 7529db3` in its notes) |
 | `closeout6` | correctness F(4), project-standards C | `9dada9e` (A: `HEAD 9dada9e` in its notes) |
 | `closeout7` | correctness F(1), project-standards C | unpinned |
-| `closeout8` | correctness F(1) | `25e2395` (B: its finding cites the `rowVisibility.ts:99` doc state, present at `25e2395`, fixed by `b67f47d` — whose diff is exactly the finding's three-citation fix) |
+| `closeout8` | correctness F(1) | `25e2395` (A: its finding's provenance line names `25e2395` as the commit behind the cited line, so the head is at or after it; the `rowVisibility.ts:99` text it cites is fixed by `b67f47d`, that commit's direct child, so the head is before that — exactly `25e2395`) |
 | `final` | correctness C, project-standards C | unpinned |
 
 ### Reviewed text set
@@ -170,8 +170,11 @@ text their head commit did not itself change.
   why the per-pass companions, not the invocation convention, are the pin. A report citation to a line its own
   head did not change is *consistent with* a wide base but never proof of one: the prompt invites reading
   tracked source for context.
-- **Layer 1.** Head: grade A, the run's own artifact names its commit (a `metadata.json` commit list, a
-  `HEAD <sha>` verification note); grade B, a finding quotes text locatable to exactly one commit state. Range:
+- **Layer 1.** Head: grade A, the run's own artifact names its commit — a `metadata.json` commit list, a
+  `HEAD <sha>` verification note, or a finding's blame-provenance line that, with the cited text's fix commit,
+  brackets the head to one commit; grade B, a finding quotes text locatable to exactly one commit state
+  (quoted text alone rarely does — it usually survives several commits — and no pass in this record rests on
+  it). Range:
   the skill's diff-scope rule reviews `merge-base(HEAD, main)..HEAD` on a clean tree — F, main-relative
   whatever the branch's upstream — and the artifacts corroborate it where they speak: `20260831-213901`'s
   `metadata.json` records `base: 198b2556` (= F), and `closeout8/correctness` reasons its finding explicitly
@@ -179,8 +182,9 @@ text their head commit did not itself change.
   one that records none is head-pinned only.
 
 **Adjudicable: 45 of the 69 passes** — recomputed under this pin: 29 layer-2 (head from the sentinel, base from
-each pass's recorded range) + 16 layer-1 (grade A runs `20260831-213901`, `closeout`, `closeout4`, `closeout5`,
-`closeout6` = 14 passes; grade B `docs-r1/correctness` and `closeout8/correctness` = 2). The figure is unchanged
+each pass's recorded range) + 16 layer-1, all grade A (runs `20260831-213901`, `closeout`, `closeout4`,
+`closeout5`, `closeout6` = 14 passes by run-level notes; `docs-r1/correctness` and `closeout8/correctness` = 2 by
+their findings' provenance lines). The figure is unchanged
 from the per-verdict record; its basis changed — the sentinel pins a head, and the range now comes from the
 run's own artifact rather than from an invocation convention. The 24 unpinned passes count as passes (the artifacts prove they happened) but contribute no
 adjudication and never advance the trigger; some may yet be upgraded by finding-text matching while the raw
