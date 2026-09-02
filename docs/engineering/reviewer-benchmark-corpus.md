@@ -188,7 +188,7 @@ whose text later changes stays settled under the pinned text.
 | Field | Meaning |
 |---|---|
 | `id` | `YYYY-MM-DD-NN` |
-| `ground-truth` | `defect` (text adjudicated wrong against the source) or `false-alarm` (a finding adjudicated wrong against the source) |
+| `ground-truth` | `defect` (text adjudicated wrong against the source) or `false-alarm` (a claim adjudicated wrong against the source — § Scoring model) |
 | `text` | what is wrong, with `file:line` at a subject where it was measured |
 | `present-at` | every subject whose tree carries the text — measured per commit (the exposure half of § Scoring model) |
 | `settles` | each pair the entry settles — `(pass, defect)` as `caught` / `miss`, `(pass, claim)` as `caught` / `false-alarm`, each finding named by its identity (§ Scoring model) — and, for an exposed pass left uncharged, why (the charge half of § Scoring model) |
@@ -289,8 +289,8 @@ text their head commit did not itself change.
   range could still have differed, neither of which happened here: a *stale* local `main` (an ancestor of F)
   passes both guards and yields a superset of `F..S`; and an *omitted* base on a branch already pushed with an
   upstream of its own defaults to that upstream's tip, yielding only the increment since the push. The second
-  was live for #475 — its branch was pushed at `4c9d380` (both receipts recorded 02:13:03Z, PR opened
-  02:13:21Z), so from `closeout-r11` on an omitted base would have hidden every earlier branch line — which is
+  was live for #475 — its branch was pushed at `4c9d380` (peer receipt recorded 02:02:15Z, layer-1 receipt
+  02:13:03Z, PR opened 02:13:21Z), so from `closeout-r11` on an omitted base would have hidden every earlier branch line — which is
   why the per-pass companions, not the invocation convention, are the pin. A report citation to a line its own
   head did not change is *consistent with* a wide base but never proof of one: the prompt invites reading
   tracked source for context.
