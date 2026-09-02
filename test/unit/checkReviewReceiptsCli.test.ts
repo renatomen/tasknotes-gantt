@@ -296,6 +296,89 @@ describe('check-review-receipts check', () => {
     expect(run.stdout).toContain('deletion-only push');
   });
 
+  describe('archival review-subject refs', () => {
+    const subjectRef = (sha: string): string => `refs/e11-subjects/${sha}`;
+
+    it('accepts a pin named by the full sha of the pushed commit, without receipts, and says so', () => {
+      const run = runCheck(refLine(codeCommit, ZERO, subjectRef(codeCommit)));
+
+      expect(run.status).toBe(0);
+      expect(run.stdout).toContain(`archival review subjects accepted without receipts (refs/e11-subjects/*): ${codeCommit}`);
+      expect(run.stdout).not.toContain('deletion-only push');
+    });
+
+    it('refuses a pin named by an abbreviation of the pushed commit', () => {
+      const run = runCheck(refLine(codeCommit, ZERO, subjectRef(short(codeCommit))));
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('archival');
+      expect(run.stderr).toContain('full object id');
+    });
+
+    it('refuses a pin named by a different commit than the one pushed', () => {
+      // The prefix alone must not be the exemption: an archived object that is
+      // not the named subject leaves the recorded review range unrebuildable.
+      const run = runCheck(refLine(docsCommit, ZERO, subjectRef(codeCommit)));
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('archival');
+      expect(run.stderr).toContain(short(codeCommit));
+    });
+
+    it('refuses an annotated tag object even when it points at the subject commit', () => {
+      git(['tag', '-a', '-m', 'subject-tag', 'subject-commit-tag', codeCommit]);
+      const tagObject = git(['rev-parse', 'refs/tags/subject-commit-tag']);
+      try {
+        const run = runCheck(refLine(tagObject, ZERO, subjectRef(codeCommit)));
+
+        expect(run.status).toBe(1);
+        expect(run.stderr).toContain('not a commit');
+      } finally {
+        git(['tag', '-d', 'subject-commit-tag']);
+      }
+    });
+
+    it('refuses a blob object pushed under its own id', () => {
+      const blob = git(['rev-parse', `${docsCommit}:docs/note.md`]);
+
+      const run = runCheck(refLine(blob, ZERO, subjectRef(blob)));
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('is a blob, not a commit');
+    });
+
+    it('refuses a pin whose name carries a non-ASCII whitespace byte after the id', () => {
+      // git would create that ref; the gate must not read the name as the bare id.
+      const run = runCheck(refLine(codeCommit, ZERO, `${subjectRef(codeCommit)}\u00a0`));
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('full object id');
+    });
+
+    it('refuses updating a subject ref that already exists on the remote: pins are write-once', () => {
+      const run = runCheck(refLine(codeCommit, docsCommit, subjectRef(codeCommit)));
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('archival');
+      expect(run.stderr).toContain('write-once');
+    });
+
+    it('refuses deleting a subject ref: the corpus rebuilds its ranges from it', () => {
+      const run = runCheck(refLine(ZERO, codeCommit, subjectRef(codeCommit)));
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('archival');
+      expect(run.stderr).toContain('delet');
+    });
+
+    it('still gates a branch pushed alongside a subject ref', () => {
+      const run = runCheck(refLine(codeCommit, ZERO, subjectRef(codeCommit)) + refLine(docsCommit, baseCommit, 'refs/heads/a'));
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain(short(docsCommit));
+    });
+  });
+
   it('peels an annotated tag to the commit receipts are keyed on', () => {
     // The tag targets a commit that is NOT HEAD, so a broken path falling back
     // to gating HEAD would name the wrong sha and fail here.

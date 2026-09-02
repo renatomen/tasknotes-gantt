@@ -12,8 +12,11 @@
  *
  * `check` reads git's pre-push stdin lines ("<local-ref> <local-sha>
  * <remote-ref> <remote-sha>") and demands receipts for every distinct pushed
- * local sha (deletions skipped, tag objects peeled to their commit); any
- * malformed line fails the push. Run manually without piped input it falls
+ * local sha (deletions skipped, tag objects peeled to their commit); the
+ * archival review-subject namespace is exempt once each of its refs proves to
+ * be named by the full id of the commit it carries, and its refs are
+ * write-once - never replaced or deleted through this hook (see
+ * ARCHIVAL_SUBJECT_REF_PREFIX); any malformed line fails the push. Run manually without piped input it falls
  * back to HEAD. Receipts live in .git/ (per-clone, never committed), keyed by
  * commit sha: {"receipts": {"<sha>": {"<layer>": "<iso timestamp>"}}}.
  *
@@ -84,30 +87,101 @@ function readReceipts() {
 }
 
 /**
- * The distinct pushed local shas plus every nonblank line that is not a valid
- * ref record - the caller must fail closed on any invalid line, because a
- * silently discarded line would let its ref through ungated.
+ * Commits pushed here are the SUBJECTS of recorded review passes (the E11
+ * benchmark corpus), preserved so a fresh clone can rebuild the diff each pass
+ * read. They are intermediate states that were later squash-merged, so by
+ * construction they carry no receipts of their own; nothing under this prefix
+ * is a branch or a tag, and nothing deploys from it. Every other namespace
+ * stays gated exactly as before. A ref here is a pin the corpus's recorded
+ * ranges rebuild from, so it is write-once: a replacement (even by an honestly
+ * named commit) or a deletion is refused rather than waved through as an
+ * ordinary branch update or deletion would be. A pin is named by the FULL id
+ * of its commit: an abbreviation is unique only until some later object
+ * shares it, and nothing revalidates a pin after creation. The first 31 pins,
+ * created before this rule, carry 7-character abbreviations and stay as they
+ * are (the ref, not its name, is what a clone rebuilds from).
+ */
+export const ARCHIVAL_SUBJECT_REF_PREFIX = 'refs/e11-subjects/';
+
+/**
+ * The distinct pushed local shas, the archival subject refs (kept apart so the
+ * caller can validate them - the prefix alone grants nothing), and every
+ * nonblank line that is not a valid ref record - the caller must fail closed
+ * on any invalid line, because a silently discarded line would let its ref
+ * through ungated.
  */
 export function parsePushedRefLines(stdinText) {
   const shas = new Set();
   const invalid = [];
+  const archival = [];
   for (const line of stdinText.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed === '') continue;
-    const tokens = trimmed.split(/\s+/);
+    if (line.trim() === '') continue;
+    // Git separates the four fields with single ASCII spaces. A Unicode-aware
+    // split would also cut on bytes git accepts inside a refname (U+00A0 and
+    // friends), handing the validator a name shorter than the ref git creates.
+    const trimmed = line.replace(/\r$/, '');
+    const tokens = trimmed.split(' ');
     const localSha = tokens[1];
     if (tokens.length !== 4 || !SHA_PATTERN.test(localSha) || !SHA_PATTERN.test(tokens[3])) {
       invalid.push(trimmed);
       continue;
     }
-    if (!isDeletion(localSha)) shas.add(localSha);
+    if (tokens[2].startsWith(ARCHIVAL_SUBJECT_REF_PREFIX)) archival.push({ ref: tokens[2], sha: localSha, remoteSha: tokens[3] });
+    else if (!isDeletion(localSha)) shas.add(localSha);
   }
-  return { shas: [...shas], invalid };
+  return { shas: [...shas], invalid, archival };
 }
 
 /** Annotated tags push their tag object's sha; receipts key on commits. */
 function peelToCommit(sha) {
   return git(['rev-parse', '--verify', `${sha}^{commit}`]).trim();
+}
+
+/**
+ * The pushed object's own type (`git cat-file -t`). Not a peel: a tag object
+ * that points at the subject commit is still a tag, and a ref that stores it
+ * resolves to an object other than the commit it names.
+ */
+function objectType(sha) {
+  return git(['cat-file', '-t', sha]).trim();
+}
+
+/**
+ * A pin is a write-once ref created under the full id of its own commit. Each
+ * clause is checked as stated, not through a proxy: the pushed object IS a
+ * commit (its own type - a peel would admit a tag pointing at one); the ref's
+ * name IS that commit's full id (no abbreviation resolves anything, so no
+ * prefix-twin, decoy branch, or later collision can vouch or shadow); and the
+ * push CREATES the ref (a replacement or a deletion would orphan the subject
+ * the corpus recorded). One problem string per offending ref; empty means
+ * clean.
+ */
+export function validateArchivalSubjects(archival, resolveType = objectType) {
+  const problems = [];
+  for (const entry of archival) {
+    const problem = archivalSubjectProblem(entry, resolveType);
+    if (problem !== null) problems.push(`${entry.ref}: ${problem}`);
+  }
+  return problems;
+}
+
+function archivalSubjectProblem({ ref, sha, remoteSha }, resolveType) {
+  if (isDeletion(sha)) return 'deleting an archival subject is refused; the corpus rebuilds its ranges from it';
+  if (!isDeletion(remoteSha)) return `archival subjects are write-once; this ref already exists on the remote (at ${remoteSha.slice(0, 7)})`;
+  const type = typeOrMissing(sha, resolveType);
+  if (type === 'missing') return `pushed object ${sha.slice(0, 7)} cannot be read as an object here`;
+  if (type !== 'commit') return `pushed object ${sha.slice(0, 7)} is a ${type}, not a commit`;
+  const name = ref.slice(ARCHIVAL_SUBJECT_REF_PREFIX.length);
+  if (name !== sha) return `must be named by the full object id of the pushed commit ${sha.slice(0, 7)}, not "${name}"`;
+  return null;
+}
+
+function typeOrMissing(sha, resolveType) {
+  try {
+    return resolveType(sha);
+  } catch {
+    return 'missing';
+  }
 }
 
 export function evaluateReceipts(store, shas, requiredLayers = REQUIRED_LAYERS) {
@@ -209,6 +283,12 @@ function refuseInvalidRefLines(invalid) {
   process.exit(1);
 }
 
+function refuseArchivalSubjects(problems) {
+  console.error('pre-push: archival subject ref(s) refused - a pin is created once, under the name of its own commit:');
+  for (const problem of problems) console.error(`  ${problem}`);
+  process.exit(1);
+}
+
 function peelPushedCommits(pushed) {
   try {
     return [...new Set(pushed.map(peelToCommit))];
@@ -219,18 +299,24 @@ function peelPushedCommits(pushed) {
   }
 }
 
-function pushedCommitShas(stdinText) {
-  const { shas, invalid } = parsePushedRefLines(stdinText);
+/** The commits to gate and the archival subjects the push carries alongside them. */
+function pushToCheck(stdinText) {
+  if (stdinText.trim() === '') return { shas: [headSha()], archival: [] };
+  const { shas, invalid, archival } = parsePushedRefLines(stdinText);
   if (invalid.length > 0) refuseInvalidRefLines(invalid);
-  return peelPushedCommits(shas);
+  const problems = validateArchivalSubjects(archival);
+  if (problems.length > 0) refuseArchivalSubjects(problems);
+  return { shas: peelPushedCommits(shas), archival };
 }
 
-function shasToCheck(stdinText) {
-  if (stdinText.trim() === '') return [headSha()];
-  return pushedCommitShas(stdinText);
+function reportArchivalSubjects(archival) {
+  if (archival.length === 0) return;
+  const names = archival.map(({ ref }) => ref.slice(ARCHIVAL_SUBJECT_REF_PREFIX.length)).join(', ');
+  console.log(`archival review subjects accepted without receipts (${ARCHIVAL_SUBJECT_REF_PREFIX}*): ${names}`);
 }
 
-function reportCleanReceipts(shas) {
+function reportCleanReceipts(shas, archivalOnly) {
+  if (archivalOnly) return;
   const short = shas.map((sha) => sha.slice(0, 7)).join(', ') || 'deletion-only push';
   console.log(`review receipts OK for ${short}: ${REQUIRED_LAYERS.join(' + ')}`);
 }
@@ -265,12 +351,13 @@ function check() {
   const { text: stdinText, failed } = readPipedStdin();
   if (failed) refuseUnreadableRefLines();
 
-  const shas = shasToCheck(stdinText);
+  const { shas, archival } = pushToCheck(stdinText);
   const store = readReceipts();
   const verdict = evaluateReceipts(store, shas);
   if (!verdict.ok) refuseMissingReceipts(verdict);
   reportAcceptedFindings(acknowledgedFindings(store, shas));
-  reportCleanReceipts(shas);
+  reportArchivalSubjects(archival);
+  reportCleanReceipts(shas, shas.length === 0 && archival.length > 0);
 }
 
 const isDirectRun = process.argv[1]?.endsWith('check-review-receipts.mjs');
