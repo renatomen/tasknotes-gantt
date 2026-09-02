@@ -47,16 +47,18 @@ claim a pass reported; a *false alarm* is a finding adjudicated wrong against th
    to emit silently improves the score of a reviewer that systematically misses that class. (Severity
    distribution is recorded as stratification data, nothing more.) **The contract of record is pinned at
    adjudication, not read live.** Layer 2's prompt is repository text, pinned by the reviewed commit. A
-   layer-1 persona is a plugin file that can change under a routine update, so each entry quotes the clause
-   it charges against, and the quoted clause — not the file as it stands later — is the contract that pair
-   was settled under. Provenance of the quotes in this record: the `ce-code-review` persona files installed
-   here (compound-engineering 3.23.4), dated 2026-08-04, before every pass recorded, and byte-identical to
-   the 3.21.1 copies in the same cache.
+   layer-1 persona is a plugin file that can change under a routine update, so § Contract of record pins
+   each charged persona by content hash and preserves, verbatim, the clause charged against and the whole
+   "What you don't flag" list — eligibility depends on both — and each entry cites that section. The pinned
+   text, not the file as it stands later, is the contract every pair was settled under.
 
 **Outcomes.** A charged (pass, defect) pair settles as exactly one of **caught** (the pass reported the defect,
-at whatever severity or anchor line) or **miss** (it did not). Each (pass, finding) pair settles as **caught**
-(the finding names a defect — which settles the matching (pass, defect) pair too) or **false alarm** (refuted
-against the source). One pass can hold a caught, a miss and a false alarm at once. A FINDINGS pass is charged
+at whatever severity or anchor line) or **miss** (it did not). A finding is adjudicated **claim by claim**: a
+finding that asserts one thing is one claim; a compound finding is split into its claims at adjudication,
+each identified by the finding's identity plus a claim ordinal (`#1`, `#2`, …). Each (pass, claim) pair
+settles as **caught** (the claim names a defect — which settles the matching (pass, defect) pair too) or
+**false alarm** (refuted against the source), so a finding with one valid and one refuted claim yields one of
+each rather than suppressing either. One pass can hold a caught, a miss and a false alarm at once. A FINDINGS pass is charged
 exactly like a CLEAN one, and a CLEAN pass is charged nothing outside its contract.
 
 **Verdicts are derived.** `VERDICT: CLEAN|FINDINGS`, `findings: []`, and the P-levels are recorded as
@@ -70,25 +72,78 @@ exposes — where a pass's charge over that class is not established, say so and
 unsettled pairs remain open opportunities. Never admit a pair that is not settled against the source.
 
 **Identity.** A defect is identified by its entry id. A finding is identified as the pass reported it —
-severity plus `file:line`, plus the finding's title where the artifact carries one (layer 1) — and every
-settled (pass, finding) pair names it, whether caught or false alarm, so the false-alarm denominator can be
-rebuilt from this file alone once the raw artifacts are gone. Two findings that name one defect are two
-(pass, finding) pairs both caught, and one (pass, defect) pair; one finding that names two defects is one
-(pass, finding) pair and two (pass, defect) pairs. A finding an entry does not name is **open**: not yet
-adjudicated either way.
+severity plus `file:line`, plus the finding's title where the artifact carries one (layer 1) or its claim in
+one line where it does not (layer 2) — and every settled (pass, claim) pair names it, whether caught or false
+alarm, so the false-alarm denominator can be rebuilt from this file alone once the raw artifacts are gone.
+Two findings that name one defect are two claims both caught, and one (pass, defect) pair; one finding that
+names two defects is two claims, both caught, and two (pass, defect) pairs; one finding with a valid and a
+refuted claim is one caught and one false alarm. A finding an entry does not name is **open**: not yet
+adjudicated either way, and it counts as one claim until adjudication splits it.
 
 **Counts.** An opportunity is **adjudicated** when at least one of its pairs is settled. The trigger in
 § Labelled defect set counts only opportunities adjudicated through at least one **(pass, defect)** pair — a
 pass settled solely by false alarms is adjudicated for the false-alarm rate but contributes nothing to a set of
 known defects, so it does not advance the trigger. Once the labelled set exists, catch rate = caught ÷ charged
-(pass, defect) pairs, and false-alarm rate = refuted ÷ reported findings, **over passes whose reported findings
-are all adjudicated** — a pass with any open finding contributes nothing to the rate, because adjudicating one
+(pass, defect) pairs, and false-alarm rate = refuted claims ÷ adjudicated claims, **over passes whose reported
+findings are all adjudicated** — a pass with any open finding contributes nothing to the rate, because adjudicating one
 refuted finding out of ten would read as 100% and one confirmed finding as 0%. Alongside the rate, report
 coverage: adjudicated findings ÷ reported findings across the passes in scope. Current state, from § Finding
 inventory: 4 passes are completely adjudicated (`docs-r1/correctness`, `closeout8/correctness`,
 `20260831-213901/project-standards`, layer 2 `r16` — each reported one finding, each settled caught), 4
 findings, 0 refuted — a 0/4 subset, too small to read as a rate. Coverage: 7 of the 65 reported findings are
 adjudicated (layer 2: 2 of 25; layer 1: 5 of 40); the other 58 are open.
+
+### Contract of record
+
+The written contracts every pair in this file was settled under, pinned so a plugin update or a cache wipe
+cannot move a charge after the fact.
+
+**Layer 2** — the prompt in `scripts/cross-model-peer-review.sh` at each reviewed commit (repository text,
+pinned by the commit): *"Report only CORRECTNESS defects you can evidence: behaviour changes, edge cases,
+broken contracts, silent-failure paths, and assertions that cannot fail … Ignore style and naming."* No
+severity floor.
+
+**Layer 1** — the `ce-code-review` persona files as installed for every pass here: compound-engineering
+3.23.4, files dated 2026-08-04 (before the first recorded pass), byte-identical to the 3.21.1 copies in the
+same cache. Pinned by SHA-256 of each file; the clause charged against and the complete "What you don't flag"
+list are preserved verbatim, because eligibility depends on both.
+
+- `correctness-reviewer.md` — `a46c6bf26e8ac82503df9be4e580dc9d7e16fd0cb156608a16a1e03f9fdee384`. Charged
+  clause: "You are a logic and behavioral correctness expert who reads code by mentally executing it … You
+  catch bugs that pass tests because nobody thought to test that input." Excludes, verbatim: **Style
+  preferences** (variable naming, bracket placement, comment presence, import ordering); **Harmless duplicate
+  setup lines** (duplicate `PATH` exports or repeated environment setup, unless they change child process
+  resolution, shadow an executable, or create inconsistent behavior between paired scripts); **Missing
+  optimization** (correct but slow belongs to the performance reviewer); **Naming opinions** (a vague name
+  that does what callers expect is correct); **Defensive coding suggestions** (no null checks for values that
+  can't be null in the current code path).
+- `testing-reviewer.md` — `50a2df53c1a698ae7f8ee093e9bd21691085f0a970c5a37445e3d94c350b4705`. Charged clause:
+  "**Tests that don't assert behavior (false confidence)** -- tests that call a function but only assert it
+  doesn't throw, assert truthiness instead of specific values, or mock so heavily that the test verifies the
+  mocks, not the code." Excludes, verbatim: **Missing tests for trivial getters/setters**; **Test style
+  preferences** (`describe/it` vs `test()`, AAA vs inline assertions, file co-location); **Coverage
+  percentage targets**; **Missing tests for unchanged code** (unless the diff makes the untested code riskier).
+- `adversarial-reviewer.md` — `796f155b43995aabf6391c211264958504832f8c40112e343b8ba1a49ce1927a`. Charged
+  clause (technique 5): "When the change *is* a guard that stands in for the real thing -- a CI/CD gate,
+  merge-blocking check, build/deploy step, coverage/lint gate, or test harness/mock -- its risk is not blast
+  radius, it is fidelity: it can go green while production is red." Excludes, verbatim: **Individual logic
+  bugs** without cross-component impact (correctness-reviewer); **Known vulnerability patterns**
+  (security-reviewer); **Individual missing error handling** on a single I/O boundary (reliability-reviewer);
+  **Performance anti-patterns** (performance-reviewer); **Code style, naming, structure, dead code**
+  (maintainability-reviewer); **Test coverage gaps** or weak assertions (testing-reviewer) — *exception:* when
+  the test infrastructure, harness, or mock is itself the change under review and could mask a production
+  failure, that fidelity concern is the adversarial reviewer's (technique 5); **API contract breakage**
+  (api-contract-reviewer); **Migration safety** (data-migration-reviewer).
+- `project-standards-reviewer.md` — `27f4f62c43a112df8f2d3e5587ec8cc4ce2e892f31a339145abd19b91b26e7eb`.
+  Charged clause: "You audit code changes against the project's own standards files -- CLAUDE.md, AGENTS.md,
+  and any directory-scoped equivalents … Every finding you report must cite a specific rule from a specific
+  standards file." Excludes, verbatim: **Rules that don't apply to the changed file type**; **Violations that
+  automated checks already catch**; **Pre-existing violations in unchanged code** (mark `pre_existing`);
+  **Generic best practices not in any standards file**; **Opinions on the quality of the standards
+  themselves**.
+
+Personas not charged in any entry (maintainability, performance) are not pinned here; a first charge against
+one adds it. A pair settled under a contract whose text later changes stays settled under the pinned text.
 
 ## Fields
 
