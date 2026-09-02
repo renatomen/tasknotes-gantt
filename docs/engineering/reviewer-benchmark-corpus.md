@@ -345,6 +345,108 @@ on already-adjudicated passes: `closeout8/correctness` on entry -02, for the sam
 `closeout/correctness`. The two 2026-08-30 entries predate the preserved window (PR #466; artifacts gone) and sit
 outside this denominator.
 
+### Finding inventory
+
+Every finding each counted pass reported, by identity (§ Scoring model), with its adjudication status — the
+record the false-alarm denominator is rebuilt from once the raw artifacts are gone. `→ -NN` = caught, settled
+by that entry; `open` = not yet adjudicated either way; `(unpinned run)` = adjudication would first need a
+pin. Layer 2: 25 findings over 13 passes; layer 1: 40 over 24 passes. Abbreviations: *derive* =
+`docs/solutions/best-practices/derive-the-member-list-from-keyof-not-a-runtime-probe.md`; *seam* =
+`docs/solutions/architecture-patterns/a-guard-that-restates-its-subject-names-a-missing-seam.md`; *test* =
+`test/unit/rowVisibilityLiveSync.test.ts`; *assert* = `docs/solutions/best-practices/assert-the-claim-not-the-mechanism.md`.
+
+**Layer 2** (the 16 CLEAN passes report nothing; peer reports carry no titles, so each identity carries the
+claim in one line):
+
+- `review` (1): P2 test `:295` — the field-movement guard accepts any newly added row as proof the named field
+  changed — open
+- `review-r4` (1): P1 test `:267` — the completeness guard records fields read by `toRowVisibilityInput`, not
+  fields consumed by `shouldHideRow` — open
+- `docs` (1): P2 assert `:209` — the Related entry misstates what #469/#470 disproved in the prior document — open
+- `closeout` (7): P1 seam `:15` — invalid YAML frontmatter (corrupted dash bytes end the value early); P1
+  derive `:41-84` — the completeness gate misses the omission it claims to prevent (table keyed on
+  `RowVisibilitySource`, predicate consumes `RowVisibilityInput`); P1 derive `:196-218` — `row-identity`
+  routes have no behavioral guard; P2 `CONCEPTS.md:111` — the runtime-source prohibition contradicts valid
+  dynamic contracts; P2 seam `:128-135` — the claimed TypeScript prerequisite for the guard is false; P2 seam
+  `:190-194` — the verification count is overstated (9 of the cited 21 cases execute the projection); P2
+  derive `:116-124` — the literal-key guard misses numeric and symbol index signatures — all open
+- `closeout-r2` (1): P2 derive `:41` — the documented "settled mechanism" does not prove its stated invariant — open
+- `closeout-r3` (1): P1 derive `:127` — the `LiteralKeys` guard rejects only string index signatures — open
+- `closeout-r4` (1): P1 `CONCEPTS.md:111` — the rule claims declaration-derived membership makes all three
+  evasions impossible, including fields consumed but never supplied — open
+- `closeout-r5` (2): P2 derive `:133` — numeric and symbol index signatures can absorb matching literal
+  members; P2 seam `:193` — "seven live-sync cases execute the projection through the store" overstates it
+  (four traverse `liveRefresh`) — open
+- `closeout-r7` (1): P2 seam `:22,73` — overstates the mapping as invisible to every guard (an e2e executes it) — open
+- `closeout-r8` (3): P1 derive `:109` — the declaration-derived table can still false-pass a projection
+  omission; P2 seam `:140` — extraction was not required to make the guard expressible; P2 derive `:130` —
+  a string index signature makes `keyof T` `string | number`, not only `string` — open
+- `final` (4): P1 derive `:118` — the unqualified `keyof` rule fails for object unions → -02; P2 derive
+  `:138` — the two-companion recipe silently loses unique-symbol fields; P2 derive `:191` — the claim that
+  runtime probes pass the sibling "test name is a claim" check is false; P2 derive `:291` — "any index
+  signature widens `keyof` to `string`" contradicts lines 144–153 — open
+- `r15` (1): P1 derive `:355` — contradicts lines 205–208 on the "test name is a claim" check — open
+- `r16` (1): P1 derive `:131` — the prescribed union-key expression does not distribute → -05
+
+**Layer 1** (the 16 CLEAN passes report nothing; identity = severity, `file:line`, title as the artifact
+states it):
+
+- `20260831-213901/adversarial` (2): P1 test `:279` "Coverage check derives only top-level keys; a nested
+  source member escapes" → -01; P2 test `:263` "The source scenario cannot fail on removal of the fold it
+  names" — open
+- `20260831-213901/correctness` (2): P2 `src/bases/rowVisibility.ts:61` "Nested source projection is
+  hand-written; derived guard is top-level only" → -01; P2 test `:18` "Spec header drops a still-true evidence
+  bound about SVAR" — open
+- `20260831-213901/maintainability` (1): P3 test `:220` "Test occupancy factory hand-rolls itemId instead of
+  canonical helper" — open
+- `20260831-213901/project-standards` (1): P1 test `:10` "New test-doc comment cites issue numbers #469/#470" → -06
+- `20260831-r2/adversarial` (2): P1 test `:21` "Next visibility member ships stale with suite and typecheck
+  green"; P2 test `:15` "Scope paragraph claims only two members can go stale in place" — open (unpinned run)
+- `20260831-r2/correctness` (2): P1 test `:256` "No guard binds filter-read custom fields to the fingerprint
+  fold"; P2 test `:18` "Docstring's source exemption rests on a false co-movement claim" — open (unpinned run)
+- `20260831-r2/project-standards` (2): P2 test `:10` "Docstring paragraph restates file structure the describe
+  blocks already say"; P2 test `:225` "Derived-member-list completeness guard removed, not replaced, for
+  RowVisibilityInput" — open (unpinned run)
+- `20260831-r2/testing` (1): P1 test `:19` "Docstring's claimed substitute guard doesn't cover the deleted
+  completeness check" — open (unpinned run)
+- `20260901-r3/adversarial` (2): P1 test `:278` "Branch-guarded projection read escapes the completeness rule,
+  suite stays green"; P2 test `:294` "IDENTITY_BORNE exemptions carry no per-entry reason mechanism" — open
+  (unpinned run)
+- `20260901-r3/correctness` (1): P2 test `:280` "Proxy key derivation misses a conditionally-read projection
+  field" — open (unpinned run)
+- `20260901-r3/project-standards` (2): P1 test `:310` "Completeness it.each can silently run zero cases and
+  still pass"; P2 test `:7` "Module docstring keeps two what/how mechanism clauses" — open (unpinned run)
+- `20260901-r4/adversarial` (2): P1 test `:331` "Routing table passes a presence-only fold while a value change
+  goes stale"; P2 test `:287` "An index signature on the source type degenerates keyof and empties the table"
+  — open (unpinned run)
+- `20260901-r4/project-standards` (1): P2 test `:291` "row-identity delivery claim has no behavioral guard" —
+  open (unpinned run)
+- `20260901-r5/adversarial` (2): P2 test `:287` "Guard keys on RowVisibilitySource, not on what the projection
+  reads"; P2 test `:322` "New case's name claims a property its run cannot check" — open (unpinned run)
+- `20260901-r5/project-standards` (1): P1 test `:322` "Test name/comment claim a jest guard @swc/jest can't
+  enforce" — open (unpinned run)
+- `closeout/correctness` (2): P2 derive `:157` "Cited git log -S output names #472; the command returns #473";
+  P3 seam `:177` "\"declared ... and nothing else\" contradicts the doc's own Context section" — open
+- `closeout2/correctness` (2): P1 seam `:309` "Examples section still asserts the falsified \"guard has no
+  subject\" claim"; P2 seam `:338` "Related cross-reference justifies \"strict dependency\" with the retracted
+  reason" — open (unpinned run)
+- `closeout2/project-standards` (1): P2 seam `:2` "Seam doc's frontmatter title still doesn't match its H1" —
+  open (unpinned run)
+- `closeout3/correctness` (2): P1 seam `:279` "Examples block reproduces and endorses the retracted
+  derive-the-list claim"; P2 seam `:146` "Orphaned generalization about anonymous subjects closes the
+  retraction paragraph" — open (unpinned run)
+- `closeout5/correctness` (2): P2 seam `:142` "Guidance still says the extraction \"supplied the guard's
+  evidence\""; P2 seam `:334` "\"its population half\" names a guard half the sibling doc calls written" — open
+- `closeout6/correctness` (4): P1 derive `:333` "New pointer claims the sibling doc does not restate the
+  distinction; limit 3 does"; P1 seam `:194` "Compressed sentence credits the extraction with an alternative
+  it says pre-dated it"; P2 seam `:146` "Section's stated-here-once guarantee is stricter than the file it
+  describes"; P2 seam `:164` "Move dropped the section's only transferable instruction" — open
+- `closeout7/correctness` (1): P2 seam `:166` "Restored instruction's \"the two\" now resolves to the wrong
+  pair" — open (unpinned run)
+- `closeout8/correctness` (1): P3 seam `:184` "Doc line citations into rowVisibility.ts off by one at HEAD" — two claims: `#1` → -04 caught; `#2` ("already stale at the commit that wrote them") false alarm, refuted in -04
+- `docs-r1/correctness` (1): P3 assert `:128` "Doc says the plan's disproof sits three sections above the guard;
+  it is one" → -03
+
 ## Labelled defect set (deferred, with trigger)
 
 E11's benchmark set — known defects candidate reviewers are scored against — is **not built yet**. Trigger, so
