@@ -30,7 +30,12 @@ claim a pass reported; a *false alarm* is a finding adjudicated wrong against th
    given (§ Reviewed text set), not the head tree alone and not the file as a whole. Exposure is a property
    of the **text**, not the file: a file that predates the branch still exposes the lines the branch added
    or changed, and a file the branch created exposes every line under any base at or before the fork point.
-   Presence is measured per subject commit, never inferred from the commit that fixed it.
+   Presence is measured per subject commit, never inferred from the commit that fixed it. **A caught pair
+   proves its own exposure** — the pass reported the text. **A miss is charged only where the reviewed text is
+   proven**: mechanically (layer 2's wrapper refuses a dirty tree and its companion records the range), or by
+   the run's own artifacts — a recorded scope that contains the text *and* an attestation that the text was in
+   the tree reviewed (a pass of the same run quoting the line, or a clean-tree statement). Plausibility that a
+   pass "must have" seen a line is not exposure.
 2. **Charge** — the defect's class is inside the pass's **written** contract. Layer 2's is its prompt
    (`scripts/cross-model-peer-review.sh`: *"Report only CORRECTNESS defects … behaviour changes, edge cases,
    broken contracts, silent-failure paths, and assertions that cannot fail … Ignore style and naming"*, with
@@ -74,8 +79,11 @@ adjudicated either way.
 § Labelled defect set counts only opportunities adjudicated through at least one **(pass, defect)** pair — a
 pass settled solely by false alarms is adjudicated for the false-alarm rate but contributes nothing to a set of
 known defects, so it does not advance the trigger. Once the labelled set exists, catch rate = caught ÷ charged
-(pass, defect) pairs, and false-alarm rate = refuted ÷ adjudicated (pass, finding) pairs — open findings count
-in neither, so an unexamined finding neither inflates nor flatters.
+(pass, defect) pairs, and false-alarm rate = refuted ÷ reported findings, **over passes whose reported findings
+are all adjudicated** — a pass with any open finding contributes nothing to the rate, because adjudicating one
+refuted finding out of ten would read as 100% and one confirmed finding as 0%. Alongside the rate, report
+coverage: adjudicated findings ÷ reported findings across the passes in scope. No pass in this record is yet
+completely adjudicated, so the false-alarm rate is currently undefined, not zero.
 
 ## Fields
 
@@ -203,9 +211,12 @@ text their head commit did not itself change.
   artifact's own statement of what it reviewed — `20260831-213901` scopes its run to its commit list
   (`scope_mode: local-aligned`, `commits: [e0cae52, 02d229a]`); `closeout4` states "Working tree clean at HEAD
   4c9d380"; `docs-r1` states the charged line was "added by this diff"; `closeout` and `closeout8` describe
-  the branch diff against `34fa5c0`. A future layer-1 run is range-pinned only by a recorded base **and** a
-  clean-tree statement (or a digest of the reviewed diff) in its `metadata.json`; one that records neither
-  is head-pinned only.
+  the branch diff against `34fa5c0`. None of these is a clean-tree proof — `local-aligned` scope diffs the
+  working tree against the base, uncommitted edits included — so a layer-1 **miss** is charged only where a
+  pass of the same run quotes the defective line (`20260831-213901/adversarial` quotes `:279`), or the run
+  states a clean tree (`closeout4`); a caught pair needs nothing more than its own report. A future layer-1
+  run is range-pinned for misses only by a recorded base **and** a clean-tree statement (or a digest of the
+  reviewed diff) in its `metadata.json`; one that records neither is head-pinned only.
 
 **Adjudicable: 45 of the 69 passes** — recomputed under this pin: 29 layer-2 (head from the sentinel, base from
 each pass's recorded range) + 16 layer-1, all grade A (runs `20260831-213901`, `closeout`, `closeout4`,
@@ -216,19 +227,21 @@ the range now comes from the run's own artifact rather than from an invocation c
 passes count as passes (the artifacts prove they happened) but contribute no adjudication and never advance
 the trigger; some may yet be upgraded by finding-text matching while the raw artifacts survive.
 
-**Adjudicated so far: 28 of the 45 adjudicable opportunities**, over 34 settled pairs. Per entry: -01 settles
-5 passes; -02 settles 17; -03 settles 3; -04 settles 6; -05 settles 2; -06 settles 1 — 21 distinct layer-2
-passes and 7 distinct layer-1 passes. Still open among the adjudicable: layer 2 `review-r3`–`r9` (no known
-defect exposed), `docs-r3`, `r17`; layer 1 `20260831-213901/maintainability` and `/performance`,
-`closeout/project-standards`, and both passes of `closeout4`, `closeout5` and `closeout6` (increment-only
-runs; no known defect sits in the text their commits changed). The two 2026-08-30 entries predate the preserved
-window (PR #466; artifacts gone) and sit outside this denominator.
+**Adjudicated so far: 27 of the 45 adjudicable opportunities**, over 32 settled pairs. Per entry: -01 settles
+5 passes; -02 settles 15; -03 settles 3; -04 settles 6; -05 settles 2; -06 settles 1 — 21 distinct layer-2
+passes and 6 distinct layer-1 passes. Still open among the adjudicable: layer 2 `review-r3`–`r9` (no known
+defect exposed), `docs-r3`, `r17`; layer 1 `20260831-213901/maintainability` and `/performance`, both
+`closeout` passes (its correctness pass read the keyof sentence's document but no artifact attests the
+sentence in the tree it reviewed), `closeout8/correctness` on entry -02 for the same reason, and both passes
+of `closeout4`, `closeout5` and `closeout6` (increment-only runs; no known defect sits in the text their
+commits changed). The two 2026-08-30 entries predate the preserved window (PR #466; artifacts gone) and sit
+outside this denominator.
 
 ## Labelled defect set (deferred, with trigger)
 
 E11's benchmark set — known defects candidate reviewers are scored against — is **not built yet**. Trigger, so
 the deferral is not open-ended (ruled 2026-09-02): **assemble it when this file's adjudications cover 40
-evaluation opportunities through (pass, defect) pairs** (currently 28, of 45 adjudicable among the 69 recorded — so reaching the trigger
+evaluation opportunities through (pass, defect) pairs** (currently 27, of 45 adjudicable among the 69 recorded — so reaching the trigger
 takes near-complete adjudication of the preserved window, pin upgrades, or opportunities from future recorded
 campaigns). The preserved artifacts still hold same-subject disagreements adjudicable toward the trigger without
 running any new review round.
@@ -279,12 +292,18 @@ running any new review round.
     at `:295`; the completeness check went unflagged.
   - layer 2 `review-r2` (`PEER-02d229a-22056`, CLEAN) — **miss**.
   - layer 1 `20260831-213901/adversarial` — **caught**: P1 `:279` "Coverage check derives only top-level keys; a
-    nested source member escapes".
+    nested source member escapes". Charge clause (persona, technique 5): "When the change *is* a guard that
+    stands in for the real thing … test harness/mock … its risk is not blast radius, it is fidelity: it can
+    go green while production is red."
   - layer 1 `20260831-213901/correctness` — **caught**: P2 `src/bases/rowVisibility.ts:61` "Nested source
     projection is hand-written; derived guard is top-level only", whose evidence cites `:279 … (three top-level
-    keys only)` and states the same escape.
-  - layer 1 `20260831-213901/testing` — **miss** (`findings: []`): a completeness assertion that cannot fail
-    for a nested member is inside its written charge ("tests that don't assert behavior (false confidence)").
+    keys only)` and states the same escape. Charge clause (persona): "You catch bugs that pass tests because
+    nobody thought to test that input."
+  - layer 1 `20260831-213901/testing` — **miss** (`findings: []`). Exposure: the run's `metadata.json` scopes it
+    to `base: 198b2556` with commits `[e0cae52, 02d229a]`, and its sibling `adversarial` pass quotes the line
+    (`:279 -- const members = Object.keys(toRowVisibilityInput(undefined)).sort();`) from the same diff. Charge
+    clause (persona): "Tests that don't assert behavior (false confidence) — tests that … assert truthiness
+    instead of specific values, or mock so heavily that the test verifies the mocks, not the code."
   - Not charged: `performance` (out of charge); `maintainability` and `project-standards` (their contracts do
     not name assertion strength — left open).
 - **adjudication:** real, verified in source at `02d229a`: the check reads exactly
@@ -312,21 +331,24 @@ running any new review round.
   bare `keyof`; the doc's five pre-fix mentions of "union" all concern key unions or the cases of a union type,
   none the object-union case. Branch-created file (absent at F = `34fa5c03`), so in `F..S` for every one.
   Qualified at `b7dc922`.
-- **settles (17):**
+- **settles (15):**
   - layer 2, **miss** ×14: `closeout` (`PEER-526cbba-7162`), `closeout-r2` (`fb4a1e9`), `-r3` (`5776a6a`),
     `-r4` (`c6798dc`), `-r5` (`b90518b`), `-r6` (`3662fcf`, CLEAN), `-r7` (`caf11d9`), `-r8` (`9bba490`), `-r9`
     (`2e1d11a`, CLEAN), `-r10`–`-r14` (`4c9d380`, `7529db3`, `9dada9e`, `c62d082`, `25e2395`, all CLEAN). The
     seven FINDINGS passes among them flagged the neighbouring index-signature and symbol cases (`closeout`
     `:116-124`, `r3` `:127`, `r5` `:133`, `r8` `:130`) — never the union case.
   - layer 2 `final` (`PEER-b67f47d-12825`) — **caught**: P1 `:118`.
-  - layer 1 correctness, **miss** ×2: `closeout` (`3662fcf`, F(2): the `:157` git-log claim and the seam doc's
-    `:177`), `closeout8` (`25e2395`, F(1): citations). A false technical claim in the reviewed text is
-    correctness-class — the persona hunts "bugs that pass tests because nobody thought to test that input",
-    and its "What you don't flag" list (style preferences, harmless duplicate setup lines, missing
-    optimization, naming opinions, defensive-coding suggestions) removes none of it.
+  - layer 1: **no pair settled.** `closeout/correctness` (`3662fcf`) and `closeout8/correctness` (`25e2395`) each
+    reviewed the branch diff that carries this document, but neither run's artifacts attest the sentence in
+    the tree reviewed (their findings quote other lines), and a miss needs proven exposure (§ Scoring model) —
+    both pairs stay open.
   - Not charged: `closeout4`, `closeout5`, `closeout6` correctness — increment-only runs (§ Reviewed text set)
     whose deltas do not carry the sentence; the four `project-standards` passes of `closeout`, `closeout4`,
-    `closeout5`, `closeout6` (out of charge; `closeout8` ran correctness only).
+    `closeout5`, `closeout6` (out of charge; `closeout8` ran correctness only). A false technical claim in
+    reviewed text is correctness-class — the persona hunts "bugs that pass tests because nobody thought to
+    test that input", and its "What you don't flag" list (style preferences, harmless duplicate setup lines,
+    missing optimization, naming opinions, defensive-coding suggestions) removes none of it — so the open
+    pairs above are charge-eligible the moment exposure is attested.
 - **adjudication:** measured (tsc 5.9.2, both measurements recorded in the doc on `main`):
   `keyof ({kind:'a';a:number} | {kind:'b';b:number})` is `'kind'` alone.
 - **outcome:** `b7dc922` scoped the rule to the shape it was measured over (string-named interface members) and
@@ -345,7 +367,9 @@ running any new review round.
   - layer 2 `docs` (`PEER-4c61e8c-27119`, FINDINGS) — **miss**: its one finding is `:209`.
   - layer 2 `docs-r2` (`PEER-4e9a05f-28198`, CLEAN) — **miss**.
   - layer 1 `docs-r1/correctness` — **caught**: P3 `:128` "Doc says the plan's disproof sits three sections above
-    the guard; it is one".
+    the guard; it is one". Charge clause (persona): "You catch bugs that pass tests because nobody thought to
+    test that input"; a false structural claim in reviewed text is inside it and outside the "What you don't
+    flag" list.
   - Not charged: `docs-r1/correctness-r2` and `docs-r1/project-standards` (unpinned).
 - **adjudication:** a false structural claim is a correctness defect, and layer 2's contract states no severity
   floor.
@@ -365,7 +389,8 @@ running any new review round.
 - **settles (6):**
   - layer 2 `closeout-r10`–`r14` (`4c9d380`, `7529db3`, `9dada9e`, `c62d082`, `25e2395`; all CLEAN) — **miss** ×5.
   - layer 1 `closeout8/correctness` — **caught**: P3 `:184` "Doc line citations into rowVisibility.ts off by one
-    at HEAD"; its suggested fix names all three citations.
+    at HEAD"; its suggested fix names all three citations. Charge clause (persona): "You catch bugs that pass
+    tests because nobody thought to test that input"; a false evidenced claim in reviewed text is inside it.
   - Not charged: layer 2 `closeout`–`closeout-r9` and layer 1 `closeout/correctness` (text not yet defective at
     their subjects); `closeout4`, `closeout5`, `closeout6` correctness — increment-only runs (§ Reviewed text
     set): `4c9d380`'s delta carries the JSDoc trim that caused the drift but neither citation line, and neither
@@ -406,7 +431,9 @@ running any new review round.
   Branch-created text in a pre-existing file, so in `F..S` for both.
 - **settles (1):**
   - layer 1 `20260831-213901/project-standards` — **caught**: P1 `:10` "New test-doc comment cites issue numbers
-    #469/#470", citing the AGENTS.md rule (its persona audits the diff against the project's written standards).
+    #469/#470", citing the AGENTS.md rule. Charge clause (persona): "You audit code changes against the
+    project's own standards files -- CLAUDE.md, AGENTS.md … Every finding you report must cite a specific
+    rule from a specific standards file."
   - Not charged, by contract: layer 2 `review` and `review-r2` — "Ignore style and naming" (the case the
     round-1 volatile-refs argument turned on, now settled by the charge rule rather than argued per case);
     layer 1 `correctness`, `adversarial`, `testing`, `performance` (their exclusion lists route style and
