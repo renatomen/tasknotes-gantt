@@ -191,6 +191,9 @@ function archivalSubjectProblem({ ref, sha, remoteSha }, resolvers) {
   if (!sha.startsWith(suffix)) return `names ${suffix}, which is not an abbreviation of the pushed commit ${sha.slice(0, 7)}`;
   const named = resolvers.objectsWithPrefix(suffix);
   if (named.length !== 1) return `names ${suffix}, which abbreviates ${named.length} objects here, not one`;
+  // Implied by the prefix clause when names resolve as object names - and the
+  // only clause that notices if they ever resolve as revisions again.
+  if (named[0] !== sha) return `names ${suffix}, which resolves to ${named[0].slice(0, 7)}, not the pushed commit ${sha.slice(0, 7)}`;
   return null;
 }
 

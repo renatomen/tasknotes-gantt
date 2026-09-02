@@ -351,19 +351,35 @@ describe('check-review-receipts check', () => {
       }
     });
 
-    it('resolves the suffix as an object abbreviation, never as a revision: a branch named like one does not vouch', () => {
-      // `git rev-parse deadbee` would follow a branch of that name; the pin must
-      // name the commit's own sha, so the decoy branch must not make it pass.
+    it('refuses a suffix that is not a prefix of the pushed sha, even when a branch of that name points at it', () => {
       const decoy = docsCommit.startsWith('deadbee') ? 'cafebab' : 'deadbee';
       git(['branch', decoy, docsCommit]);
       try {
         const run = runCheck(refLine(docsCommit, ZERO, `refs/e11-subjects/${decoy}`));
 
         expect(run.status).toBe(1);
-        expect(run.stderr).toContain('archival');
-        expect(run.stderr).toContain(decoy);
+        expect(run.stderr).toContain('not an abbreviation');
       } finally {
         git(['branch', '-D', decoy]);
+      }
+    });
+
+    it('resolves the abbreviation over object names only: a branch spelled like it, pointing elsewhere, neither vouches nor shadows', () => {
+      // The honest abbreviation passes the prefix clause, so this reaches the
+      // resolver. Revision resolution would follow the same-named branch to a
+      // different commit and refuse the honest pin; object-name resolution
+      // ignores refs and accepts it.
+      const abbreviation = short(codeCommit);
+      git(['branch', abbreviation, docsCommit]);
+      try {
+        expect(git(['rev-parse', '--verify', `${abbreviation}^{commit}`])).toBe(docsCommit);
+
+        const run = runCheck(refLine(codeCommit, ZERO, subjectRef(codeCommit)));
+
+        expect(run.status).toBe(0);
+        expect(run.stdout).toContain(`accepted without receipts (refs/e11-subjects/*): ${abbreviation}`);
+      } finally {
+        git(['branch', '-D', abbreviation]);
       }
     });
 

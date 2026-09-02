@@ -232,6 +232,17 @@ describe('validateArchivalSubjects', () => {
     expect(problems[0]).toContain('2 objects');
   });
 
+  it('refuses an abbreviation the resolver maps to one object that is not the pushed commit', () => {
+    // Cannot happen while names resolve as object names; the clause exists so a
+    // resolver that ever follows refs again is caught here, not in production.
+    const shadowed = { ...twoCommits, objectsWithPrefix: () => [OTHER_SHA] };
+
+    const problems = validateArchivalSubjects([creation('e0cae52', COMMIT)], shadowed);
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('not the pushed commit');
+  });
+
   it('refuses an annotated tag object, even one that points at the subject commit', () => {
     // The remote ref would hold the tag, so the pin would resolve to an object
     // other than the commit it names.
