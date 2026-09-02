@@ -205,8 +205,10 @@ history, excluded from every count in this file, and never promoted into the lab
 commit's branch diff; a layer-1 pass is one reviewer's return over one run's diff. Recorded 2026-09-02 from the
 preserved local-gate artifacts of the #473 / #474 / #475 campaigns (2026-08-31 → 2026-09-02). The raw reports
 live outside the repository (review artifacts are gitignored), so the tables below are the durable summary; the
-**subject commits themselves are preserved on origin under `refs/e11-subjects/<short-sha>`** (the 29 layer-2
-subjects plus the two legacy ones), a namespace the pre-push receipt gate exempts by name, so any clone can
+**subject commits themselves are preserved on origin under `refs/e11-subjects/<sha>`** (the 29 layer-2
+subjects plus the two legacy ones; these 31 are named by 7-character abbreviations, pins created since the gate's
+rule use the full object id), a namespace the pre-push receipt gate validates instead of gating — write-once
+pins, each a commit named by its own id — so any clone can
 `git fetch origin 'refs/e11-subjects/*:refs/e11-subjects/*'` and rebuild every `F..S` in this file. The
 window is closed: passes from later campaigns, this record's own review rounds included, are outside the 69 by
 definition.
