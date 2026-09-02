@@ -179,74 +179,41 @@ describe('validateArchivalSubjects', () => {
   const COMMIT = 'e0cae5257' + 'f'.repeat(31);
   const BLOB = 'e0cae52ab' + 'e'.repeat(31);
   const TAG = 'd'.repeat(40);
-  const subjectRef = (suffix: string) => `${ARCHIVAL_SUBJECT_REF_PREFIX}${suffix}`;
-  const creation = (suffix: string, sha: string) => ({ ref: subjectRef(suffix), sha, remoteSha: DELETED });
-  // `objectType` answers like `git cat-file -t`; `objectsWithPrefix` lists object
-  // names like `git rev-parse --disambiguate=<prefix>`, which also matches a
-  // prefix LONGER than the object name (measured on git 2.55) - never refs.
+  const subjectRef = (name: string) => `${ARCHIVAL_SUBJECT_REF_PREFIX}${name}`;
+  const creation = (name: string, sha: string) => ({ ref: subjectRef(name), sha, remoteSha: DELETED });
+  // Answers like `git cat-file -t`; unknown objects throw.
   const resolvers = (objects: Record<string, string>) => ({
     objectType: (sha: string): string => {
       const type = objects[sha];
       if (type === undefined) throw new Error(`fatal: unknown object ${sha}`);
       return type;
     },
-    objectsWithPrefix: (prefix: string): string[] =>
-      Object.keys(objects).filter((object) => object.startsWith(prefix) || prefix.startsWith(object)),
   });
   const twoCommits = resolvers({ [COMMIT]: 'commit', [OTHER_SHA]: 'commit' });
 
-  it('accepts an archival ref whose suffix abbreviates exactly the commit that was pushed', () => {
-    expect(validateArchivalSubjects([creation('e0cae52', COMMIT)], twoCommits)).toEqual([]);
-  });
-
-  it('accepts the full sha as the suffix', () => {
+  it('accepts a pin named by the full object id of the pushed commit', () => {
     expect(validateArchivalSubjects([creation(COMMIT, COMMIT)], twoCommits)).toEqual([]);
   });
 
-  it('refuses an archival ref whose suffix names a different commit than the one pushed', () => {
-    const problems = validateArchivalSubjects([creation('e0cae52', OTHER_SHA)], twoCommits);
+  it('refuses a pin named by an abbreviation, however unambiguous today: a later object can share it', () => {
+    const problems = validateArchivalSubjects([creation('e0cae52', COMMIT)], twoCommits);
 
     expect(problems).toHaveLength(1);
-    expect(problems[0]).toContain('e0cae52');
+    expect(problems[0]).toContain('full object id');
+  });
+
+  it('refuses a pin named by a different commit than the one pushed', () => {
+    const problems = validateArchivalSubjects([creation(COMMIT, OTHER_SHA)], twoCommits);
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(COMMIT.slice(0, 7));
     expect(problems[0]).toContain(OTHER_SHA.slice(0, 7));
-  });
-
-  it('refuses a suffix longer than the pushed sha, even when git resolves it to that commit', () => {
-    // 64 hex characters is a legal ref component and a legal sha256 width, so
-    // the pattern admits it; it is still not an abbreviation of a 40-char sha.
-    const overlong = COMMIT + '0'.repeat(24);
-
-    const problems = validateArchivalSubjects([creation(overlong, COMMIT)], twoCommits);
-
-    expect(problems).toHaveLength(1);
-    expect(problems[0]).toContain('not an abbreviation');
-  });
-
-  it('refuses a suffix that abbreviates more than one object, even when the pushed commit is among them', () => {
-    const problems = validateArchivalSubjects(
-      [creation('e0cae52', COMMIT)],
-      resolvers({ [COMMIT]: 'commit', [BLOB]: 'blob' }),
-    );
-
-    expect(problems).toHaveLength(1);
-    expect(problems[0]).toContain('2 objects');
-  });
-
-  it('refuses an abbreviation the resolver maps to one object that is not the pushed commit', () => {
-    // Cannot happen while names resolve as object names; the clause exists so a
-    // resolver that ever follows refs again is caught here, not in production.
-    const shadowed = { ...twoCommits, objectsWithPrefix: () => [OTHER_SHA] };
-
-    const problems = validateArchivalSubjects([creation('e0cae52', COMMIT)], shadowed);
-
-    expect(problems).toHaveLength(1);
-    expect(problems[0]).toContain('not the pushed commit');
   });
 
   it('refuses an annotated tag object, even one that points at the subject commit', () => {
     // The remote ref would hold the tag, so the pin would resolve to an object
     // other than the commit it names.
-    const problems = validateArchivalSubjects([creation('e0cae52', TAG)], resolvers({ [COMMIT]: 'commit', [TAG]: 'tag' }));
+    const problems = validateArchivalSubjects([creation(COMMIT, TAG)], resolvers({ [COMMIT]: 'commit', [TAG]: 'tag' }));
 
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('tag');
@@ -254,25 +221,21 @@ describe('validateArchivalSubjects', () => {
   });
 
   it('refuses a blob object', () => {
-    const problems = validateArchivalSubjects([creation('e0cae52', BLOB)], resolvers({ [COMMIT]: 'commit', [BLOB]: 'blob' }));
+    const problems = validateArchivalSubjects([creation(BLOB, BLOB)], resolvers({ [COMMIT]: 'commit', [BLOB]: 'blob' }));
 
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('not a commit');
   });
 
   it('refuses an object this repository does not hold', () => {
-    const problems = validateArchivalSubjects([creation('e0cae52', COMMIT)], resolvers({}));
+    const problems = validateArchivalSubjects([creation(COMMIT, COMMIT)], resolvers({}));
 
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('not a commit');
   });
 
-  it('refuses a suffix too short to name a commit', () => {
-    expect(validateArchivalSubjects([creation('e0c', COMMIT)], twoCommits)).toHaveLength(1);
-  });
-
   it('refuses a deletion of an archival ref', () => {
-    const deletion = { ref: subjectRef('e0cae52'), sha: DELETED, remoteSha: COMMIT };
+    const deletion = { ref: subjectRef(COMMIT), sha: DELETED, remoteSha: COMMIT };
 
     const problems = validateArchivalSubjects([deletion], twoCommits);
 
@@ -281,7 +244,7 @@ describe('validateArchivalSubjects', () => {
   });
 
   it('refuses replacing an existing archival ref, even with an honestly named commit', () => {
-    const replacement = { ref: subjectRef('e0cae52'), sha: COMMIT, remoteSha: OTHER_SHA };
+    const replacement = { ref: subjectRef(COMMIT), sha: COMMIT, remoteSha: OTHER_SHA };
 
     const problems = validateArchivalSubjects([replacement], twoCommits);
 

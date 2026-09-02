@@ -297,17 +297,25 @@ describe('check-review-receipts check', () => {
   });
 
   describe('archival review-subject refs', () => {
-    const subjectRef = (sha: string): string => `refs/e11-subjects/${short(sha)}`;
+    const subjectRef = (sha: string): string => `refs/e11-subjects/${sha}`;
 
-    it('accepts a subject ref whose suffix names the pushed commit, without receipts, and says so', () => {
+    it('accepts a pin named by the full sha of the pushed commit, without receipts, and says so', () => {
       const run = runCheck(refLine(codeCommit, ZERO, subjectRef(codeCommit)));
 
       expect(run.status).toBe(0);
-      expect(run.stdout).toContain('archival review subjects accepted');
+      expect(run.stdout).toContain(`archival review subjects accepted without receipts (refs/e11-subjects/*): ${codeCommit}`);
       expect(run.stdout).not.toContain('deletion-only push');
     });
 
-    it('refuses a subject ref whose suffix names a different commit than the one pushed', () => {
+    it('refuses a pin named by an abbreviation of the pushed commit', () => {
+      const run = runCheck(refLine(codeCommit, ZERO, subjectRef(short(codeCommit))));
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('archival');
+      expect(run.stderr).toContain('full object id');
+    });
+
+    it('refuses a pin named by a different commit than the one pushed', () => {
       // The prefix alone must not be the exemption: an archived object that is
       // not the named subject leaves the recorded review range unrebuildable.
       const run = runCheck(refLine(docsCommit, ZERO, subjectRef(codeCommit)));
@@ -330,13 +338,6 @@ describe('check-review-receipts check', () => {
       }
     });
 
-    it('refuses a suffix longer than the pushed sha', () => {
-      const run = runCheck(refLine(codeCommit, ZERO, `refs/e11-subjects/${codeCommit}${'0'.repeat(24)}`));
-
-      expect(run.status).toBe(1);
-      expect(run.stderr).toContain('not an abbreviation');
-    });
-
     it('refuses a subject ref whose object is not a commit', () => {
       const blob = git(['rev-parse', `${docsCommit}:docs/note.md`]);
       git(['tag', '-a', '-m', 'subject-blob', 'subject-blob-tag', blob]);
@@ -348,38 +349,6 @@ describe('check-review-receipts check', () => {
         expect(run.stderr).toContain('archival');
       } finally {
         git(['tag', '-d', 'subject-blob-tag']);
-      }
-    });
-
-    it('refuses a suffix that is not a prefix of the pushed sha, even when a branch of that name points at it', () => {
-      const decoy = docsCommit.startsWith('deadbee') ? 'cafebab' : 'deadbee';
-      git(['branch', decoy, docsCommit]);
-      try {
-        const run = runCheck(refLine(docsCommit, ZERO, `refs/e11-subjects/${decoy}`));
-
-        expect(run.status).toBe(1);
-        expect(run.stderr).toContain('not an abbreviation');
-      } finally {
-        git(['branch', '-D', decoy]);
-      }
-    });
-
-    it('resolves the abbreviation over object names only: a branch spelled like it, pointing elsewhere, neither vouches nor shadows', () => {
-      // The honest abbreviation passes the prefix clause, so this reaches the
-      // resolver. Revision resolution would follow the same-named branch to a
-      // different commit and refuse the honest pin; object-name resolution
-      // ignores refs and accepts it.
-      const abbreviation = short(codeCommit);
-      git(['branch', abbreviation, docsCommit]);
-      try {
-        expect(git(['rev-parse', '--verify', `${abbreviation}^{commit}`])).toBe(docsCommit);
-
-        const run = runCheck(refLine(codeCommit, ZERO, subjectRef(codeCommit)));
-
-        expect(run.status).toBe(0);
-        expect(run.stdout).toContain(`accepted without receipts (refs/e11-subjects/*): ${abbreviation}`);
-      } finally {
-        git(['branch', '-D', abbreviation]);
       }
     });
 

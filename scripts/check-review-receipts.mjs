@@ -14,9 +14,9 @@
  * <remote-ref> <remote-sha>") and demands receipts for every distinct pushed
  * local sha (deletions skipped, tag objects peeled to their commit); the
  * archival review-subject namespace is exempt once each of its refs proves to
- * name the commit it carries, and its refs are write-once - never replaced or
- * deleted through this hook (see ARCHIVAL_SUBJECT_REF_PREFIX); any malformed
- * line fails the push. Run manually without piped input it falls
+ * be named by the full id of the commit it carries, and its refs are
+ * write-once - never replaced or deleted through this hook (see
+ * ARCHIVAL_SUBJECT_REF_PREFIX); any malformed line fails the push. Run manually without piped input it falls
  * back to HEAD. Receipts live in .git/ (per-clone, never committed), keyed by
  * commit sha: {"receipts": {"<sha>": {"<layer>": "<iso timestamp>"}}}.
  *
@@ -95,10 +95,13 @@ function readReceipts() {
  * stays gated exactly as before. A ref here is a pin the corpus's recorded
  * ranges rebuild from, so it is write-once: a replacement (even by an honestly
  * named commit) or a deletion is refused rather than waved through as an
- * ordinary branch update or deletion would be.
+ * ordinary branch update or deletion would be. A pin is named by the FULL id
+ * of its commit: an abbreviation is unique only until some later object
+ * shares it, and nothing revalidates a pin after creation. The first 31 pins,
+ * created before this rule, carry 7-character abbreviations and stay as they
+ * are (the ref, not its name, is what a clone rebuilds from).
  */
 export const ARCHIVAL_SUBJECT_REF_PREFIX = 'refs/e11-subjects/';
-const SUBJECT_SUFFIX_PATTERN = /^[0-9a-f]{7,64}$/;
 
 /**
  * The distinct pushed local shas, the archival subject refs (kept apart so the
@@ -132,45 +135,25 @@ function peelToCommit(sha) {
 }
 
 /**
- * The pushed object's own type (`git cat-file -t`), or "missing". Not a peel: a
- * tag object that points at the subject commit is still a tag, and a ref that
- * stores it resolves to an object other than the commit it names.
+ * The pushed object's own type (`git cat-file -t`). Not a peel: a tag object
+ * that points at the subject commit is still a tag, and a ref that stores it
+ * resolves to an object other than the commit it names.
  */
 function objectType(sha) {
-  try {
-    return git(['cat-file', '-t', sha]).trim();
-  } catch {
-    return 'missing';
-  }
+  return git(['cat-file', '-t', sha]).trim();
 }
 
-/**
- * Every object whose name starts with the prefix - object names only. Revision
- * syntax (`git rev-parse <name>`) would also follow a branch or tag that
- * happens to be spelled like an abbreviation, and a pin must never be vouched
- * for by a ref. Git also matches a prefix LONGER than an object name, so the
- * caller checks the abbreviation itself and uses this only for uniqueness.
- */
-function objectsWithPrefix(prefix) {
-  try {
-    return git(['rev-parse', `--disambiguate=${prefix}`]).split('\n').map((line) => line.trim()).filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-const GIT_RESOLVERS = { objectType, objectsWithPrefix };
+const GIT_RESOLVERS = { objectType };
 
 /**
- * A pin is a write-once ref created under the name of its own commit. Each
+ * A pin is a write-once ref created under the full id of its own commit. Each
  * clause is checked as stated, not through a proxy: the pushed object IS a
- * commit (its own type - a peel would admit a tag pointing at one); the suffix
- * IS an abbreviation of that commit (a prefix of its sha, so no longer than it
- * - git resolves an overlong one, and a bare uniqueness test would let a
- * prefix-twin or a decoy branch vouch); the abbreviation names exactly one
- * object here; and the push CREATES the ref (a replacement or a deletion would
- * orphan the subject the corpus recorded). One problem string per offending
- * ref; empty means clean.
+ * commit (its own type - a peel would admit a tag pointing at one); the ref's
+ * name IS that commit's full id (no abbreviation resolves anything, so no
+ * prefix-twin, decoy branch, or later collision can vouch or shadow); and the
+ * push CREATES the ref (a replacement or a deletion would orphan the subject
+ * the corpus recorded). One problem string per offending ref; empty means
+ * clean.
  */
 export function validateArchivalSubjects(archival, resolvers = GIT_RESOLVERS) {
   const problems = [];
@@ -186,14 +169,8 @@ function archivalSubjectProblem({ ref, sha, remoteSha }, resolvers) {
   if (!isDeletion(remoteSha)) return `archival subjects are write-once; this ref already exists on the remote (at ${remoteSha.slice(0, 7)})`;
   const type = typeOrMissing(sha, resolvers);
   if (type !== 'commit') return `pushed object ${sha.slice(0, 7)} is a ${type}, not a commit`;
-  const suffix = ref.slice(ARCHIVAL_SUBJECT_REF_PREFIX.length);
-  if (!SUBJECT_SUFFIX_PATTERN.test(suffix)) return `"${suffix}" is too short to name a commit`;
-  if (!sha.startsWith(suffix)) return `names ${suffix}, which is not an abbreviation of the pushed commit ${sha.slice(0, 7)}`;
-  const named = resolvers.objectsWithPrefix(suffix);
-  if (named.length !== 1) return `names ${suffix}, which abbreviates ${named.length} objects here, not one`;
-  // Implied by the prefix clause when names resolve as object names - and the
-  // only clause that notices if they ever resolve as revisions again.
-  if (named[0] !== sha) return `names ${suffix}, which resolves to ${named[0].slice(0, 7)}, not the pushed commit ${sha.slice(0, 7)}`;
+  const name = ref.slice(ARCHIVAL_SUBJECT_REF_PREFIX.length);
+  if (name !== sha) return `must be named by the full object id of the pushed commit ${sha.slice(0, 7)}, not "${name}"`;
   return null;
 }
 
