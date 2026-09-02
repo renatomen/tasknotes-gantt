@@ -138,32 +138,49 @@ function peelOrNull(sha, peel) {
 }
 
 /**
- * The exemption is granted to a NAME, so the name has to be honest: the pushed
- * object must be a commit, and the ref's suffix must resolve - as git resolves
- * an abbreviation, to exactly one commit - to that same commit. A prefix test
- * would pass a prefix-twin; a blob or an unrelated commit parked under a
- * subject's name would make the corpus's recorded ranges rebuild against the
- * wrong tree; and a deletion would remove the pin outright. One problem string
- * per dishonest ref; empty means clean.
+ * Every object whose name starts with the prefix - object names only. Revision
+ * syntax (`git rev-parse <name>`) would also follow a branch or tag that
+ * happens to be spelled like an abbreviation, and a pin must never be vouched
+ * for by a ref.
  */
-export function validateArchivalSubjects(archival, peel = peelToCommit) {
+function objectsWithPrefix(prefix) {
+  try {
+    return git(['rev-parse', `--disambiguate=${prefix}`]).split('\n').map((line) => line.trim()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+const GIT_RESOLVERS = { peel: peelToCommit, objectsWithPrefix };
+
+/**
+ * The exemption is granted to a NAME, so the name has to be honest: the pushed
+ * object must be a commit, and the ref's suffix must abbreviate exactly one
+ * object here, that same commit. A prefix test alone would pass a prefix-twin;
+ * revision resolution would let a branch spelled like an abbreviation vouch; a
+ * blob or an unrelated commit parked under a subject's name would make the
+ * corpus's recorded ranges rebuild against the wrong tree; and a deletion would
+ * remove the pin outright. One problem string per dishonest ref; empty means
+ * clean.
+ */
+export function validateArchivalSubjects(archival, resolvers = GIT_RESOLVERS) {
   const problems = [];
   for (const { ref, sha } of archival) {
-    const problem = archivalSubjectProblem(ref, sha, peel);
+    const problem = archivalSubjectProblem(ref, sha, resolvers);
     if (problem !== null) problems.push(`${ref}: ${problem}`);
   }
   return problems;
 }
 
-function archivalSubjectProblem(ref, sha, peel) {
+function archivalSubjectProblem(ref, sha, resolvers) {
   if (isDeletion(sha)) return 'deleting an archival subject is refused; the corpus rebuilds its ranges from it';
   const suffix = ref.slice(ARCHIVAL_SUBJECT_REF_PREFIX.length);
-  const commit = peelOrNull(sha, peel);
+  const commit = peelOrNull(sha, resolvers.peel);
   if (commit === null) return `pushed object ${sha.slice(0, 7)} is not a commit`;
   if (!SUBJECT_SUFFIX_PATTERN.test(suffix)) return `"${suffix}" is too short to name a commit`;
-  const named = peelOrNull(suffix, peel);
-  if (named === null) return `names ${suffix}, which does not resolve to exactly one commit here, while the pushed object is commit ${commit.slice(0, 7)}`;
-  if (named !== commit) return `names ${suffix}, which is commit ${named.slice(0, 7)}, but the pushed object is commit ${commit.slice(0, 7)}`;
+  const named = resolvers.objectsWithPrefix(suffix);
+  if (named.length !== 1) return `names ${suffix}, which abbreviates ${named.length} objects here, not one`;
+  if (named[0] !== commit) return `names ${suffix}, which is object ${named[0].slice(0, 7)}, but the pushed object is commit ${commit.slice(0, 7)}`;
   return null;
 }
 

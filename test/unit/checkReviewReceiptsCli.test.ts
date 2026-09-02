@@ -331,6 +331,22 @@ describe('check-review-receipts check', () => {
       }
     });
 
+    it('resolves the suffix as an object abbreviation, never as a revision: a branch named like one does not vouch', () => {
+      // `git rev-parse deadbee` would follow a branch of that name; the pin must
+      // name the commit's own sha, so the decoy branch must not make it pass.
+      const decoy = docsCommit.startsWith('deadbee') ? 'cafebab' : 'deadbee';
+      git(['branch', decoy, docsCommit]);
+      try {
+        const run = runCheck(refLine(docsCommit, ZERO, `refs/e11-subjects/${decoy}`));
+
+        expect(run.status).toBe(1);
+        expect(run.stderr).toContain('archival');
+        expect(run.stderr).toContain(decoy);
+      } finally {
+        git(['branch', '-D', decoy]);
+      }
+    });
+
     it('refuses deleting a subject ref: the corpus rebuilds its ranges from it', () => {
       const run = runCheck(refLine(ZERO, codeCommit, subjectRef(codeCommit)));
 
