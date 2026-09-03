@@ -105,6 +105,18 @@ stop the project and consult the maintainer before changing production behavior.
   `docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md`; real-SVAR
   characterization during #354.
 
+### P1 — A stale mount can register its paths onto a live mount's calendar watch (2026-09-03)
+Found while reviewing the register.ts characterization plan; not fixed there, because that
+plan changes no production behaviour. The render-data assembly reads the calendar watch after
+its controller fan-out. If one mount is awaiting those reads while a second mount replaces the
+watch and completes, the first mount resumes and registers its now-stale known paths and
+associations onto the second mount's watch — the association map is cleared and refilled with
+stale data, and the association snapshot is overwritten — before the mount-token check discards
+the stale pass. A stale-operation guard (compare the mount token before registering, not after)
+is the fix; it is a behaviour change and belongs in its own test-first unit. The plan's
+characterization pin records today's late read and explicitly does not require the corruption,
+so fixing this does not turn that pin red.
+
 ### P2 — Executor residuals from the #349 review chain (documented, deliberate)
 Accepted trade-offs and tail risks the seven local review cycles documented rather than fixed;
 revisit if any bites in practice:
