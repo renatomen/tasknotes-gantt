@@ -18,6 +18,7 @@ import type { BasesAllOptions, BasesOptions, BasesOptionGroup } from 'obsidian';
 import { FIELD_MAPPING_KEYS } from './fieldMappingConfig';
 import { DEFAULT_MAX_HEIGHT, GANTT_MIN_HEIGHT } from './ganttHeight';
 import type { BarChannelSource, BarIconSource } from './barTreatment';
+import type { Branded } from '../brandedValue';
 import type { FieldMappings, ProgressMode, TimeEstimateMode } from './types/field-mapping';
 import type { EstimateMeaning, NonWorkingRendering } from '../controller/calendar/estimateMeaning';
 import type { LegendPosition } from './legendLayout';
@@ -602,14 +603,33 @@ function coerceChannelSource(raw: unknown): BarChannelSource | null {
 }
 
 /**
+ * The three bar-treatment channel reads, branded apart at their readers.
+ *
+ * All three answer a plain string union today, and `BarIconSource` is a strict
+ * subset of `BarChannelSource` — so the icon source is assignable into a fill or
+ * strip slot, and fill and strip into each other. A render host that crosses two
+ * of them typechecks and paints the wrong channel, with the fixture that would
+ * discriminate them supplying the same value for both.
+ */
+
+/** {@link readBarFillSource}. */
+export type BarFillChannel = Branded<BarChannelSource, 'viewOptions.barFillSource'>;
+
+/** {@link readBarStripSource}. */
+export type BarStripChannel = Branded<BarChannelSource, 'viewOptions.barStripSource'>;
+
+/** {@link readBarIcon}. */
+export type BarIconChannel = Branded<BarIconSource, 'viewOptions.barIcon'>;
+
+/**
  * Read the per-view Bar fill channel source from `tngantt_barFillSource`,
  * defaulting to `default` when the key is absent or holds an unknown value. Pure
  * (no Obsidian/DOM).
  *
  * @param get - reads a per-view option value by key (the Bases `config.get`).
  */
-export function readBarFillSource(get: (key: string) => unknown): BarChannelSource {
-  return coerceChannelSource(get('tngantt_barFillSource')) ?? 'default';
+export function readBarFillSource(get: (key: string) => unknown): BarFillChannel {
+  return (coerceChannelSource(get('tngantt_barFillSource')) ?? 'default') as BarFillChannel;
 }
 
 /**
@@ -619,8 +639,8 @@ export function readBarFillSource(get: (key: string) => unknown): BarChannelSour
  *
  * @param get - reads a per-view option value by key (the Bases `config.get`).
  */
-export function readBarStripSource(get: (key: string) => unknown): BarChannelSource {
-  return coerceChannelSource(get('tngantt_barStripSource')) ?? 'none';
+export function readBarStripSource(get: (key: string) => unknown): BarStripChannel {
+  return (coerceChannelSource(get('tngantt_barStripSource')) ?? 'none') as BarStripChannel;
 }
 
 /**
@@ -629,9 +649,9 @@ export function readBarStripSource(get: (key: string) => unknown): BarChannelSou
  *
  * @param get - reads a per-view option value by key (the Bases `config.get`).
  */
-export function readBarIcon(get: (key: string) => unknown): BarIconSource {
+export function readBarIcon(get: (key: string) => unknown): BarIconChannel {
   const raw = get('tngantt_barIcon');
-  return raw === 'status' || raw === 'priority' ? raw : 'none';
+  return (raw === 'status' || raw === 'priority' ? raw : 'none') as BarIconChannel;
 }
 
 /**

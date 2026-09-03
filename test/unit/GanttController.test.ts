@@ -27,6 +27,7 @@ import {
 import type {
   GanttControllerDeps,
   DatePolicyConfig,
+  ChoiceCatalog,
 } from '../../src/controller/GanttController';
 import type {
   DataSource,
@@ -258,6 +259,24 @@ describe('GanttController — choice options', () => {
     expect(priority2).toBe(priority1);
     expect(optionsSpy).toHaveBeenCalledTimes(2);
   });
+
+  it('answers a catalog indexed by the role, so the two cannot be crossed', async () => {
+    const tn = new FakeSource({ write: false, tasks: [task({ path: 'a.md' })] });
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({ tasks: [] }),
+    });
+    await controller.init();
+
+    const statuses = await controller.getChoiceOptions('status');
+    // One role-parameterized reader answers the same shape for both roles, so a
+    // single brand would leave them interchangeable and the priority picker
+    // would offer — and persist — status values.
+    // @ts-expect-error the status catalog cannot stand in for the priority one
+    const crossed: ChoiceCatalog<'priority'> = statuses;
+
+    expect(crossed).toBe(statuses);
+  });
 });
 
 describe('GanttController — reactive re-selection', () => {
@@ -354,6 +373,24 @@ describe('GanttController — recomputeGeneration (task-fact re-read counters)',
     const controller = subscribableController(new FakeSource({ tasks: [task({ path: 'a.md' })] }));
 
     expect(controller.recomputeGeneration()).toEqual({ started: 0, delivered: 0 });
+  });
+
+  it('hands out a bound reader that RE-READS the counters on every call', async () => {
+    const tn = new FakeSource({ write: false, tasks: [task({ path: 'a.md' })] });
+    const controller = subscribableController(tn);
+    await controller.init();
+
+    // Captured once, called twice across a genuine re-read. An unbound method
+    // reference throws here; a closure that captured the counters answers the
+    // first generation again, and a later refresh then looks unchanged while
+    // the drag executor keeps overlaying stale authored facts.
+    const readGeneration = controller.buildRefreshGeneration();
+    expect(readGeneration()).toEqual({ started: 1, delivered: 1 });
+
+    tn.fireChange();
+    await flush();
+
+    expect(readGeneration()).toEqual({ started: 2, delivered: 2 });
   });
 
   it('advances delivered for a genuine re-read even when the snapshot is unchanged and notify is skipped', async () => {
@@ -636,6 +673,31 @@ describe('GanttController — getLinks', () => {
     await controller.init();
     const [link] = await controller.getLinks('primary');
     expect(link).toMatchObject({ type: 's2s', reltype: 'STARTTOSTART', gap: 'P1D' });
+  });
+
+  it('forwards the mode it was given to getLinks and answers with that same mode', async () => {
+    const tasks = [task({ path: 'pred.md' }), task({ path: 'dep.md' })];
+    const tn = new FakeSource({
+      tasks,
+      deps: { 'dep.md': [{ predecessorPath: 'pred.md', reltype: 'FINISHTOSTART', gap: null }] },
+    });
+    const controller = makeController({
+      createTaskNotesSource: async () => tn,
+      createBasesSource: () => new FakeSource({}),
+    });
+    await controller.init();
+    const rewriteFor = jest.spyOn(controller, 'getLinks');
+
+    // `all` is the exercised case: a producer that ignored its argument and
+    // asked for `primary` would still mint a well-formed pair, and the pairing
+    // guard cannot see inside its own producer.
+    const all = await controller.buildLinkSet('all');
+    const primary = await controller.buildLinkSet('primary');
+
+    expect(rewriteFor.mock.calls).toEqual([['all'], ['primary']]);
+    expect(all.mode).toBe('all');
+    expect(primary.mode).toBe('primary');
+    expect(all.links).toEqual(await controller.getLinks('all'));
   });
 
   it('produces no links for a Bases source (no dependency model)', async () => {

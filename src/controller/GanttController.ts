@@ -118,6 +118,7 @@ import {
 } from './calendar/derivation';
 import { needsCalendarSeam } from './calendar/estimateMeaning';
 import type { CalendarNoteInput } from './calendar/resolveCalendars';
+import type { Branded } from '../brandedValue';
 import { minutesToSpanDays } from './durationConversion';
 import { resolveParentLink } from '../datasource/parentLink';
 import { resolvePropertyPatch } from './propertyPatchResolution';
@@ -437,6 +438,90 @@ export interface RecomputeGeneration {
   started: number;
   delivered: number;
 }
+
+/**
+ * The controller reads whose values the render host must not be able to
+ * fabricate, each branded on its reader's *declared return type*.
+ *
+ * Branding the shared domain type instead would reach every consumer of it —
+ * the measured reason the dependency-arrow mode's brand was rejected. Here the
+ * value still flows one way, producer to render contract, so every downstream
+ * reader of the plain type keeps typechecking while the render host loses the
+ * ability to invent a stand-in: `new Set()` for the managed paths marks every
+ * row non-editable, and `{ write: false }` for the capabilities silently seeds
+ * SVAR read-only, both with every gate green.
+ *
+ * The cast that mints each brand lives in its reader and nowhere else.
+ */
+
+/** {@link GanttController.capabilities}. */
+export type SourceCapabilities = Branded<DataSourceCapabilities, 'controller.capabilities'>;
+
+/** {@link GanttController.getStatusColors}. */
+export type StatusColorCatalog = Branded<StatusColor[], 'controller.statusColors'>;
+
+/**
+ * {@link GanttController.getPriorityColors}. Distinct from the status palette
+ * for a structural reason: `StatusColor` carries every `PriorityColor` field
+ * plus `isCompleted`, so the status catalog is assignable to a bare priority
+ * slot and every bar would show the status palette for its priority.
+ */
+export type PriorityColorCatalog = Branded<PriorityColor[], 'controller.priorityColors'>;
+
+/** {@link GanttController.getManagedPaths}. */
+export type ManagedTaskPaths = Branded<ReadonlySet<string>, 'controller.managedPaths'>;
+
+/**
+ * {@link GanttController.getChoiceOptions} for one role. The method is
+ * role-parameterized and answers the same shape for both, so the brand is
+ * indexed by role — otherwise branding "at the producer" leaves the two
+ * catalogs interchangeable and the priority picker offers status values.
+ */
+export type ChoiceCatalog<Role extends ChoiceRole> = Branded<
+  ChoiceOption[],
+  `controller.choiceOptions.${Role}`
+>;
+
+/** {@link GanttController.isStatusWritable}. */
+export type StatusWritable = Branded<boolean, 'controller.statusWritable'>;
+
+/** {@link GanttController.isPriorityWritable}. */
+export type PriorityWritable = Branded<boolean, 'controller.priorityWritable'>;
+
+/**
+ * The dependency links together with the arrow mode they were rewritten for,
+ * minted as one value by {@link GanttController.buildLinkSet}. A pair the host
+ * fills field by field is not a mint: it can publish `primary` beside links
+ * generated for `all`, which stamps the has-dependencies indicator on
+ * non-primary instances whose arrows are never drawn.
+ */
+export type RenderLinkSet = Branded<
+  { links: RenderLink[]; mode: LinkRewriteMode },
+  'controller.linkSet'
+>;
+
+/** {@link GanttController.buildRefreshGeneration}. */
+export type RefreshGenerationReader = Branded<
+  () => RecomputeGeneration,
+  'controller.refreshGeneration'
+>;
+
+/** {@link GanttController.buildDeriveEstimate}. */
+export type EstimateDerivation = Branded<
+  (taskPath: string, span: { start: Date; end: Date }) => DerivedEstimate,
+  'controller.deriveEstimate'
+>;
+
+/** {@link GanttController.buildDeriveSpan}. */
+export type SpanDerivation = Branded<
+  (
+    taskPath: string,
+    edge: 'start' | 'end',
+    anchor: Date,
+    estimateMinutes: number,
+  ) => DerivedGeometry,
+  'controller.deriveSpan'
+>;
 
 /** Maps a TaskNotes reltype to the SVAR link type. */
 const RELTYPE_TO_SVAR: Readonly<Record<SourceDependency['reltype'], string>> = {
@@ -790,8 +875,8 @@ export class GanttController {
    * gate mutation affordances (R5). Reports read-only (`write: false`) before
    * {@link init} or if no source is selected.
    */
-  public get capabilities(): DataSourceCapabilities {
-    return this.activeSource?.capabilities ?? { write: false };
+  public get capabilities(): SourceCapabilities {
+    return (this.activeSource?.capabilities ?? { write: false }) as SourceCapabilities;
   }
 
   /**
@@ -817,6 +902,21 @@ export class GanttController {
   }
 
   /**
+   * {@link recomputeGeneration} as an already-bound reader, joining the
+   * derivation builders beside it.
+   *
+   * The render host cannot hand the bare method reference on instead: that
+   * typechecks against a plain `() => RecomputeGeneration` and then throws on
+   * the first drag, reading `readStartedSeq` off no receiver. Nor can it hand
+   * on a closure over today's counters — the reader must re-read them, or a
+   * later refresh looks unchanged and the drag executor's settled-facts ledger
+   * keeps overlaying stale authored facts.
+   */
+  public buildRefreshGeneration(): RefreshGenerationReader {
+    return (() => this.recomputeGeneration()) as RefreshGenerationReader;
+  }
+
+  /**
    * The dependency links for the current snapshot, rewritten to instance-id
    * endpoints for the requested mode (R27: `'primary'` | `'all'`).
    *
@@ -830,13 +930,30 @@ export class GanttController {
   }
 
   /**
+   * {@link getLinks} for `mode`, returned together with the mode it rewrote
+   * for, so the render contract publishes the mode that actually produced its
+   * links.
+   *
+   * Taking the mode once and answering both parts is what closes the pairing: a
+   * caller that assembles the two itself can publish `'primary'` beside links
+   * generated for `'all'`, which typechecks, renders no arrows for the extra
+   * endpoints, and still stamps the has-dependencies indicator on the
+   * non-primary instances they belong to.
+   *
+   * @param mode - Endpoint cardinality for link rewriting.
+   */
+  public async buildLinkSet(mode: LinkRewriteMode): Promise<RenderLinkSet> {
+    return { links: await this.getLinks(mode), mode } as RenderLinkSet;
+  }
+
+  /**
    * The active source's status→color palette (TaskNotes), or `[]` when the
    * source exposes none or before {@link init}. The view reads this to color
    * bars by status. Source-agnostic: surfaces from a `tasknotes-first`
    * TaskNotesSource or, in `bases-scoped`, the composite's TaskNotes enrichment.
    */
-  public async getStatusColors(): Promise<StatusColor[]> {
-    return (await this.activeSource?.getStatusColors?.()) ?? [];
+  public async getStatusColors(): Promise<StatusColorCatalog> {
+    return ((await this.activeSource?.getStatusColors?.()) ?? []) as StatusColorCatalog;
   }
 
   /**
@@ -844,8 +961,8 @@ export class GanttController {
    * source exposes none or before {@link init}. The view reads this to color
    * bars by priority. Source-agnostic, mirroring {@link getStatusColors}.
    */
-  public async getPriorityColors(): Promise<PriorityColor[]> {
-    return (await this.activeSource?.getPriorityColors?.()) ?? [];
+  public async getPriorityColors(): Promise<PriorityColorCatalog> {
+    return ((await this.activeSource?.getPriorityColors?.()) ?? []) as PriorityColorCatalog;
   }
 
   /**
@@ -856,13 +973,13 @@ export class GanttController {
    * invalidated with the other enrichment caches on a TaskNotes data change, so
    * echo/config refreshes never re-run a full task list.
    */
-  public async getManagedPaths(): Promise<ReadonlySet<string>> {
+  public async getManagedPaths(): Promise<ManagedTaskPaths> {
     if (this.cachedManagedPaths !== null) {
-      return this.cachedManagedPaths;
+      return this.cachedManagedPaths as ManagedTaskPaths;
     }
     const paths = (await this.activeSource?.getManagedPaths?.()) ?? new Set<string>();
     this.cachedManagedPaths = paths;
-    return paths;
+    return paths as ManagedTaskPaths;
   }
 
   /**
@@ -872,14 +989,16 @@ export class GanttController {
    * and invalidated with the other enrichment caches on a TaskNotes data
    * change, mirroring {@link getManagedPaths}.
    */
-  public async getChoiceOptions(role: ChoiceRole): Promise<ChoiceOption[]> {
+  public async getChoiceOptions<Role extends ChoiceRole>(
+    role: Role,
+  ): Promise<ChoiceCatalog<Role>> {
     const cached = this.cachedChoiceOptions.get(role);
     if (cached) {
-      return cached;
+      return cached as ChoiceCatalog<Role>;
     }
     const options = (await this.activeSource?.getChoiceOptions?.(role)) ?? [];
     this.cachedChoiceOptions.set(role, options);
-    return options;
+    return options as ChoiceCatalog<Role>;
   }
 
   /**
@@ -1414,13 +1533,13 @@ export class GanttController {
   }
 
   /** Whether an inline edit of the mapped status property can persist where it is read. */
-  public isStatusWritable(): boolean {
-    return this.statusWritable;
+  public isStatusWritable(): StatusWritable {
+    return this.statusWritable as StatusWritable;
   }
 
   /** Whether an inline edit of the mapped priority property can persist where it is read. */
-  public isPriorityWritable(): boolean {
-    return this.priorityWritable;
+  public isPriorityWritable(): PriorityWritable {
+    return this.priorityWritable as PriorityWritable;
   }
 
   /**
@@ -1934,11 +2053,8 @@ export class GanttController {
    * blocked days as worked on a drag past it. Transient, so the pass cache
    * survives.
    */
-  public buildDeriveEstimate(): (
-    taskPath: string,
-    span: { start: Date; end: Date },
-  ) => DerivedEstimate {
-    return (taskPath, span) => {
+  public buildDeriveEstimate(): EstimateDerivation {
+    return ((taskPath, span) => {
       const blocking = this.writeSeamNeeded(taskPath)
         ? this.transientBlockingFor({
             path: taskPath,
@@ -1954,7 +2070,7 @@ export class GanttController {
         1,
       );
       return deriveEstimate(facts, span);
-    };
+    }) as EstimateDerivation;
   }
 
   /**
@@ -1967,13 +2083,8 @@ export class GanttController {
    * estimate would walk into its blind zone and stop short of the read path's
    * answer.
    */
-  public buildDeriveSpan(): (
-    taskPath: string,
-    edge: 'start' | 'end',
-    anchor: Date,
-    estimateMinutes: number,
-  ) => DerivedGeometry {
-    return (taskPath, edge, anchor, estimateMinutes) => {
+  public buildDeriveSpan(): SpanDerivation {
+    return ((taskPath, edge, anchor, estimateMinutes) => {
       const durationDays = minutesToSpanDays(estimateMinutes);
       const blocking = this.writeSeamNeeded(taskPath)
         ? this.transientBlockingFor({
@@ -1985,7 +2096,7 @@ export class GanttController {
         : null;
       const plain = projectPlainSpan(edge, anchor, durationDays);
       return deriveSpan(this.spanFactsFor(taskPath, plain, blocking, durationDays), estimateMinutes);
-    };
+    }) as SpanDerivation;
   }
 
   /** Assemble one task's derivation facts — the only place write-path facts form. */

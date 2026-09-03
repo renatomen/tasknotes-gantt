@@ -127,6 +127,27 @@ describe('buildCellData', () => {
     expect(cellRenders.size).toBe(0);
     expect(propertyValues.size).toBe(0);
   });
+
+  it('reports the locale it actually formatted its dates with', () => {
+    const due = new Date(2026, 0, 1);
+    const entries = [{ file: { path: 'a.md' }, fm: { 'note.due': due } }];
+    // The render contract republishes THIS value, so a pass that formatted in
+    // one locale and reported another would leave the date editor rejecting
+    // valid local input with every other gate green. Asserting the reported
+    // locale against the text it produced is what ties the two together.
+    for (const locale of ['de-DE', 'sv-SE']) {
+      const result = buildCellData(entries, ['note.due'], { ...context, dateLocale: locale });
+      expect(result.dateLocale).toBe(locale);
+      expect(result.cellRenders.get('a.md')?.['note.due']).toEqual({
+        mode: 'text',
+        text: intlReference(due, result.dateLocale),
+      });
+    }
+  });
+
+  it('reports the locale on the empty-column early return as well', () => {
+    expect(buildCellData([{ file: { path: 'a.md' } }], [], context).dateLocale).toBe('de-DE');
+  });
 });
 
 describe('buildFetchedCellData', () => {

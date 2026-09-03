@@ -18,6 +18,7 @@
  * @module bases/cellRender
  */
 
+import type { Branded } from '../brandedValue';
 import { buildCellMarkdownSource } from './cellMarkdownSource';
 import type { CellRenderType } from './cellRenderType';
 import { formatPropertyValue } from './propertyFormat';
@@ -38,12 +39,28 @@ export type CellRender =
 export type ResolveRenderType = (propId: string, valueKind: TypedValueKind) => CellRenderType;
 
 /** The paired output of one extraction pass: display descriptors + typed values. */
-export interface CellData {
+interface CellDataFields {
   /** `sourcePath → { propId: CellRender }` — drives cell rendering. */
   cellRenders: Map<string, Record<string, CellRender>>;
   /** `sourcePath → { propId: TypedValue }` — kept for the diff-sync fingerprint. */
   propertyValues: Map<string, Record<string, TypedValue>>;
+  /**
+   * The display locale every date in {@link cellRenders} was formatted with —
+   * the pass's own locale, carried out on its result rather than published
+   * separately. The render contract republishes this value, so only one locale
+   * exists in a pass and no second one can disagree with it: formatting in one
+   * locale while publishing another leaves the date editor rejecting valid
+   * local input, and passes every gate.
+   */
+  dateLocale: string;
 }
+
+/**
+ * One assembly pass's cell data. Branded so it can only come from
+ * {@link buildCellData}: a caller that assembled the maps and a locale itself
+ * would re-create the very pair the carried locale exists to remove.
+ */
+export type CellData = Branded<CellDataFields, 'cellRender.cellData'>;
 
 /**
  * Build one cell's render descriptor from its raw value, classified value, and
@@ -109,7 +126,7 @@ export function buildCellData(
   const { extractor, resolveRenderType, dateLocale } = context;
   const cellRenders = new Map<string, Record<string, CellRender>>();
   const propertyValues = new Map<string, Record<string, TypedValue>>();
-  if (visiblePropIds.length === 0) return { cellRenders, propertyValues };
+  if (visiblePropIds.length === 0) return { cellRenders, propertyValues, dateLocale } as CellData;
 
   for (const entry of entries) {
     const path = (entry as { file?: { path?: unknown } })?.file?.path;
@@ -126,7 +143,7 @@ export function buildCellData(
     cellRenders.set(path, renders);
     propertyValues.set(path, typed);
   }
-  return { cellRenders, propertyValues };
+  return { cellRenders, propertyValues, dateLocale } as CellData;
 }
 
 /**
