@@ -105,6 +105,59 @@ stop the project and consult the maintainer before changing production behavior.
   `docs/plans/2026-07-27-001-refactor-drag-derivation-authority-plan.md`; real-SVAR
   characterization during #354.
 
+### P1 — A stale mount can register its paths onto a live mount's calendar watch (2026-09-03)
+Found while reviewing `docs/plans/2026-09-03-001-refactor-register-render-data-characterization-plan.md`;
+not fixed there, because that plan changes no production behaviour. The render-data assembly reads the calendar watch after
+its controller fan-out. If one mount is awaiting those reads while a second mount replaces the
+watch and completes, the first mount resumes and registers its now-stale known paths and
+associations onto the second mount's watch — the association map is cleared and refilled with
+stale data, and the association snapshot is overwritten — before the mount-token check discards
+the stale pass. A mount-token comparison is **not** sufficient, and an earlier draft of this entry said it was.
+Two refreshes of the *same* mount race the same way and carry the same valid token: the
+coalescer runs its callback without awaiting it (`src/bases/coalesce.ts`), the controller's change
+notification launches `refreshData()` fire-and-forget behind only a token check, and `refreshData`
+has no latest-wins guard before `store.set`. If build A stalls in the fan-out while build B
+completes, A resumes and overwrites B's associations *and* B's store data. The fix is a per-build
+generation guard checked immediately before the watch mutations and before `store.set`, of which
+the mount-token check is only the coarser outer half; it is a behaviour change and belongs in its
+own test-first unit. The superseding plan
+extracts the projection as a pure function and therefore plans no test that observes the watch at
+all, so nothing in it pins or blocks this fix — and nothing in it would catch a regression here
+either. Whoever takes this writes the first test that can see the registration timing.
+
+### P2 — The calendar alias reconcile couples to its consumers through config, not a value (2026-09-03)
+Found while reviewing `docs/plans/2026-09-03-001-refactor-register-render-data-characterization-plan.md`.
+`reconcileCalendarSelectionAlias()` runs at
+the head of the render pass and may write `tngantt_displayCalendars`, which `buildCalendarShading`
+and the highlight field then read back out of config. The ordering is therefore temporal and
+implicit, and nothing observes it: `reconcileLegacyFlip` writes only when a stored selection is
+paired with a defined `tngantt_highlightWeekends`, and no tracked fixture sets both — one stores a
+selection with no legacy key, another sets the legacy key with no stored selection. An edit that
+dropped the call, or moved it after the shading call, would therefore keep every gate green while
+the stored calendar selection and the legacy highlight toggle silently diverged. The fix is to make the
+dependency explicit — have the reconcile return the reconciled selection and have its consumers
+take it as an argument — so the compiler enforces the order that comment and convention enforce
+today. That is a production behaviour change and belongs in its own test-first unit; plan
+`2026-09-03-001` therefore leaves the call untouched and treats its position as a review
+obligation on the U1 diff.
+
+### P2 — Nothing proves the render pass still consults the dependency-arrow option (2026-09-03)
+Found while reviewing `docs/plans/2026-09-03-001-refactor-register-render-data-characterization-plan.md`.
+The view reads
+`tngantt_dependencyArrowMode` once per pass and hands the result to the links read and to the
+render contract. Every tier tests around that read and none tests it: the reader's own coercion
+is unit-testable, the projection asserts the field it was given, and no tracked fixture sets the
+option to `all`. So an edit that substitutes a literal for the read, or reads the wrong key,
+leaves the user's `all` setting silently ineffective with every gate green. Branding the mode
+type was measured and rejected as the remedy: `LinkRewriteMode` is shared by the controller's
+link API, the expansion rewriter, the sync layer and `GanttViewData`, so guarding one host call
+site would ripple through four modules. The proportionate fix is a fixture with the option set to
+`all` over recurring instances with dependencies, asserting the expanded edges reach the
+contract. Plan `2026-09-03-001` U4 therefore leaves the coercion inlined rather than lifting it
+to `viewOptions.ts` beside its siblings: the lift is a wiring change and this plan does not change
+what it cannot verify. Whoever writes that fixture takes the lift with it — arrow-mode work, for
+whoever next touches that path.
+
 ### P2 — Executor residuals from the #349 review chain (documented, deliberate)
 Accepted trade-offs and tail risks the seven local review cycles documented rather than fixed;
 revisit if any bites in practice:

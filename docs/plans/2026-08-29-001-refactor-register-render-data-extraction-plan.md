@@ -5,6 +5,7 @@ date: 2026-08-29
 artifact_contract: ce-unified-plan/v1
 artifact_readiness: implementation-ready
 product_contract_source: ce-plan-bootstrap
+superseded_by: docs/plans/2026-09-03-001-refactor-register-render-data-characterization-plan.md
 execution: code
 ---
 
