@@ -112,8 +112,15 @@ its controller fan-out. If one mount is awaiting those reads while a second moun
 watch and completes, the first mount resumes and registers its now-stale known paths and
 associations onto the second mount's watch — the association map is cleared and refilled with
 stale data, and the association snapshot is overwritten — before the mount-token check discards
-the stale pass. A stale-operation guard (compare the mount token before registering, not after)
-is the fix; it is a behaviour change and belongs in its own test-first unit. The superseding plan
+the stale pass. A mount-token comparison is **not** sufficient, and an earlier draft of this entry said it was.
+Two refreshes of the *same* mount race the same way and carry the same valid token: the
+coalescer runs its callback without awaiting it (`src/bases/coalesce.ts`), the controller's change
+notification launches `refreshData()` fire-and-forget behind only a token check, and `refreshData`
+has no latest-wins guard before `store.set`. If build A stalls in the fan-out while build B
+completes, A resumes and overwrites B's associations *and* B's store data. The fix is a per-build
+generation guard checked immediately before the watch mutations and before `store.set`, of which
+the mount-token check is only the coarser outer half; it is a behaviour change and belongs in its
+own test-first unit. The superseding plan
 extracts the projection as a pure function and therefore plans no test that observes the watch at
 all, so nothing in it pins or blocks this fix — and nothing in it would catch a regression here
 either. Whoever takes this writes the first test that can see the registration timing.
