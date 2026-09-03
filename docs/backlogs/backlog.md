@@ -118,6 +118,19 @@ extracts the projection as a pure function and therefore plans no test that obse
 all, so nothing in it pins or blocks this fix — and nothing in it would catch a regression here
 either. Whoever takes this writes the first test that can see the registration timing.
 
+### P2 — The calendar alias reconcile couples to its consumers through config, not a value (2026-09-03)
+Found while reviewing the register.ts projection plan. `reconcileCalendarSelectionAlias()` runs at
+the head of the render pass and may write `tngantt_displayCalendars`, which `buildCalendarShading`
+and the highlight field then read back out of config. The ordering is therefore temporal and
+implicit: nothing observes it, no tracked fixture stores a `tngantt_displayCalendars` value, and an
+edit that dropped the call or moved it after the shading call would keep every gate green while the
+stored calendar selection and the legacy highlight toggle silently diverged. The fix is to make the
+dependency explicit — have the reconcile return the reconciled selection and have its consumers
+take it as an argument — so the compiler enforces the order that comment and convention enforce
+today. That is a production behaviour change and belongs in its own test-first unit; plan
+`2026-09-03-001` therefore leaves the call untouched and treats its position as a review
+obligation on the U1 diff.
+
 ### P2 — Nothing proves the render pass still consults the dependency-arrow option (2026-09-03)
 Found while reviewing the register.ts projection plan. The view reads
 `tngantt_dependencyArrowMode` once per pass and hands the result to the links read and to the
