@@ -230,7 +230,7 @@ U1 also touches **rank 4, `src/controller/GanttController.ts`** (same report, ra
 ### U1. Extract the render-contract projection as a pure function
 
 - **Goal:** `src/bases/ganttRenderContract.ts` exports a pure projection from one typed input value to `GanttData`; `buildGanttData` keeps its alias reconcile, its fan-out, every host read in its current position, the grid-column build and its width-cache write, the calendar-shading call, and calls the projection with the values it holds.
-- **Requirements:** R3, R4, R5, R5a, R6, R6a (per KTD1, KTD2, KTD3, KTD6, KTD8).
+- **Requirements:** R3, R4, R5, R5a, R5b, R6, R6a (per KTD1, KTD2, KTD3, KTD6, KTD8). R5b's host-side instance — the alias reconcile's position — is this unit's, and it takes R5b's second outcome: a named residual with a review obligation, below.
 - **Dependencies:** none.
 - **Present reason (rule 3):** the projection has no measurement point today — its only observation is a WDIO run against real Obsidian — and three later units change code around it. The seam is what makes the tests possible, which is rule 4's definition of a seam that earns its place.
 - **Files:** `src/bases/ganttRenderContract.ts` (new), `src/bases/register.ts`, `test/unit/ganttRenderContract.test.ts` (new), `src/controller/GanttController.ts` and `test/unit/` its owning suite (the refresh-generation builder, KTD9.1; and the branded return types of the status- and priority-colour readers, KTD9.3 — the catalogs are produced there, so that is where they are branded), `src/bases/types/field-mapping.ts` and the two readers (branded mapping types, KTD9.2), `src/bases/cellRender.ts` (the result carries its locale, KTD9.4), `docs/backlogs/backlog.md` (park the `buildCalendarShading` separation-of-concerns finding).
@@ -262,7 +262,7 @@ U1 also touches **rank 4, `src/controller/GanttController.ts`** (same report, ra
 ### U2. Split the legend sub-projection into its own module
 
 - **Goal:** the legend feeders and the `legendContext` literal leave `ganttRenderContract.ts` for `src/bases/ganttLegendContext.ts`, a pure function the projection calls.
-- **Requirements:** R1, R4, R5, R5a, R6, R6a (per KTD1, KTD6).
+- **Requirements:** R1, R4, R5, R5a, R5b, R6, R6a (per KTD1, KTD6).
 - **Dependencies:** U1.
 - **Present reason (rule 3):** two rates of change — the producer changes when the legend's *facts* change, the catalog when its *rows* do (Ch. 10's "and" test). It lands as its own module rather than inside `legendCatalog.ts` (734 lines) for that reason.
 - **Files:** `src/bases/ganttLegendContext.ts` (new), `src/bases/ganttRenderContract.ts`, `test/unit/ganttLegendContext.test.ts` (new).
@@ -285,7 +285,7 @@ U1 also touches **rank 4, `src/controller/GanttController.ts`** (same report, ra
 ### U3. Move the two-pass cell-data assembly behind a file-meta port
 
 - **Goal:** the matched pass, the context-row fill, and their merge (1497–1534) live in `src/bases/cellRender.ts`; the vault/`TFile`/metadata-cache read becomes a port implemented by an adapter in `register.ts`.
-- **Requirements:** R2, R4, R5, R5a, R6, R6a (per KTD2, KTD6).
+- **Requirements:** R2, R4, R5, R5a, R5b, R6, R6a (per KTD2, KTD6).
 - **Dependencies:** U1 (the projection consumes the cell-data maps) and U2 (sequencing — keeps each PR's diff to one concern).
 - **Files:** `src/bases/cellRender.ts`, `src/bases/register.ts`, `test/unit/cellRender.test.ts`.
 - **Approach:**
@@ -312,7 +312,7 @@ U1 also touches **rank 4, `src/controller/GanttController.ts`** (same report, ra
 *(Replanned 2026-09-03; supersedes both "Move the remaining assembly behind the view-options port and the bridge" and "Retire the second render-contract producer".)*
 
 - **Goal:** the one inlined coercion whose host wiring this plan can actually prove (`showDateIndicators`) moves to `src/bases/viewOptions.ts` beside its sixteen siblings and gains the direct reader test the siblings have; the closing trend report lands; the accepted duplication, the deferred `mountGantt` slice, and the `arrowMode` lift are parked. **The `arrowMode` coercion stays inlined, deliberately** — see the scope note below.
-- **Requirements:** R3, R4, R6, R7.
+- **Requirements:** R3, R4, R5, R5a, R5b, R6, R7.
 - **Dependencies:** U1, U2, U3 (so the closing report measures the finished shape).
 - **Present reason (rule 3):** the readers module already owns every other option coercion (Ch. 10, concepts that change together); the two inlined ones are the Measurement Finding 3 gap. This unit closes the half of that gap it can prove, and its scope note states why the other half waits.
 - **Files:** `src/bases/viewOptions.ts` and `test/unit/viewOptions.test.ts` (`readShowDateIndicators`), `src/bases/register.ts` (that one call site; nothing else), `docs/reports/<date>-register-render-data-closing-trend-report.md` (new; the charter's dated-report obligation), `docs/backlogs/backlog.md` (park the perf-harness duplication with its measured reason, the `mountGantt` slice, and the `arrowMode` lift with the proof it needs first).
@@ -325,7 +325,7 @@ U1 also touches **rank 4, `src/controller/GanttController.ts`** (same report, ra
   - Mutation check: widen the date-indicator coercion on purpose (accept any truthy value), observe red, revert.
 - **Scope note — why `arrowMode` does not move (R26-P1).** Lifting a coercion is a wiring change, and this one has no proof at any tier. The reader's own test would cover the coercion; the projection asserts the field it is handed; and a host that supplied the wrong getter, or a literal, would return `primary` with every gate green while a user's `all` setting silently stopped producing the Cartesian dependency edges `InstanceExpansion.rewriteLinks` exists to produce. No tracked fixture sets the option to `all`, so no existing spec discriminates it. Branding the mode type was measured and rejected as a substitute: `LinkRewriteMode` is shared by the controller's link API, the expansion rewriter, the sync layer and `GanttViewData`, so guarding one call site ripples through four modules to prevent an edit nobody has made (Ch. 12). The proportionate answer is not to move it: the plan changes nothing it cannot verify, and parks the lift together with the fixture that must come first — a vault with `tngantt_dependencyArrowMode: all` over recurring instances with dependencies, asserting the expanded edges reach the contract. That is arrow-mode work, and it belongs to whoever next touches that path.
 - **Cost-of-change probe (guardrail):** a new view option touches the same eight places before and after this unit — eight is the post-U1 count, whose one added place over today's seven is U1's stated exception — and the lifted coercion now touches the reader and its test where it touched the literal. No rise. Wiring ratio: none added.
-- **Verification:** `npm run lint`, `npm run typecheck`, full `npx jest` bare; `npm run e2e:local -- --spec test/specs/gantt-legend.e2e.ts` run locally as an unchanged regression check (`showDateIndicators` feeds the legend; a red run is triaged under the reliability campaign's existing procedure, never "fixed" here); trend output attached to the PR body and the closing report.
+- **Verification:** `npm run lint`, `npm run typecheck`, full `npx jest` bare; `npm run e2e:local -- --spec test/specs/gantt-legend.e2e.ts` **and** `npm run e2e:local -- --spec test/specs/gantt-date-handling.e2e.ts` run locally, both unchanged — the first because `showDateIndicators` feeds the legend, the second because it is the composed proof that the lifted reader's value still reaches the host's call site, asserting on both sides of the flag in a standalone vault. A red run on either is triaged under the reliability campaign's existing procedure, never "fixed" here; trend output attached to the PR body and the closing report.
 
 ## Verification Contract
 
@@ -334,7 +334,7 @@ U1 also touches **rank 4, `src/controller/GanttController.ts`** (same report, ra
 | Lint (boundary closure + complexity ≤ 15, new modules included) | `npm run lint` | every unit |
 | Typecheck | `npm run typecheck` | every unit |
 | Full unit suite, bare (never piped — a pipeline exits with the last command's status) | `npx jest` | every unit, before every push |
-| Behavior-observing e2e (composition check, not the proof tier) | `npm run e2e:local -- --spec <the unit's owning spec>` (park any `_local-*.e2e.ts` probes first) — U1 and U2 `gantt-legend`, U3 `gantt-markdown-cells` **and** `gantt-locale-dates`, U4 `gantt-legend` | every unit |
+| Behavior-observing e2e (composition check, not the proof tier) | `npm run e2e:local -- --spec <the unit's owning spec>` (park any `_local-*.e2e.ts` probes first) — U1 `gantt-legend` **and** `gantt-date-handling`, U2 `gantt-legend`, U3 `gantt-markdown-cells` **and** `gantt-locale-dates`, U4 `gantt-legend` **and** `gantt-date-handling` | every unit |
 | Guard tests | `test/unit/ganttLifecycleSeam.test.ts`, `test/unit/maintainabilityBoundaryConfig.test.ts`, and the boundary mutation harness pass unchanged | every unit |
 | Review receipts | `PATH="/c/ProgramData/PowerShell7:$PATH" bash scripts/cross-model-peer-review.sh main <out> --record` (layer 2 records itself), then `node scripts/check-review-receipts.mjs record ce-code-review` after the layer-1 review — both run from the repository root | every push |
 | Trend measurement | read `maintainability-trend.mjs` per-PR output; PR body answers its ranked-file prompt and cites rank 2 | every PR |
