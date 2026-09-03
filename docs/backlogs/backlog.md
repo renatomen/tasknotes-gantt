@@ -106,8 +106,8 @@ stop the project and consult the maintainer before changing production behavior.
   characterization during #354.
 
 ### P1 — A stale mount can register its paths onto a live mount's calendar watch (2026-09-03)
-Found while reviewing the register.ts characterization plan; not fixed there, because that
-plan changes no production behaviour. The render-data assembly reads the calendar watch after
+Found while reviewing `docs/plans/2026-09-03-001-refactor-register-render-data-characterization-plan.md`;
+not fixed there, because that plan changes no production behaviour. The render-data assembly reads the calendar watch after
 its controller fan-out. If one mount is awaiting those reads while a second mount replaces the
 watch and completes, the first mount resumes and registers its now-stale known paths and
 associations onto the second mount's watch — the association map is cleared and refilled with
