@@ -118,6 +118,22 @@ extracts the projection as a pure function and therefore plans no test that obse
 all, so nothing in it pins or blocks this fix — and nothing in it would catch a regression here
 either. Whoever takes this writes the first test that can see the registration timing.
 
+### P2 — Nothing proves the render pass still consults the dependency-arrow option (2026-09-03)
+Found while reviewing the register.ts projection plan. The view reads
+`tngantt_dependencyArrowMode` once per pass and hands the result to the links read and to the
+render contract. Every tier tests around that read and none tests it: the reader's own coercion
+is unit-testable, the projection asserts the field it was given, and no tracked fixture sets the
+option to `all`. So an edit that substitutes a literal for the read, or reads the wrong key,
+leaves the user's `all` setting silently ineffective with every gate green. Branding the mode
+type was measured and rejected as the remedy: `LinkRewriteMode` is shared by the controller's
+link API, the expansion rewriter, the sync layer and `GanttViewData`, so guarding one host call
+site would ripple through four modules. The proportionate fix is a fixture with the option set to
+`all` over recurring instances with dependencies, asserting the expanded edges reach the
+contract. Plan `2026-09-03-001` U4 therefore leaves the coercion inlined rather than lifting it
+to `viewOptions.ts` beside its siblings: the lift is a wiring change and this plan does not change
+what it cannot verify. Whoever writes that fixture takes the lift with it — arrow-mode work, for
+whoever next touches that path.
+
 ### P2 — Executor residuals from the #349 review chain (documented, deliberate)
 Accepted trade-offs and tail risks the seven local review cycles documented rather than fixed;
 revisit if any bites in practice:
