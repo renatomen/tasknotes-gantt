@@ -113,9 +113,10 @@ watch and completes, the first mount resumes and registers its now-stale known p
 associations onto the second mount's watch — the association map is cleared and refilled with
 stale data, and the association snapshot is overwritten — before the mount-token check discards
 the stale pass. A stale-operation guard (compare the mount token before registering, not after)
-is the fix; it is a behaviour change and belongs in its own test-first unit. The plan's
-characterization pin records today's late read and explicitly does not require the corruption,
-so fixing this does not turn that pin red.
+is the fix; it is a behaviour change and belongs in its own test-first unit. The superseding plan
+extracts the projection as a pure function and therefore plans no test that observes the watch at
+all, so nothing in it pins or blocks this fix — and nothing in it would catch a regression here
+either. Whoever takes this writes the first test that can see the registration timing.
 
 ### P2 — Executor residuals from the #349 review chain (documented, deliberate)
 Accepted trade-offs and tail risks the seven local review cycles documented rather than fixed;
