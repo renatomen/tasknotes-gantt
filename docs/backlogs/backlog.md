@@ -126,12 +126,15 @@ all, so nothing in it pins or blocks this fix — and nothing in it would catch 
 either. Whoever takes this writes the first test that can see the registration timing.
 
 ### P2 — The calendar alias reconcile couples to its consumers through config, not a value (2026-09-03)
-Found while reviewing the register.ts projection plan. `reconcileCalendarSelectionAlias()` runs at
+Found while reviewing `docs/plans/2026-09-03-001-refactor-register-render-data-characterization-plan.md`.
+`reconcileCalendarSelectionAlias()` runs at
 the head of the render pass and may write `tngantt_displayCalendars`, which `buildCalendarShading`
 and the highlight field then read back out of config. The ordering is therefore temporal and
-implicit: nothing observes it, no tracked fixture stores a `tngantt_displayCalendars` value, and an
-edit that dropped the call or moved it after the shading call would keep every gate green while the
-stored calendar selection and the legacy highlight toggle silently diverged. The fix is to make the
+implicit, and nothing observes it: `reconcileLegacyFlip` writes only when a stored selection is
+paired with a defined `tngantt_highlightWeekends`, and no tracked fixture sets both — one stores a
+selection with no legacy key, another sets the legacy key with no stored selection. An edit that
+dropped the call, or moved it after the shading call, would therefore keep every gate green while
+the stored calendar selection and the legacy highlight toggle silently diverged. The fix is to make the
 dependency explicit — have the reconcile return the reconciled selection and have its consumers
 take it as an argument — so the compiler enforces the order that comment and convention enforce
 today. That is a production behaviour change and belongs in its own test-first unit; plan
@@ -139,7 +142,8 @@ today. That is a production behaviour change and belongs in its own test-first u
 obligation on the U1 diff.
 
 ### P2 — Nothing proves the render pass still consults the dependency-arrow option (2026-09-03)
-Found while reviewing the register.ts projection plan. The view reads
+Found while reviewing `docs/plans/2026-09-03-001-refactor-register-render-data-characterization-plan.md`.
+The view reads
 `tngantt_dependencyArrowMode` once per pass and hands the result to the links read and to the
 render contract. Every tier tests around that read and none tests it: the reader's own coercion
 is unit-testable, the projection asserts the field it was given, and no tracked fixture sets the
