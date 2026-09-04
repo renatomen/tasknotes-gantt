@@ -1079,9 +1079,13 @@ Two things the rule does not excuse you from checking, both measured:
   a literal cannot degenerate, and a guard on it is silent while the derivation is `any`.
 - **The sentinel must be disjoint from the operand's own kind.** `0 &` works for a union of string
   literals and is WRONG for a tuple: `0 & ['wide','narrow']` does not reduce, so that guard fails on
-  the healthy build. Use `null &` for tuple- and object-valued operands. Pick the sentinel by what
-  the operand is, then confirm the guard is silent on the healthy type before trusting it to speak
-  on a degenerate one.
+  the healthy build. Use `null &` for the tuple operands here. Pick the sentinel by what the
+  operand is, then confirm the guard is silent on the healthy type before trusting it to speak on a
+  degenerate one. Do not generalise this to arbitrary object-valued operands: an object that has
+  merely lost its shape still intersects the sentinel to empty and passes, and mutual assignability
+  is itself weak there because an optional property makes dissimilar objects mutually assignable —
+  the `Exact` limitation the learning already records. An object operand needs a witness naming a
+  key it cannot lose, not a sentinel.
 
 For a union of string-literal keys the intersection is `never` and the declaration holds; if the
 derivation degenerates to `any` the intersection is `any`, which is not assignable to `never`, and
