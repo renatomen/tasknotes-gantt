@@ -1081,13 +1081,16 @@ Two things the rule does not excuse you from checking, both measured:
   literals and is WRONG for a tuple: `0 & ['wide','narrow']` does not reduce, so that guard fails on
   the healthy build. Use `null &` for the tuple operands here. Pick the sentinel by what the
   operand is, then confirm the guard is silent on the healthy type before trusting it to speak on a
-  degenerate one. Do not generalise this to arbitrary object-valued operands: an object that has
-  merely lost its shape still intersects the sentinel to empty and passes, and mutual assignability
-  is itself weak there because an optional property makes dissimilar objects mutually assignable —
-  the `Exact` limitation the learning already records. An object operand needs a witness naming a
-  key it cannot lose IN ADDITION TO the sentinel rejection, never instead of it: a witness alone
-  reopens the escape-hatch case, because a key name checks out against the escape-hatch type too.
-  Both obligations, both declarations.
+  degenerate one. **Do not apply this recipe to an object-valued operand at all — reduce it to
+  `keyof` first.** Measured, TS 5.9.2: with `Expected = { required: string; optional?: number }` and
+  a `Derived` that has lost `optional`, both assignability declarations compile, `null & Derived`
+  satisfies the sentinel, and a witness for `required` succeeds — four green guards over a lost
+  contract member, with a planted canary confirming the build was being checked. Adding a witness
+  does not rescue this, and neither would a fifth guard: mutual assignability is the wrong primitive
+  on objects, because an optional property makes dissimilar objects mutually assignable. Reducing
+  the operand fixes it inside the recipe already measured rather than adding a mechanism to it —
+  `const d: keyof Derived = null as unknown as keyof Expected` fails on exactly that lost member,
+  and the pair must be mutual because each direction sees loss on only one side.
 
 For a union of string-literal keys the intersection is `never` and the declaration holds; if the
 derivation degenerates to `any` the intersection is `any`, which is not assignable to `never`, and
@@ -1109,9 +1112,9 @@ fired `_derivedIsListed`; the pair derivation degenerated fired `_noPairs` and `
 The surviving tower fired on those same mutations, so the replacement gives up no coverage on them.
 
 Two limits on that result, both worth carrying into the implementation. The mutations exercised the
-operands this guard set actually has, which are unions of string-literal keys and one tuple — the
-**object-operand rule above is still prose**, because no operand here is object-valued, and it should
-be measured when one is. And a passing declaration set is not the same as a deleted tower: removing
+operands this guard set actually has, which are unions of string-literal keys and one tuple; the
+object-operand case was measured separately, against a synthetic pair rather than a real operand,
+and is the reason that case now reduces to `keyof` instead of carrying its own recipe. And a passing declaration set is not the same as a deleted tower: removing
 `AssertTrue`, `IsExactly`, `Exact` and `IsAny` is the change this entry asks for, and the measurement
 covers only that the declarations catch what the tower caught, not that nothing else read them.
 
