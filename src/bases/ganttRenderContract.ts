@@ -82,6 +82,20 @@ export interface CalendarShadingContribution {
 type AssertTrue<T extends true> = T;
 
 /**
+ * Every assertion below routes through `AssertTrue`, so a one-token widening of
+ * its constraint to `boolean` — or dropping the constraint — disables all of
+ * them at once, silently. This observes that it still rejects a false answer;
+ * under either weakening the directive stops being used and the build fails.
+ *
+ * It does not observe `never`, which satisfies `extends true` and cannot be
+ * excluded by a constraint. That is inert only because every operand reaching
+ * here is a conditional resolving to `true` or `false`; an assertion written
+ * over a naked type parameter would reopen it.
+ */
+// @ts-expect-error the assertion primitive must reject a false answer
+type _AssertTrueRejectsFalse = AssertTrue<false>;
+
+/**
  * Mutual assignability. A one-directional `extends` accepts a wider right-hand
  * side, so it cannot see a name listed there that does not belong.
  *
@@ -130,6 +144,7 @@ type IsExactlyAnswers = [
   IsExactly<unknown, false>,
   IsExactly<true, true>,
   IsExactly<ReturnType<typeof JSON.parse>, false>,
+  IsExactly<false, true>,
 ];
 /**
  * ...and none of those answers may be `any`, which the tuple comparison below
@@ -141,8 +156,8 @@ type _IsExactlyAnswersAreNotAny = AssertTrue<
   IsAny<IsExactlyAnswers[number]> extends true ? false : true
 >;
 type _IsExactlyAnswersCorrectly = AssertTrue<
-  [IsExactlyAnswers] extends [[true, false, false, false, false, true, false]]
-    ? [[true, false, false, false, false, true, false]] extends [IsExactlyAnswers]
+  [IsExactlyAnswers] extends [[true, false, false, false, false, true, false, false]]
+    ? [[true, false, false, false, false, true, false, false]] extends [IsExactlyAnswers]
       ? true
       : false
     : false
