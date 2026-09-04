@@ -1057,11 +1057,14 @@ One of these per computed operand, not one in total. Each declaration above has 
 guard on one says nothing about the other: measured, if `UnbrandedException` degenerates instead,
 both mutual assignments AND `_derivationIsNotAny` compile, and a removed brand goes undetected —
 the same false-green by a different door. The rule, rather than the list: **every operand that is a
-TYPE NAME carries its own `any` rejection**, because the intersection tests exactly the operand it
+TYPE NAME carries its own sentinel-disjointness guard**, because the intersection tests exactly the operand it
 names and nothing else.
 
-Called an `any` rejection, not an emptiness guard, because that is all it is: for an operand that
-has collapsed to the empty type the intersection is also empty and the declaration passes. Rejecting
+Called a sentinel-disjointness guard, because that is what it tests: whether the operand still
+intersects the sentinel to nothing. It rejects the escape-hatch type and the top type alike — with
+an operand of the top type the intersection reduces to the sentinel itself, which is not empty —
+and it does NOT detect emptiness, since an operand collapsed to the empty type intersects to empty
+and passes. Rejecting
 the escape-hatch type and proving a set still has members are two obligations, and this mechanism
 discharges only the first — so an operand that must contain something needs a witness declaration
 as well, naming a member it cannot lose. Name, not "computed" — the distinction that matters is whether the operand

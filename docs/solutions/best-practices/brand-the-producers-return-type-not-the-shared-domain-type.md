@@ -358,8 +358,10 @@ Three caveats that are part of the guidance:
    rather than keeping a computed `any` predicate, which would leave one checker standing that
    nothing observes: intersect the derivation with a disjoint literal and assert the result is
    empty, since that intersection is empty for a union of literal keys and `any` for a degenerate
-   one. That rejects the escape-hatch type and nothing else — an operand collapsed to the empty type
-   intersects to empty and passes, so anything required to have members needs a witness too. One such
+   one. That is a sentinel-disjointness check, not an `any` discriminator: it rejects the
+   escape-hatch type and the top type alike, and does NOT detect emptiness — an operand collapsed to
+   the empty type intersects to empty and passes, so anything required to have members needs a
+   witness too. One such
    declaration per operand that is a type *name*, not one in total — a name can
    resolve to something other than what you read, including a hand-written union; only a literal
    written in place is exempt: each assertion has two sides,
