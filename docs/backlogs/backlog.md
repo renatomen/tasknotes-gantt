@@ -1091,11 +1091,21 @@ Two things the rule does not excuse you from checking, both measured:
   | `optional` dropped | **silent** | fires |
   | `optional?: number` -> `optional?: string` | fires | **silent** |
   | operand degenerates to the escape-hatch type | **silent** | fires |
+  | a PROPERTY's value type degenerates to the escape-hatch type | **silent** | **silent** |
 
-  The two are exactly complementary, so an object operand needs both: mutual assignability alone
-  misses a dropped optional member, because an optional property is satisfiable by absence and makes
-  dissimilar objects mutually assignable; the key-set pair alone misses a changed property type,
-  because the key set did not change. A witness adds nothing either pair does not already give.
+  The two pairs are complementary across the first four rows, so an object operand needs both:
+  mutual assignability alone misses a dropped optional member, because an optional property is
+  satisfiable by absence and makes dissimilar objects mutually assignable; the key-set pair alone
+  misses a changed property type, because the key set did not change. A witness adds nothing either
+  pair does not already give.
+
+  **The last row is a known gap, not a solved case.** Neither pair sees a property whose value type
+  has become the escape-hatch type: the key set is unchanged, and that type is assignable in both
+  directions, so both pairs stay silent while the property's contract is gone. This table is the
+  mutations that were measured, not an exhaustive threat model — treat it as a floor. Closing that
+  row needs a per-property check, which is a different mechanism from anything here and should be
+  designed against a real object operand rather than a synthetic one, because there is none in this
+  guard set to test it on.
 
   The sentinel is not merely insufficient here, it is **wrong**: `0 & { ... }` does not reduce to the
   empty type, so that declaration fails on the HEALTHY build. It is also unnecessary, because the
