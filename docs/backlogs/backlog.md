@@ -1019,7 +1019,20 @@ rather than by computing a boolean and asserting the boolean:
 const _derivedIsListed: UnbrandedException = null as unknown as UnbrandedInputFields;
 const _listedIsDerived: UnbrandedInputFields = null as unknown as UnbrandedException;
 const _noPairs: never = null as unknown as InterchangeableFieldPairs<RenderContractInput>;
+
+// The pair derivation still needs a positive probe, and the key union still needs a
+// non-emptiness check; both currently go through `IsExactly`, so both need a declaration
+// form too or deleting it takes them with it.
+const _probeFindsThePair: ['wide', 'narrow'] =
+  null as unknown as InterchangeableFieldPairs<InterchangeabilityProbe>;
+const _pairIsThatProbe: InterchangeableFieldPairs<InterchangeabilityProbe> =
+  null as unknown as ['wide', 'narrow'];
+const _namedKeysAreContractFields: keyof GanttData = null as unknown as NamedContractKeys;
+const _namedKeysAreNonEmpty: NamedContractKeys = null as unknown as NamedContractKeys;
 ```
+
+`UnbrandedException` is the nine-name union, which is inlined in the guard today and would have to
+be lifted to a named alias first.
 
 It must also keep an explicit `any` rejection for the unbranded-field derivation. Mutual
 assignability does NOT supply one: if `UnbrandedInputFields` degenerates to `any`, both assignments
@@ -1038,7 +1051,8 @@ Measured RED for a removed brand, a stale exception name, an interchangeable pai
 degenerated to `never`, and one degenerated to all keys — and the `never` declaration rejects
 `any` for free. It deletes `AssertTrue` and its self-test, `IsExactly`, the eight-case tuple and
 both tuple assertions, and `Exact` with its mirrors — but NOT `IsAny`, which the paragraph
-above requires: levels 1-8 stop existing, because
+above requires, and not the pair probe or the key-union assertions, which need the declaration forms
+shown above rather than deletion: levels 1-8 stop existing, because
 those levels existed only to reject a degenerate ANSWER and a variable declaration has no answer to
 degenerate. It also produces actionable error text instead of "Type 'false' does not satisfy the
 constraint 'true'".
