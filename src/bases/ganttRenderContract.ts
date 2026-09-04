@@ -81,6 +81,12 @@ export interface CalendarShadingContribution {
 
 type AssertTrue<T extends true> = T;
 
+/**
+ * Mutual assignability. A one-directional `extends` accepts a wider right-hand
+ * side, so it cannot see a name listed there that does not belong.
+ */
+type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+
 /** Contract fields this projection produces. */
 type ComputedContractKeys =
   | 'links'
@@ -235,9 +241,15 @@ type UnbrandedInputFields = {
  * silence. Listing the deliberate exceptions rather than the brands is what
  * makes a NEW branded field cost no edit here, while removing a brand cannot
  * pass.
+ *
+ * The assertion is mutual on purpose. A one-directional `extends` passes
+ * whenever the derived set is a SUBSET of the list, so a field that is both
+ * branded and named below could lose its brand in silence, and a name that is
+ * no key of the input at all could sit here unnoticed.
  */
 type _OnlyTheseInputFieldsAreUnbranded = AssertTrue<
-  [UnbrandedInputFields] extends [
+  Exact<
+    UnbrandedInputFields,
     | 'instances'
     | 'gridColumns'
     | 'calendarShading'
@@ -247,9 +259,7 @@ type _OnlyTheseInputFieldsAreUnbranded = AssertTrue<
     | 'calendarItems'
     | 'externalCalendars'
     | 'passthrough'
-  ]
-    ? true
-    : false
+  >
 >;
 
 /** The row-independent view facts the presentation-only legend catalogue reads. */
