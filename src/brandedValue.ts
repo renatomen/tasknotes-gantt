@@ -32,3 +32,12 @@ declare const brandName: unique symbol;
  *   other branded value of the same underlying type.
  */
 export type Branded<T, Name extends string> = T & { readonly [brandName]: Name };
+
+/**
+ * Any branded value, whatever it brands and whatever its tag.
+ *
+ * Lets a consumer ask whether a value carries a brand at all, so a guard can
+ * be written over the fields that are deliberately unbranded rather than over
+ * a hand-kept list of the ones that are.
+ */
+export type AnyBranded = { readonly [brandName]: string };

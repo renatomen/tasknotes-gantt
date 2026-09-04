@@ -21,7 +21,7 @@ import { isSafeColor } from './barTreatment';
 import { resolveGridCellEditors } from './cellEditability';
 import { gridColumnsKey, type GridColumn } from './gridColumns';
 import { hasNonAuthoredEdgeInstance } from './visualSemantics';
-import type { Branded } from '../brandedValue';
+import type { AnyBranded, Branded } from '../brandedValue';
 import type { CellData } from './cellRender';
 import type { TaskNotesFieldMeta } from './cellRenderType';
 import type { MarkerInput } from './markerOverlay';
@@ -214,6 +214,42 @@ type InterchangeableFieldPairs<T> = {
  */
 type _NoInterchangeableInputFields = AssertTrue<
   [InterchangeableFieldPairs<RenderContractInput>] extends [never] ? true : false
+>;
+
+/** The input fields carrying no brand, derived from the input's own types. */
+type UnbrandedInputFields = {
+  [K in keyof RenderContractInput]: RenderContractInput[K] extends AnyBranded ? never : K;
+}[keyof RenderContractInput];
+
+/**
+ * Compile-time proof that no input field has quietly lost its brand.
+ *
+ * Only a few of the projection's inputs are legitimately unbranded: values the
+ * host is the rightful producer of, and values whose own type already makes a
+ * substitute obvious. Every other field must carry a brand, and removing one
+ * moves that field into the derived set above and fails this assertion.
+ *
+ * A pairwise collision or an `@ts-expect-error` case catches most such
+ * removals, but not all: a brand whose underlying type is interchangeable with
+ * nothing else and which no fabricate case names would otherwise disappear in
+ * silence. Listing the deliberate exceptions rather than the brands is what
+ * makes a NEW branded field cost no edit here, while removing a brand cannot
+ * pass.
+ */
+type _OnlyTheseInputFieldsAreUnbranded = AssertTrue<
+  [UnbrandedInputFields] extends [
+    | 'instances'
+    | 'gridColumns'
+    | 'calendarShading'
+    | 'taskNotesFieldType'
+    | 'estimateMeaning'
+    | 'nonWorkingRendering'
+    | 'calendarItems'
+    | 'externalCalendars'
+    | 'passthrough'
+  ]
+    ? true
+    : false
 >;
 
 /** The row-independent view facts the presentation-only legend catalogue reads. */
