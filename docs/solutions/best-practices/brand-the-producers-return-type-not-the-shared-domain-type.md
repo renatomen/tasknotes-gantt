@@ -62,7 +62,9 @@ The symbol is module-private and never exported, so the only way to produce a `B
 
 A branded value stays assignable to what it brands, so the brand reaches only code that *names the branded alias*. Put it on the domain type and it reaches every consumer of that domain type; put it on one reader's declared return and it reaches exactly the consumer you meant.
 
-Measured at the current tree, `DataSourceCapabilities` is referenced **24 times across 12 files** over `src/` and `test/`. Branding that interface would have touched all twelve. The brand instead sits on the controller's reader (`src/controller/GanttController.ts`):
+**Count construction sites, not references.** A branded intersection stays assignable to its base, so code that merely *reads* a value keeps compiling; what breaks is every site that *constructs* one, plus the declaration. Measured at the current tree, `DataSourceCapabilities` is named 24 times across 12 files over `src/` and `test/` — but the migration cost is the 10 files that build one (four sources, six test doubles) plus the declaration, so 11 of 12. One file, the `src/datasource/index.ts` re-export, would genuinely need no change.
+
+The two numbers nearly coincide here, which is worth naming in both directions: it is why the reference count was a serviceable proxy in this case, and why it must not be trusted as one in general. A type read widely and constructed once is cheap to brand however large its reference count; the count cannot tell you which you have. The brand instead sits on the controller's reader (`src/controller/GanttController.ts`):
 
 ```ts
 export type SourceCapabilities = Branded<DataSourceCapabilities, 'controller.capabilities'>;
@@ -127,6 +129,19 @@ function mint<T>(value: unknown): T {
   return value as T;
 }
 ```
+
+Be clear about what that helper costs, because it is rule 3 again in the test tree: the `unknown`
+parameter erases the shape check entirely. `mint<SourceCapabilities>({ write: true })` keeps
+compiling after the underlying interface gains a required field, so the suite stays green over a
+stale fixture. Centralizing the cast is still right — one reviewable helper beats casts scattered
+per brand — but pin the shape at the call site where a fixture must track a real type:
+
+```ts
+mint<SourceCapabilities>({ write: true } satisfies DataSourceCapabilities)
+```
+
+`satisfies` checks the literal against the unbranded shape and still hands `mint` a value, so a
+field added to the interface turns the fixture red instead of leaving it quietly wrong.
 
 ### 3. An object literal cast to a branded type keeps the excess-property check but drops the missing-field check
 
