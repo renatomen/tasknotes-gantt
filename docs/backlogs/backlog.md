@@ -144,10 +144,10 @@ obligation on the U1 diff.
 ### P2 — The capabilities brand is minted from an object literal, so a new required field would slip through (2026-09-04)
 Found by the cross-model peer while reviewing the nominal-branding learning, and verified by
 compiling. `GanttController.capabilities` mints its brand as
-`(this.activeSource?.capabilities ?? { write: false }) as SourceCapabilities`. A cast from an object
-literal to a branded type keeps the excess-property check but **drops the missing-field check**, so
-if `DataSourceCapabilities` ever gains a required field, that fallback literal still compiles and
-the no-source path yields the new field as `undefined` rather than failing the build. The repair is
+`(this.activeSource?.capabilities ?? { write: false }) as SourceCapabilities`. A cast to a branded type is checked only for
+comparability in either direction, so it **drops the missing-field check**: if
+`DataSourceCapabilities` ever gains a required field, that fallback literal still compiles and the
+no-source path yields the new field as `undefined` rather than failing the build. The repair is
 the one already applied at the other three mint sites in PR #480 — assign to a
 `DataSourceCapabilities` local, then brand the local — and it is two lines. It is parked rather
 than folded into the docs PR that found it because `src/controller/GanttController.ts` is

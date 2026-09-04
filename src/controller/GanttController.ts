@@ -946,8 +946,8 @@ export class GanttController {
    * @param mode - Endpoint cardinality for link rewriting.
    */
   public async buildLinkSet(mode: LinkRewriteMode): Promise<RenderLinkSet> {
-    // Typed as the unbranded shape first: a literal cast straight to a branded
-    // type checks excess properties but not missing ones.
+    // Typed as the unbranded shape first: casting the literal straight to the
+    // brand would not catch a missing field.
     const linkSet: RenderLinkSetFields = { links: await this.getLinks(mode), mode };
     return linkSet as RenderLinkSet;
   }
