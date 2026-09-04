@@ -1056,10 +1056,20 @@ const _derivationIsNotAny: never = null as unknown as (0 & UnbrandedInputFields)
 One of these per computed operand, not one in total. Each declaration above has two sides, and a
 guard on one says nothing about the other: measured, if `UnbrandedException` degenerates instead,
 both mutual assignments AND `_derivationIsNotAny` compile, and a removed brand goes undetected —
-the same false-green by a different door. The probe's expected pair is a third such operand. The
-rule, rather than the list: **every computed type appearing in one of these declarations carries
-its own emptiness guard**, because the intersection trick tests exactly the operand it names and
-nothing else.
+the same false-green by a different door. The rule, rather than the list: **every COMPUTED type
+appearing in one of these declarations carries its own emptiness guard**, because the intersection
+tests exactly the operand it names and nothing else.
+
+Two things the rule does not excuse you from checking, both measured:
+
+- **Guard the computed side, not the literal one.** For the pair probe that is
+  `InterchangeableFieldPairs<InterchangeabilityProbe>`, never the expected tuple written beside it —
+  a literal cannot degenerate, and a guard on it is silent while the derivation is `any`.
+- **The sentinel must be disjoint from the operand's own kind.** `0 &` works for a union of string
+  literals and is WRONG for a tuple: `0 & ['wide','narrow']` does not reduce, so that guard fails on
+  the healthy build. Use `null &` for tuple- and object-valued operands. Pick the sentinel by what
+  the operand is, then confirm the guard is silent on the healthy type before trusting it to speak
+  on a degenerate one.
 
 For a union of string-literal keys the intersection is `never` and the declaration holds; if the
 derivation degenerates to `any` the intersection is `any`, which is not assignable to `never`, and
