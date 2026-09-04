@@ -247,10 +247,12 @@ plus an explicit `any` probe, admits exactly `false` and nothing else.
 That matters because each of those is what a plausibly-wrong comparison actually returns, and the
 worst case is the most ordinary edit. Write `Exact` the natural way — `A extends B ? (B extends A ?
 true : false) : false`, without the tuples — and it distributes over the union and yields
-`boolean`. Measured against this repo: that rewrite alone is a zero-diagnostic change, and that
-rewrite *plus a removed brand* typechecks clean at exit 0, where the shipped guard fails. The tuples
-suppress distribution; the mutual direction and the `any` probe are what make the assertion mean what
-it says.
+`boolean`. That is the whole reason the assertion is phrased as it is. Measured against this repo
+*before* `IsExactly` existed, when the self-tests still read `[false] extends [...]`: the
+distributive rewrite was a zero-diagnostic change, and that rewrite plus a removed brand typechecked
+clean at exit 0. Measured against the shipped assertion now, the same rewrite fails at three sites
+— both self-tests and the coverage guard. The tuples suppress distribution; the mutual direction
+and the `any` probe are what make the assertion mean what it says.
 
 Listing the **deliberate exceptions** rather than the brands inverts the maintenance burden. Verified by compiling an isolated model of this guard, all five behaviours:
 
