@@ -1053,6 +1053,14 @@ derivation intersected with a disjoint literal is empty:
 const _derivationIsNotAny: never = null as unknown as (0 & UnbrandedInputFields);
 ```
 
+One of these per computed operand, not one in total. Each declaration above has two sides, and a
+guard on one says nothing about the other: measured, if `UnbrandedException` degenerates instead,
+both mutual assignments AND `_derivationIsNotAny` compile, and a removed brand goes undetected —
+the same false-green by a different door. The probe's expected pair is a third such operand. The
+rule, rather than the list: **every computed type appearing in one of these declarations carries
+its own emptiness guard**, because the intersection trick tests exactly the operand it names and
+nothing else.
+
 For a union of string-literal keys the intersection is `never` and the declaration holds; if the
 derivation degenerates to `any` the intersection is `any`, which is not assignable to `never`, and
 it fails. Measured. Mutual assignability alone does NOT supply this: if `UnbrandedInputFields` degenerates to `any`, both assignments

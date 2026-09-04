@@ -358,8 +358,10 @@ Three caveats that are part of the guidance:
    rather than keeping a computed `any` predicate, which would leave one checker standing that
    nothing observes: intersect the derivation with a disjoint literal and assert the result is
    empty, since that intersection is empty for a union of literal keys and `any` for a degenerate
-   one. The pairs guard needs no help at all, because `any` is assignable to everything except the
-   empty type.
+   one. One such declaration per computed operand, not one in total: each assertion has two sides,
+   and guarding one says nothing about the other — measured, degenerating the *expected* set instead
+   of the derived one leaves every assertion green and a removed brand undetected. The pairs guard
+   itself needs no help, because the empty type admits nothing.
 3. **A non-emptiness check must name a witness, not restate the union.** `T = T` is a tautology, and
    it is most convincing exactly when `T` has collapsed to `never`. Assert a member you know must be
    there.
