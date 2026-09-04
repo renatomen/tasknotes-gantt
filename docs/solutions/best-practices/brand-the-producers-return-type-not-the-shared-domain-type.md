@@ -320,7 +320,7 @@ failure. Reach for it meaning one of those and it accepts something:
 | `AssertFalse<T extends false>` | `never`, which extends everything |
 | `[false] extends [T]` | `boolean`, `unknown`, `any` — every supertype of `false` |
 | a mutual tuple comparison | an `any` answer, assignable in both directions |
-| `AssertTrue<T extends true>` | anything, once one token widens it to `T extends boolean` |
+| `AssertTrue<T extends true>` | every answer these checks can produce, once one token widens it to `T extends boolean` — including the degenerate ones |
 
 **Two tells say you are in the regress rather than one level of it.** First, the fix is written in
 the construct being verified. Second, the verifier needs a verifier — the moment you write
@@ -344,7 +344,7 @@ Levels 1-8 stop existing outright, and the ninth with them, structurally rather 
 isolated model of the real guard, the three declarations are green when healthy and red at the right
 *location*, with error text naming the offending member — `Type '"showDateIndicators"' is not
 assignable to type 'UnbrandedException'`, against the tower's `Type 'false' does not satisfy the
-constraint 'true'`. Same red, no information.
+constraint 'true'`. Same red, and the declaration form is the one that says which member broke it.
 
 Three caveats that are part of the guidance:
 
@@ -424,8 +424,11 @@ The transferable lesson is narrower than "review harder". When a metric or a mec
 
 ### Why "the typecheck is green" kept meaning nothing
 
-Because these assertions are **inert**. Nothing in the production function fails to compile if they
-stop asserting. Measured at the current tree: `src/bases/ganttRenderContract.ts` holds 12
+Two separate things, and conflating them sends you to the wrong repair. **Weakening** is silent
+because a permissive constraint accepts the answer the check now returns — not because anything is
+unreferenced: an unreferenced `AssertTrue<false>` still errors, so an assertion that can fail does
+fail whether or not it is wired to anything. **Deletion** is silent because these assertions are
+**inert**: nothing in the production function fails to compile if they disappear. Measured at the current tree: `src/bases/ganttRenderContract.ts` holds 12
 `AssertTrue<…>` sites, and each of the twelve `_`-prefixed aliases occurs exactly once across `src/`
 and `test/` — its own declaration. Not one is referenced by anything.
 
@@ -434,8 +437,8 @@ grep -c '= AssertTrue<' src/bases/ganttRenderContract.ts          # 12
 grep -roh '_OnlyTheseInputFieldsAreUnbranded' src/ test/ | wc -l  # 1, and 1 for each of the other 11
 ```
 
-They are scaffolding the compiler is free to ignore once weakened, which is why every defective form
-across all ten levels compiled clean.
+So they can be removed without a trace. What made every defective form across the levels compile
+clean was the other mechanism: each weakened check still returned something its constraint accepted.
 
 **Making a guard load-bearing helps less than it looks.** Wiring an assertion alias into production
 code buys "cannot be silently DELETED" and never "cannot be silently WEAKENED", because weakenings

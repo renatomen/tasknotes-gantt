@@ -1043,8 +1043,19 @@ const _namedKeysAreNonEmpty: NamedContractKeys = null as unknown as 'links';
 `UnbrandedException` is the nine-name union, which is inlined in the guard today and would have to
 be lifted to a named alias first.
 
-It must also keep an explicit `any` rejection for the unbranded-field derivation. Mutual
-assignability does NOT supply one: if `UnbrandedInputFields` degenerates to `any`, both assignments
+It must also reject `any` for the unbranded-field derivation, and it can do that by declaration too,
+which is better than the first draft of this entry proposed. Keeping `IsAny` would leave one
+computed checker standing with nothing observing it — weaken it to a constant and the guard is green
+while broken, which is the whole defect this entry exists to remove. Assert instead that the
+derivation intersected with a disjoint literal is empty:
+
+```ts
+const _derivationIsNotAny: never = null as unknown as (0 & UnbrandedInputFields);
+```
+
+For a union of string-literal keys the intersection is `never` and the declaration holds; if the
+derivation degenerates to `any` the intersection is `any`, which is not assignable to `never`, and
+it fails. Measured. Mutual assignability alone does NOT supply this: if `UnbrandedInputFields` degenerates to `any`, both assignments
 compile, because `any` is assignable in both directions. The `never` declaration protects only the
 pairs derivation. So `IsAny` survives the deletion even though `AssertTrue`, `IsExactly`, `Exact`
 and the tuple do not.
