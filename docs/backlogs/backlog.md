@@ -1057,8 +1057,10 @@ For a union of string-literal keys the intersection is `never` and the declarati
 derivation degenerates to `any` the intersection is `any`, which is not assignable to `never`, and
 it fails. Measured. Mutual assignability alone does NOT supply this: if `UnbrandedInputFields` degenerates to `any`, both assignments
 compile, because `any` is assignable in both directions. The `never` declaration protects only the
-pairs derivation. So `IsAny` survives the deletion even though `AssertTrue`, `IsExactly`, `Exact`
-and the tuple do not.
+pairs derivation — which is why the `any` rejection above is needed, and why it is written as a
+declaration. With `_derivationIsNotAny` in place, `IsAny` goes with everything else: keeping it
+would leave one computed checker standing that nothing observes, which is the defect this entry
+exists to remove. Delete `AssertTrue`, `IsExactly`, `Exact`, the tuple AND `IsAny`.
 
 Every right-hand side must be a concrete expression, not a `declare const` binding. TypeScript erases
 the declaration but emits the initialized constant, so `declare const x: T;` followed by

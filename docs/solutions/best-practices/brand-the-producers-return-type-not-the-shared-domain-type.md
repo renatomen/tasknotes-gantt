@@ -352,10 +352,13 @@ Three caveats that are part of the guidance:
    erases the declaration and emits the initialized constant, so the declared form typechecks and
    then throws `ReferenceError` on import. Verify this class of thing by reading emitted JavaScript,
    because the typecheck is precisely the instrument that cannot see it.
-2. **`IsAny` survives the deletion.** Mutual assignability cannot reject `any` — if the derivation
-   degenerates to `any`, *both* declarations compile. The `never` declaration needs no help, since
-   `any` is assignable to everything except `never`, so the pairs guard is `any`-safe for free and
-   the coverage guard is not.
+2. **`any` needs its own declaration, not a surviving probe.** Mutual assignability cannot reject
+   `any` — if the derivation degenerates, *both* declarations compile. Reach for a third declaration
+   rather than keeping a computed `any` predicate, which would leave one checker standing that
+   nothing observes: intersect the derivation with a disjoint literal and assert the result is
+   empty, since that intersection is empty for a union of literal keys and `any` for a degenerate
+   one. The pairs guard needs no help at all, because `any` is assignable to everything except the
+   empty type.
 3. **A non-emptiness check must name a witness, not restate the union.** `T = T` is a tautology, and
    it is most convincing exactly when `T` has collapsed to `never`. Assert a member you know must be
    there.
