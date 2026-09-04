@@ -208,7 +208,15 @@ type UnbrandedInputFields = {
   [K in keyof RenderContractInput]: RenderContractInput[K] extends AnyBranded ? never : K;
 }[keyof RenderContractInput];
 
-type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+type Exact<A, B> = IsAny<A> extends true
+  ? false
+  : IsAny<B> extends true
+    ? false
+    : [A] extends [B]
+      ? [B] extends [A]
+        ? true
+        : false
+      : false;
 
 type IsAny<T> = 0 extends 1 & T ? true : false;
 type IsExactly<T, V> = IsAny<T> extends true
