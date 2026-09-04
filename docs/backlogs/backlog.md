@@ -1071,10 +1071,9 @@ typecheck-only `.d.ts` would also work, at the cost of splitting the guard from 
 
 Measured RED for a removed brand, a stale exception name, an interchangeable pair, a derivation
 degenerated to `never`, and one degenerated to all keys — and the `never` declaration rejects
-`any` for free. It deletes `AssertTrue` and its self-test, `IsExactly`, the eight-case tuple and
-both tuple assertions, and `Exact` with its mirrors — but NOT `IsAny`, which the paragraph
-above requires, and not the pair probe or the key-union assertions, which need the declaration forms
-shown above rather than deletion: levels 1-8 stop existing, because
+`any` for free. What it deletes is listed once, above; this paragraph does not restate it, because a
+second copy of that list is how the entry contradicted itself before. The reason it is safe to
+delete them: levels 1-8 stop existing, because
 those levels existed only to reject a degenerate ANSWER and a variable declaration has no answer to
 degenerate. It also produces actionable error text instead of "Type 'false' does not satisfy the
 constraint 'true'".

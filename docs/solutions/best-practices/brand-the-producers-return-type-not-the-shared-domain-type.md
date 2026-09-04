@@ -470,7 +470,7 @@ like a real finding. **Differential measurement held up; absolute counts did not
   would have called that "detected". It was detected by a different assertion covering for a dead one.
 
 So: read *which* assertion fired and confirm it is the one you mutated. A guard verified by counting
-diagnostics is a guard verified by the same reasoning that produced all ten levels.
+diagnostics is a guard verified by the same reasoning that produced every level of this sequence.
 
 ## When to Apply
 
