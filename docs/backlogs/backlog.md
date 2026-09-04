@@ -1016,12 +1016,17 @@ The measured alternative asserts with the compiler's own assignability check on 
 rather than by computing a boolean and asserting the boolean:
 
 ```ts
-declare const derivedUnbranded: UnbrandedInputFields;
-declare const declaredUnbranded: UnbrandedException;
-const _derivedIsListed: UnbrandedException = derivedUnbranded;
-const _listedIsDerived: UnbrandedInputFields = declaredUnbranded;
+const _derivedIsListed: UnbrandedException = null as unknown as UnbrandedInputFields;
+const _listedIsDerived: UnbrandedInputFields = null as unknown as UnbrandedException;
 const _noPairs: never = null as unknown as InterchangeableFieldPairs<RenderContractInput>;
 ```
+
+Every right-hand side must be a concrete expression, not a `declare const` binding. TypeScript erases
+the declaration but emits the initialized constant, so `declare const x: T;` followed by
+`const _a: U = x;` compiles and then throws `ReferenceError: x is not defined` the moment the module
+is imported. Verified by reading the emitted JavaScript: the declared form emits
+`export const _derivedIsListed = derivedUnbranded;`, the form above emits `= null`. A
+typecheck-only `.d.ts` would also work, at the cost of splitting the guard from what it guards.
 
 Measured RED for a removed brand, a stale exception name, an interchangeable pair, a derivation
 degenerated to `never`, and one degenerated to all keys — and the `never` declaration rejects
