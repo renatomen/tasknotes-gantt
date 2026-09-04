@@ -210,17 +210,21 @@ type UnbrandedInputFields = {
 
 type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
+type IsAny<T> = 0 extends 1 & T ? true : false;
+type IsExactly<T, V> = IsAny<T> extends true
+  ? false
+  : [V] extends [T] ? ([T] extends [V] ? true : false) : false;
+
 type _OnlyTheseInputFieldsAreUnbranded = AssertTrue<
-  [true] extends [
+  IsExactly<
     Exact<
       UnbrandedInputFields,
       | 'instances' | 'gridColumns' | 'calendarShading' | 'taskNotesFieldType'
       | 'estimateMeaning' | 'nonWorkingRendering' | 'calendarItems'
       | 'externalCalendars' | 'passthrough'
-    >
-  ]
-    ? true
-    : false
+    >,
+    true
+  >
 >;
 ```
 
@@ -233,13 +237,20 @@ guard: with the one-directional form, adding `'notAKeyAtAll'` to the exception l
 diagnostics**; with `Exact` it fails. PR #480 shipped the one-directional form; this document's
 review is what caught it.
 
-The `[true] extends [...]` wrapper around it is load-bearing too, for a subtler reason. An assertion
-written as `AssertTrue<T extends true>` is satisfied by **`never`**, since `never` extends
-everything — so a comparison whose failing branch yields `never` rather than `false` passes every
-such assertion while silencing the guard completely. Measured: an `Exact` written
-`[A] extends [B] ? ([B] extends [A] ? true : false) : never` left this repo's entire typecheck green
-while brand removal stopped being detected. Comparing against a tuple closes it, because
-`[false] extends [never]` is false. `any` still escapes, and is a separate documented limit.
+The `IsExactly` wrapper around it is load-bearing too, and it took three attempts to get right —
+which is the more useful half of the story. **Every loose way of asserting a type-level result
+accepts something.** `AssertTrue<T extends true>` is satisfied by `never`, because `never` extends
+everything. Replacing it with a one-directional `[false] extends [T]` fixes `never` and then accepts
+`boolean`, `unknown` and `any`, since each is a supertype of `false`. Only a *mutual* comparison,
+plus an explicit `any` probe, admits exactly `false` and nothing else.
+
+That matters because each of those is what a plausibly-wrong comparison actually returns, and the
+worst case is the most ordinary edit. Write `Exact` the natural way — `A extends B ? (B extends A ?
+true : false) : false`, without the tuples — and it distributes over the union and yields
+`boolean`. Measured against this repo: that rewrite alone is a zero-diagnostic change, and that
+rewrite *plus a removed brand* typechecks clean at exit 0, where the shipped guard fails. The tuples
+suppress distribution; the mutual direction and the `any` probe are what make the assertion mean what
+it says.
 
 Listing the **deliberate exceptions** rather than the brands inverts the maintenance burden. Verified by compiling an isolated model of this guard, all five behaviours:
 

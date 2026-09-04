@@ -92,22 +92,30 @@ type AssertTrue<T extends true> = T;
  */
 type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
+type IsAny<T> = 0 extends 1 & T ? true : false;
+
+/**
+ * `T` is exactly `V`, admitting no supertype and no degenerate answer. Every
+ * assertion in this file goes through it, because the looser phrasings all
+ * accept something: `T extends false` accepts `never`, and a single-direction
+ * `[false] extends [T]` accepts `boolean`, `unknown` and `any` — each of which
+ * a plausibly wrong comparison actually returns.
+ */
+type IsExactly<T, V> = IsAny<T> extends true
+  ? false
+  : [V] extends [T]
+    ? [T] extends [V]
+      ? true
+      : false
+    : false;
+
 /**
  * A guard nothing can observe failing is not a guard. Both directions are
  * needed: either alone is satisfied by a comparison written in the opposite
  * single direction, which is the failure being guarded against.
- *
- * Each is phrased as `[false] extends [...]` rather than through a `T extends
- * false` helper, because `never` satisfies such a constraint — so a comparison
- * whose failing branch yields `never` would pass every assertion here while
- * silencing the one below.
  */
-type _ExactRejectsAWiderRightHandSide = AssertTrue<
-  [false] extends [Exact<'a', 'a' | 'b'>] ? true : false
->;
-type _ExactRejectsAWiderLeftHandSide = AssertTrue<
-  [false] extends [Exact<'a' | 'b', 'a'>] ? true : false
->;
+type _ExactRejectsAWiderRightHandSide = AssertTrue<IsExactly<Exact<'a', 'a' | 'b'>, false>>;
+type _ExactRejectsAWiderLeftHandSide = AssertTrue<IsExactly<Exact<'a' | 'b', 'a'>, false>>;
 
 /** Contract fields this projection produces. */
 type ComputedContractKeys =
@@ -270,7 +278,7 @@ type UnbrandedInputFields = {
  * no key of the input at all could sit here unnoticed.
  */
 type _OnlyTheseInputFieldsAreUnbranded = AssertTrue<
-  [true] extends [
+  IsExactly<
     Exact<
       UnbrandedInputFields,
       | 'instances'
@@ -282,10 +290,9 @@ type _OnlyTheseInputFieldsAreUnbranded = AssertTrue<
       | 'calendarItems'
       | 'externalCalendars'
       | 'passthrough'
-    >
-  ]
-    ? true
-    : false
+    >,
+    true
+  >
 >;
 
 /** The row-independent view facts the presentation-only legend catalogue reads. */
