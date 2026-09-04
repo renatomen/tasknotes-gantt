@@ -491,9 +491,9 @@ export type PriorityWritable = Branded<boolean, 'controller.priorityWritable'>;
 /**
  * The dependency links together with the arrow mode they were rewritten for,
  * minted as one value by {@link GanttController.buildLinkSet}. A pair the host
- * fills field by field is not a mint: it can publish `primary` beside links
- * generated for `all`, which stamps the has-dependencies indicator on
- * non-primary instances whose arrows are never drawn.
+ * fills field by field is not a mint: publishing `primary` beside links
+ * generated for `all` draws the extra arrows AND stamps the indicator that
+ * stands in for one, while the reverse mismatch renders neither.
  */
 interface RenderLinkSetFields {
   links: RenderLink[];
