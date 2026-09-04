@@ -622,6 +622,14 @@ const _crossedColors: RenderContractInput = {
   // @ts-expect-error the status palette is assignable to a bare priority slot (StatusColor carries every PriorityColor field plus isCompleted)
   priorityColors: miswire.statusColors,
 };
+// The crossing above is one-directional: PriorityColor lacks `isCompleted`, so the
+// reverse assignment is not the same test, and the pairwise guard reports only the
+// ordered pair. This covers the status slot's own fabrication.
+const _fabricatedStatusColors: RenderContractInput = {
+  ...miswire,
+  // @ts-expect-error an empty palette resolves every status to the default colour
+  statusColors: [],
+};
 const _crossedChoices: RenderContractInput = {
   ...miswire,
   // @ts-expect-error the two choice catalogs come from one role-parameterized reader
@@ -674,6 +682,11 @@ const _fakeDerivation: RenderContractInput = {
   ...miswire,
   // @ts-expect-error the span derivation answers from the controller's blocking facts
   deriveSpan: () => ({}) as DerivedGeometry,
+};
+const _fakeEstimateDerivation: RenderContractInput = {
+  ...miswire,
+  // @ts-expect-error the estimate derivation answers from the controller's calendar facts
+  deriveEstimate: () => ({}) as DerivedEstimate,
 };
 const _fakeLinkSet: RenderContractInput = {
   ...miswire,

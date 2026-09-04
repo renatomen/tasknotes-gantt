@@ -158,7 +158,7 @@ type IsExactlyAnswers = [
  * ...and none of those answers may be `any`, which the tuple comparison below
  * cannot see: `any` is assignable in both directions, so a rewrite returning it
  * would satisfy the very check written to reject it. Breaking `IsAny` the other
- * way is caught by the tuple instead, since its last element would flip.
+ * way is caught by the tuple instead, since the `any` probe among them would flip.
  */
 type _IsExactlyAnswersAreNotAny = AssertTrue<
   IsAny<IsExactlyAnswers[number]> extends true ? false : true

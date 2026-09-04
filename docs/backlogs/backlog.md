@@ -1002,3 +1002,41 @@ unless the harness is the measured bottleneck; it is not. Whoever takes it shoul
 fenced `ts` block under `docs/solutions/` and typecheck it, treating a block's `@ts-expect-error`
 directives as part of the assertion — and should decide whether quoted source snippets are worth
 pinning to their files at the same time.
+
+### P1 — Replace the type-level assertion tower with declaration assignability (2026-09-05)
+Eight successive reviews found the same defect in `src/bases/ganttRenderContract.ts`, each inside
+the fix for the one before: a guard that used `extends` where it meant equality, then a self-test
+checking one direction, then helpers accepting `never`, then `boolean`/`unknown`/`any`, then an
+unobserved `IsExactly`, then a tuple accepting an `any` answer, then a one-token widening of
+`AssertTrue` that disabled all eight assertions, then `Exact` accepting `any` operands. Every level
+now self-detects under mutation, and the reviewer that found level 8 confirmed there is no level 9
+inside the tower — but also showed the tower is unnecessary.
+
+The measured alternative asserts with the compiler's own assignability check on DECLARED VALUES
+rather than by computing a boolean and asserting the boolean:
+
+```ts
+declare const derivedUnbranded: UnbrandedInputFields;
+declare const declaredUnbranded: UnbrandedException;
+const _derivedIsListed: UnbrandedException = derivedUnbranded;
+const _listedIsDerived: UnbrandedInputFields = declaredUnbranded;
+const _noPairs: never = null as unknown as InterchangeableFieldPairs<RenderContractInput>;
+```
+
+Measured RED for a removed brand, a stale exception name, an interchangeable pair, a derivation
+degenerated to `never`, and one degenerated to all keys — and the `never` declaration rejects
+`any` for free. It deletes `AssertTrue` and its self-test, `IsExactly`, the eight-case tuple and
+both tuple assertions, `Exact` and its four mirrors, and `IsAny`: levels 1-8 stop existing, because
+those levels existed only to reject a degenerate ANSWER and a variable declaration has no answer to
+degenerate. It also produces actionable error text instead of "Type 'false' does not satisfy the
+constraint 'true'".
+
+Explicitly NOT the jest-plus-`tsc` mutation harness first proposed: that is a second mechanism for
+what the `@ts-expect-error` cases already do (principle 4), costs a compiler subprocess per
+mutation, and its mutation set would be a hand-kept list — reintroducing "a list is not a rule"
+at the layer meant to end the regress.
+
+Residual the replacement does NOT fix, and no further level would: the assertions are deletable.
+Removing an assertion and then weakening what it guarded is two edits and leaves both typechecks
+green. That is diff-visible rather than silent, so it is review surface, not a hole. Only
+`NamedContractKeys` is load-bearing on production code today.
