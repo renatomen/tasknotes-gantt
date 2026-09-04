@@ -1,0 +1,371 @@
+---
+title: Brand the producer's return type, not the shared domain type — and four ways a brand silently guards nothing
+date: 2026-09-04
+category: docs/solutions/best-practices
+module: typescript / nominal-branding
+problem_type: best_practice
+component: testing_framework
+severity: high
+root_cause: wrong_api
+resolution_type: code_fix
+related_components:
+  - development_workflow
+  - tooling
+applies_when:
+  - Designing a function's return type so an invalid value cannot be constructed, instead of validating it after the fact
+  - Choosing whether to brand a producer's own declared return type or a shared domain type that many call sites already reference
+  - "Minting a branded value via an object literal cast (`{...} as Branded<T, 'tag'>`) rather than a typed helper"
+  - Reviewing whether a branded type still rejects every value it was meant to reject
+  - Deciding how a brand should treat fields that are deliberately left unbranded on the same shape
+symptoms:
+  - Branding a widely-referenced shared domain type ripples edits through every one of its call sites instead of touching one
+  - An object literal cast to a branded type compiles even though a field the branded shape requires is absent
+  - Deleting a brand's type annotation entirely produces zero compiler diagnostics anywhere in the codebase
+  - A pairwise brand-interchangeability check passes only because it was run in one direction between two brands, not both
+  - "`Omit<T,K>` or `Exclude<keyof T,K>` silently accepts a `K` that names no real key of `T`"
+tags:
+  - nominal-typing
+  - branded-types
+  - typescript
+  - structural-typing
+  - compile-time-guard
+  - excess-property-check
+  - invariant-enforcement
+  - type-safety
+---
+
+# Brand the producer's return type, not the shared domain type — and four ways a brand silently guards nothing
+
+## Context
+
+TypeScript is structural. Two values of the same shape are interchangeable, so a host that assembles a call literal can pass the priority palette where the status palette belongs, or fabricate a plausible stand-in for a value only a collaborator can legitimately answer. Neither mistake is visible to a pure function's own tests — the function never sees the literal — nor to a behavioural test whose fixture happens to agree with both readings.
+
+PR #480 (merged) extracted the Gantt view's render-contract projection out of the view class into a pure function, `projectRenderContract` (`src/bases/ganttRenderContract.ts`), taking one typed value and returning `GanttData`. Purity moved the measurement point to an exported signature, but it also created a new, wide, silent surface: a large input literal assembled by the host (`src/bases/register.ts`, inside `buildGanttData`), where `statusColors` and `priorityColors` are both palette arrays, `barFillSource` and `barStripSource` are the same string union, and `capabilities` is an object anyone can write `{ write: false }` for.
+
+The answer was nominal branding, and the branding worked. What is worth keeping is not "we added brands" — it is the four distinct ways a brand compiles, looks like a guard, and guards nothing. **Two of the four rules below were learned the hard way**: rules 1 and 2 were followed from the start, while rules 3 and 4 name defects that PR shipped and its review gates caught. Each fact below was established by *compiling*, not by reasoning about the type system.
+
+The core helper is small enough to read whole (`src/brandedValue.ts`):
+
+```ts
+declare const brandName: unique symbol;
+
+export type Branded<T, Name extends string> = T & { readonly [brandName]: Name };
+
+export type AnyBranded = { readonly [brandName]: string };
+```
+
+The symbol is module-private and never exported, so the only way to produce a `Branded<T, N>` is a deliberate cast inside a module that can name the type. That is the entire mechanism.
+
+## Guidance
+
+### 1. Brand the producer's declared return type, never the shared domain type
+
+A branded value stays assignable to what it brands, so the brand reaches only code that *names the branded alias*. Put it on the domain type and it reaches every consumer of that domain type; put it on one reader's declared return and it reaches exactly the consumer you meant.
+
+Measured at the current tree, `DataSourceCapabilities` is referenced **24 times across 12 files** over `src/` and `test/`. Branding that interface would have touched all twelve. The brand instead sits on the controller's reader (`src/controller/GanttController.ts`):
+
+```ts
+export type SourceCapabilities = Branded<DataSourceCapabilities, 'controller.capabilities'>;
+
+public get capabilities(): SourceCapabilities {
+  return (this.activeSource?.capabilities ?? { write: false }) as SourceCapabilities;
+}
+```
+
+Outside its own declaration and reader, `SourceCapabilities` is named at two sites in `src/` — an import and a field, both in `src/bases/ganttRenderContract.ts` — plus an import and a type argument in its unit test. Every other reader of the plain interface is untouched, and the branded value is still readable as its underlying type: `GanttController` does `const write = this.capabilities.write;` with no cast.
+
+**State the scope with the count, always.** These numbers move with the directories you search, and a figure separated from its command is the beginning of a false claim. The same identifier measures 6 files over `src/` alone and 12 across `src/` plus `test/` — both true on the same day. The ruling that established this practice recorded "6 files" from an `src/`-scoped grep; a later `src/`+`test/` grep returned 12, and the two looked contradictory for exactly as long as it took to re-run both *(session history)*. Cite the command:
+
+```bash
+grep -rl 'DataSourceCapabilities' src/ test/ | wc -l    # files
+grep -r  'DataSourceCapabilities' src/ test/ | wc -l    # references
+```
+
+The same repo has the measured counter-example. An earlier attempt branded `LinkRewriteMode` — the dependency-arrow mode — which is a **shared domain type** at 14 references across six source files (`src/bases/ganttSync.ts`, `src/bases/register.ts`, `src/bases/types/gantt-view-data.ts`, `src/controller/GanttController.ts`, `src/controller/index.ts`, `src/controller/InstanceExpansion.ts`), essentially the same blast radius as `DataSourceCapabilities` at `src/` scope. It was rejected for that ripple. Those two figures are a measurement taken at the current tree while writing this doc; the count the original rejection was argued from is not recoverable from the session record, so treat the *reason* as the durable part and re-measure before citing a number *(session history)*.
+
+What shipped instead brands the *pair* the reader answers, not the mode itself (`src/controller/GanttController.ts`):
+
+```ts
+interface RenderLinkSetFields {
+  links: RenderLink[];
+  mode: LinkRewriteMode;
+}
+
+export type RenderLinkSet = Branded<RenderLinkSetFields, 'controller.linkSet'>;
+```
+
+That closes a real defect class the mode-brand would not have: a host that assembles the two halves itself can publish `'primary'` beside links rewritten for `'all'`, which typechecks, draws no arrows for the extra endpoints, and still stamps the has-dependencies indicator on the instances they belong to.
+
+### 2. Mint each brand in exactly one reader
+
+The single-mint invariant is the whole guarantee. A second mint site anywhere in `src/` hands the host the cast it was denied. There are 19 brand declarations in `src/` (`grep -rn "= Branded<" src/`), covering 20 fields of `RenderContractInput` — `ChoiceCatalog<Role>` is one generic declaration serving both `statusChoices` and `priorityChoices`, which is itself the point: a role-parameterized reader answering the same shape for two roles needs the *role* in the brand, or the priority picker silently offers status values.
+
+State the invariant as **one reader**, not one cast expression. Two brands legitimately cast twice inside a single method — `ManagedTaskPaths` and `ChoiceCatalog` in `src/controller/GanttController.ts` — because each method has a cache-hit return and a cache-miss return. Every other brand casts exactly once. A review rule phrased as "one cast per brand" would fire falsely on both and teach reviewers to wave the check through.
+
+Test fixtures are the sanctioned exception, and they are best centralized rather than sprinkled: this repo has **zero** per-brand `as <Brand>` casts anywhere in `test/`, and one generic helper instead (`test/unit/ganttRenderContract.test.ts`):
+
+```ts
+function mint<T>(value: unknown): T {
+  return value as T;
+}
+```
+
+### 3. An object literal cast to a branded type keeps the excess-property check but drops the missing-field check
+
+This is the fact most likely to surprise you, and it is the one PR #480 shipped wrong at three sites. Measured in an isolated program:
+
+```ts
+interface Three { one: string; two: string; three: string }
+type BrandedThree = Branded<Three, 'x'>;
+
+const missingField = { one: 'a', two: 'b' } as BrandedThree;                        // COMPILES
+const excessField  = { one: 'a', two: 'b', three: 'c', four: 'd' } as BrandedThree; // ERROR
+```
+
+The cast is checked for *comparability*, which an object missing a required property satisfies, while excess-property checking still applies to the fresh literal. So a branded mint written as a direct literal cast looks maximally strict and is quietly the weakest form available: add a field to the underlying shape and any one mint site can drop it with no diagnostic.
+
+Both repairs restore the missing-field check. Take the unbranded shape as a **parameter** (`src/bases/cellRender.ts`):
+
+```ts
+export type CellData = Branded<CellDataFields, 'cellRender.cellData'>;
+
+function toCellData(fields: CellDataFields): CellData {
+  return fields as CellData;
+}
+```
+
+...or type a **local** on the unbranded shape and cast the local (`src/controller/GanttController.ts`, and the same idiom in `src/bases/register.ts`):
+
+```ts
+// Typed as the unbranded shape first: a literal cast straight to a branded
+// type checks excess properties but not missing ones.
+const linkSet: RenderLinkSetFields = { links: await this.getLinks(mode), mode };
+return linkSet as RenderLinkSet;
+```
+
+### 4. A brand nothing collides with, and that no `@ts-expect-error` names, can be deleted with zero diagnostics
+
+Brand coverage is usually asserted two ways: a pairwise assignability guard, and a file of `@ts-expect-error` fabricate cases. Both are *coincidental* coverage. A brand whose underlying type is interchangeable with nothing else, and which no fabricate case happens to name, is covered by neither.
+
+The PR's own sweep — deleting each brand in turn and typechecking — reported **3 of 19 silently removable**. Adding three more fabricate cases would have covered exactly those three and left the next one uncovered: that is a hand-kept list wearing a rule's clothes.
+
+The fix derives the coverage from the input's own types (`src/bases/ganttRenderContract.ts`):
+
+```ts
+/** The input fields carrying no brand, derived from the input's own types. */
+type UnbrandedInputFields = {
+  [K in keyof RenderContractInput]: RenderContractInput[K] extends AnyBranded ? never : K;
+}[keyof RenderContractInput];
+
+type _OnlyTheseInputFieldsAreUnbranded = AssertTrue<
+  [UnbrandedInputFields] extends [
+    | 'instances' | 'gridColumns' | 'calendarShading' | 'taskNotesFieldType'
+    | 'estimateMeaning' | 'nonWorkingRendering' | 'calendarItems'
+    | 'externalCalendars' | 'passthrough'
+  ]
+    ? true
+    : false
+>;
+```
+
+Listing the **deliberate exceptions** rather than the brands inverts the maintenance burden. Verified by compiling an isolated model of this guard, all four behaviours:
+
+1. removing a brand -> the field joins the derived set -> the assertion fails;
+2. adding a new *unbranded* field -> not on the exception list -> the assertion fails, with no edit to the guard;
+3. adding a new *distinctly branded* field -> costs no edit at all;
+4. a branded **boolean** is still detected — `Branded<boolean, N>` distributes to `(true & B) | (false & B)`, and a union extends `AnyBranded` when every member does, so the boolean brands here are not false negatives.
+
+After it, all 19 fail typecheck when removed.
+
+### Supporting type-level facts, each confirmed by compiling
+
+**`Omit<T, K>` and `Exclude<keyof T, K>` silently accept a `K` that is not a key of `T`.** A stale or misspelled key in an exclusion union produces no diagnostic whatever. Here that would be load-bearing: a mistyped name in `NamedContractKeys` would drop that field silently into the passthrough group and make it host-supplied instead of projected. The one-line assertion that closes it:
+
+```ts
+type _NamedKeysAreContractFields = AssertTrue<
+  [NamedContractKeys] extends [keyof GanttData] ? true : false
+>;
+```
+
+**Pairwise interchangeability must be tested one-directionally over every *ordered* pair.** A mutual test — `A extends B && B extends A` — silently passes the very pair this repo cares about, because `StatusColor` carries every `PriorityColor` field *plus* `isCompleted` (`src/datasource/types.ts`). Measured on that exact pair: the ordered test yields `['statusColors', 'priorityColors']`; the mutual test yields `never` and reports the input clean. The shipped guard is ordered (`src/bases/ganttRenderContract.ts`):
+
+```ts
+type InterchangeableFieldPairs<T> = {
+  [K in keyof T]: {
+    [L in Exclude<keyof T, K>]: T[K] extends T[L] ? [K, L] : never;
+  }[Exclude<keyof T, K>];
+}[keyof T];
+```
+
+**Indexed access `T[K]` does not distribute in a conditional type.** A union-typed field is checked whole, so `{ u: string | number }` never contributes `u` to a `T[K] extends string ? K : never` probe. This is what makes the `UnbrandedInputFields` derivation above safe: a partially-branded union field would read as unbranded rather than half-counting. The sibling learning on `keyof`-derived member lists documents the same distributivity trap from the other direction — see Related.
+
+**`Omit` alone preserves optionality.** The passthrough group is deliberately an intersection, both halves load-bearing (`src/bases/ganttRenderContract.ts`):
+
+```ts
+export type RenderContractPassthrough = Omit<GanttData, NamedContractKeys> & {
+  [K in Exclude<keyof GanttData, NamedContractKeys>]-?: unknown;
+};
+```
+
+`Omit` keeps the real value types; the mapped half re-declares every key as **required**. Without it the host could drop an optional field — `gridWidth` is the demonstrated case, and a view that loses it reverts its divider to SVAR's column-sum default.
+
+## Why This Matters
+
+The four failures share one shape: **a guard that stops one step short of where the value goes.**
+
+- The brands protect the projection's *input* boundary, while the projection's own *output* literal assigns those same values into `GanttData` fields that are all unbranded. The module records that limit honestly rather than implying coverage it does not have.
+- The key unions were excluded-by-name and never checked against the type they excluded *from*.
+- The literal cast checked comparability and never completeness.
+- The brand set was asserted by collision and fabrication, neither of which sees a brand that collides with nothing and is fabricated nowhere.
+
+These four are a different set from the four rules above: they are the instances of this one shape that actually shipped in that PR, and **not one of them was found by the author**. Three came from the local review layer — the crossed output pair, the literal-cast class, and the unchecked key union — and the fourth, the coverage class, from the cross-model peer, which found it on a commit the local layers had already returned clean. That distribution is the practical argument for a layered gate, and against trusting a green typecheck as evidence that a *type-level* guard guards anything. Every one of these compiles clean in its defective form. (Which gate caught which rests on this project's review records, which are deliberately never committed, so it is not independently checkable from the repository.)
+
+There is also a warning about the instruments. The author's brand-coverage sweep first reported a **fourth** silently-removable brand that turned out to be a measurement artifact: the substitution used to "remove" the brand still preserved role distinction through a phantom property, so what it actually measured was *"can I swap this brand for a weaker one"*, not *"can I remove it"*. The instrument had the same defect shape as the code it was measuring — a check that stopped one step short of the property it claimed to test. Sweep results are claims like any other; state what the substitution actually was.
+
+## When to Apply
+
+Reach for a brand when a value's validity is **which value it is** — which collaborator produced it, which sibling it belongs to — rather than its shape. Concretely:
+
+- Two same-shaped values from distinct producers flow into one call literal (two palettes, two option catalogs, two channel sources, a raw vs. resolved config set).
+- A value only a collaborator can legitimately answer has a plausible fabricable stand-in (`{ write: false }`, `new Set()`, a bare method reference that loses its receiver).
+- A pair must be minted together to stay consistent (links plus the mode they were rewritten for; a map plus the locale it was formatted with).
+
+Do **not** brand when:
+
+- The type is a shared domain type with many consumers — measure the reference count first, with its scope, and brand the producing reader's return instead.
+- The host is the rightful producer of the value, or the value's own type already makes a substitute obvious. Those are the deliberate exceptions the coverage guard lists.
+
+And when reviewing a branded design, run these four checks in order:
+
+1. Is the brand on a reader's declared return, or on a shared domain type? Ask for the reference count *and the directories it covers*.
+2. Does each brand mint in exactly one reader? (Not one cast — one reader.)
+3. Is any mint a direct object-literal cast? If so, its missing-field check is gone.
+4. Is coverage asserted by a hand-kept list of pairs or fabricate cases? If so, ask what happens to a brand that collides with nothing and is fabricated nowhere.
+
+## Examples
+
+### The defect shapes, side by side
+
+```ts
+// WRONG - brands the shared domain type: reaches all 24 references across 12 files.
+export interface DataSourceCapabilities { write: boolean }
+//  -> every source, every test double, every consumer must now name the brand.
+
+// RIGHT - brands the producer's declared return: reaches exactly one consumer.
+export type SourceCapabilities = Branded<DataSourceCapabilities, 'controller.capabilities'>;
+public get capabilities(): SourceCapabilities { /* the only mint */ }
+```
+
+```ts
+// WRONG - direct literal cast: excess-property check kept, missing-field check GONE.
+return { links: await this.getLinks(mode), mode } as RenderLinkSet;
+
+// RIGHT - local typed on the unbranded shape: both checks restored.
+const linkSet: RenderLinkSetFields = { links: await this.getLinks(mode), mode };
+return linkSet as RenderLinkSet;
+```
+
+```ts
+// WRONG - coverage by hand-kept fabricate cases: covers the brands someone remembered.
+// @ts-expect-error a fabricated read-only capability silently seeds SVAR read-only
+capabilities: { write: false },
+
+// RIGHT - coverage derived from the input's own types: covers every brand, including
+//         the next one, and fails when any is removed.
+type UnbrandedInputFields = {
+  [K in keyof RenderContractInput]: RenderContractInput[K] extends AnyBranded ? never : K;
+}[keyof RenderContractInput];
+```
+
+Both forms are worth keeping — the fabricate cases document *why* each specific fabrication is dangerous, in prose a derived guard cannot carry. The derived guard is what makes the set complete.
+
+### A self-contained program that proves facts 3 and 4
+
+Compiles clean with `tsc --strict --noEmit` (TypeScript 5.9.2): every `@ts-expect-error` below matched, and every undirected line compiled.
+
+```ts
+declare const brandName: unique symbol;
+type Branded<T, Name extends string> = T & { readonly [brandName]: Name };
+type AnyBranded = { readonly [brandName]: string };
+type AssertTrue<T extends true> = T;
+
+// --- Fact 3
+interface Three { one: string; two: string; three: string }
+type BrandedThree = Branded<Three, 'x'>;
+
+const missingField = { one: 'a', two: 'b' } as BrandedThree;   // no diagnostic
+// @ts-expect-error excess property is still rejected by the cast
+const excess = { one: 'a', two: 'b', three: 'c', four: 'd' } as BrandedThree;
+
+function toBrandedThree(fields: Three): BrandedThree { return fields as BrandedThree; }
+// @ts-expect-error the helper form restores the missing-field check
+const viaHelper = toBrandedThree({ one: 'a', two: 'b' });
+
+// --- Fact 4
+type Capabilities = Branded<{ write: boolean }, 'controller.capabilities'>;
+interface Input { capabilities: Capabilities; instances: string[]; passthrough: object }
+
+type UnbrandedInputFields<T> = {
+  [K in keyof T]: T[K] extends AnyBranded ? never : K;
+}[keyof T];
+
+type _Baseline = AssertTrue<
+  [UnbrandedInputFields<Input>] extends ['instances' | 'passthrough'] ? true : false
+>;
+
+interface BrandRemoved { capabilities: { write: boolean }; instances: string[]; passthrough: object }
+type _RemovalCaught = AssertTrue<
+  // @ts-expect-error a de-branded field falls into the derived unbranded set
+  [UnbrandedInputFields<BrandRemoved>] extends ['instances' | 'passthrough'] ? true : false
+>;
+
+interface NewUnbranded extends Input { newFlag: boolean }
+type _NewUnbrandedCaught = AssertTrue<
+  // @ts-expect-error a newly added unbranded field is not on the exception list
+  [UnbrandedInputFields<NewUnbranded>] extends ['instances' | 'passthrough'] ? true : false
+>;
+
+interface NewBranded extends Input { extra: Branded<string, 'controller.somethingNew'> }
+type _NewBrandCostsNothing = AssertTrue<
+  [UnbrandedInputFields<NewBranded>] extends ['instances' | 'passthrough'] ? true : false
+>;
+
+interface WithFlag extends Input { flag: Branded<boolean, 'view.flag'> }
+type _BrandedBooleanDetected = AssertTrue<
+  [UnbrandedInputFields<WithFlag>] extends ['instances' | 'passthrough'] ? true : false
+>;
+```
+
+### A self-contained program that proves the ordered-pair fact
+
+```ts
+type AssertTrue<T extends true> = T;
+
+interface StatusColor { value: string; color: string; isCompleted: boolean; icon?: string }
+interface PriorityColor { value: string; color: string; icon?: string }
+interface Unbranded { statusColors: StatusColor[]; priorityColors: PriorityColor[] }
+
+type Ordered<T> = {
+  [K in keyof T]: {
+    [L in Exclude<keyof T, K>]: T[K] extends T[L] ? [K, L] : never;
+  }[Exclude<keyof T, K>];
+}[keyof T];
+
+type Mutual<T> = {
+  [K in keyof T]: {
+    [L in Exclude<keyof T, K>]: T[K] extends T[L] ? (T[L] extends T[K] ? [K, L] : never) : never;
+  }[Exclude<keyof T, K>];
+}[keyof T];
+
+// Ordered FINDS the miswire; Mutual reports the input clean.
+type _Found  = AssertTrue<[Ordered<Unbranded>] extends [['statusColors', 'priorityColors']] ? true : false>;
+type _Missed = AssertTrue<[Mutual<Unbranded>] extends [never] ? true : false>;
+```
+
+## Related
+
+- [derive-the-member-list-from-keyof-not-a-runtime-probe](derive-the-member-list-from-keyof-not-a-runtime-probe.md) — the same move (derive a member list from the declaration, not from observing a call) applied to a runtime probe rather than a brand set. `UnbrandedInputFields` is that principle at the type level, and that doc owns the conditional-type distributivity explanation this one only cites.
+- [a-test-name-is-a-claim-verify-the-mutation](a-test-name-is-a-claim-verify-the-mutation.md) — the four defects here are all guards whose names claimed more than they checked. The brand-coverage sweep is that discipline applied to a type-level guard.
+- [state-the-rule-derive-the-list](../workflow-issues/state-the-rule-derive-the-list.md) — why fixing the three named brands would have been the defect one level up. Fact 4's remedy is that document's governance test applied to a brand set.
+- [live-accessor-bridge-extraction-recipe](../architecture-patterns/live-accessor-bridge-extraction-recipe.md) — the recipe that explicitly hands off the pure-function case ("a bridge wrapped around pure logic is ceremony"). This learning is what that excluded branch costs once you take it: a pure function moves the risk into the literal that calls it.
+- [layered-pre-push-review-gate](../tooling-decisions/layered-pre-push-review-gate.md) — the gate that caught two of the four. The cross-model peer found the coverage class after the local layers returned clean on the same commit.
