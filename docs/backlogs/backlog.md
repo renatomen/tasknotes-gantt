@@ -1081,16 +1081,26 @@ Two things the rule does not excuse you from checking, both measured:
   literals and is WRONG for a tuple: `0 & ['wide','narrow']` does not reduce, so that guard fails on
   the healthy build. Use `null &` for the tuple operands here. Pick the sentinel by what the
   operand is, then confirm the guard is silent on the healthy type before trusting it to speak on a
-  degenerate one. **Do not apply this recipe to an object-valued operand at all — reduce it to
-  `keyof` first.** Measured, TS 5.9.2: with `Expected = { required: string; optional?: number }` and
-  a `Derived` that has lost `optional`, both assignability declarations compile, `null & Derived`
-  satisfies the sentinel, and a witness for `required` succeeds — four green guards over a lost
-  contract member, with a planted canary confirming the build was being checked. Adding a witness
-  does not rescue this, and neither would a fifth guard: mutual assignability is the wrong primitive
-  on objects, because an optional property makes dissimilar objects mutually assignable. Reducing
-  the operand fixes it inside the recipe already measured rather than adding a mechanism to it —
-  `const d: keyof Derived = null as unknown as keyof Expected` fails on exactly that lost member,
-  and the pair must be mutual because each direction sees loss on only one side.
+  degenerate one. **An object-valued operand takes a different recipe: two mutual pairs and NO
+  sentinel.** Measured, TS 5.9.2, against `Expected = { required: string; optional?: number }`, every
+  case carrying a planted canary to prove the build was being checked:
+
+  | mutation of the operand | object mutual pair | `keyof` mutual pair |
+  | --- | --- | --- |
+  | none (healthy) | silent | silent |
+  | `optional` dropped | **silent** | fires |
+  | `optional?: number` -> `optional?: string` | fires | **silent** |
+  | operand degenerates to the escape-hatch type | **silent** | fires |
+
+  The two are exactly complementary, so an object operand needs both: mutual assignability alone
+  misses a dropped optional member, because an optional property is satisfiable by absence and makes
+  dissimilar objects mutually assignable; the key-set pair alone misses a changed property type,
+  because the key set did not change. A witness adds nothing either pair does not already give.
+
+  The sentinel is not merely insufficient here, it is **wrong**: `0 & { ... }` does not reduce to the
+  empty type, so that declaration fails on the HEALTHY build. It is also unnecessary, because the
+  key-set pair already catches the escape-hatch case — `keyof` of that type is
+  `string | number | symbol`, which is not assignable to the expected key union.
 
 For a union of string-literal keys the intersection is `never` and the declaration holds; if the
 derivation degenerates to `any` the intersection is `any`, which is not assignable to `never`, and
@@ -1114,7 +1124,7 @@ The surviving tower fired on those same mutations, so the replacement gives up n
 Two limits on that result, both worth carrying into the implementation. The mutations exercised the
 operands this guard set actually has, which are unions of string-literal keys and one tuple; the
 object-operand case was measured separately, against a synthetic pair rather than a real operand,
-and is the reason that case now reduces to `keyof` instead of carrying its own recipe. And a passing declaration set is not the same as a deleted tower: removing
+and is the reason that case carries its own two-pair recipe above. And a passing declaration set is not the same as a deleted tower: removing
 `AssertTrue`, `IsExactly`, `Exact` and `IsAny` is the change this entry asks for, and the measurement
 covers only that the declarations catch what the tower caught, not that nothing else read them.
 

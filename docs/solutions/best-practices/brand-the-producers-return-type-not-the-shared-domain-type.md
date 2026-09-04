@@ -488,6 +488,12 @@ like a real finding. **Differential measurement held up; absolute counts did not
   mutations in a row came back clean. The output was indistinguishable from "the guards are not
   load-bearing", which is the conclusion it was about to support.
 
+- **A line-number collector that deduplicated its own results.** Piping labels like `L6` and `L7`
+  through `sort -un` parses both as numeric zero, so they compare equal and one is discarded. Two
+  mutation cases each reported a single firing site and looked like clean, specific results. The
+  canary is what exposed it: it is planted to fire in *every* case, so a case whose output omits it
+  is reporting on an instrument, not on the code.
+
 So: read *which* assertion fired and confirm it is the one you mutated. A guard verified by counting
 diagnostics is a guard verified by the same reasoning that produced every level of this sequence.
 
