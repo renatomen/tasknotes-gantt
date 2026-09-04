@@ -1085,7 +1085,9 @@ Two things the rule does not excuse you from checking, both measured:
   merely lost its shape still intersects the sentinel to empty and passes, and mutual assignability
   is itself weak there because an optional property makes dissimilar objects mutually assignable —
   the `Exact` limitation the learning already records. An object operand needs a witness naming a
-  key it cannot lose, not a sentinel.
+  key it cannot lose IN ADDITION TO the sentinel rejection, never instead of it: a witness alone
+  reopens the escape-hatch case, because a key name checks out against the escape-hatch type too.
+  Both obligations, both declarations.
 
 For a union of string-literal keys the intersection is `never` and the declaration holds; if the
 derivation degenerates to `any` the intersection is `any`, which is not assignable to `never`, and
