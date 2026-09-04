@@ -97,7 +97,7 @@ writing, which is exactly why the wrong one would have gone unnoticed.
 
 The same repo has the measured counter-example. An earlier attempt branded `LinkRewriteMode` — the dependency-arrow mode — and was rejected for its ripple. That rejection stands, but measuring it the way this rule prescribes moves the cost somewhere a reference count never showed. `LinkRewriteMode` has 14 references across six `src/` files, which is what the original argument leaned on; yet only **one** of those sites originates a mode value (`src/bases/register.ts`, reading it from config). Three more merely forward an already-typed one and would need no mint at all.
 
-The real cost is in the fixtures. `arrowMode` is a field of two published contract types, so **six test files** each originate a literal `'primary'` or `'all'` and every one would have to mint: seven mint sites in seven files, plus the two files that declare the field — nine in all, against `DataSourceCapabilities`' eleven of twelve. Comparable, then, but for a reason an `src/`-scoped reference count is structurally unable to see. Treat the *reason* as the durable part — a shared type reached by many producers, most of them fixtures — and re-measure before citing a number. The count the original rejection was argued from is not recoverable from the session record *(session history)*.
+The real cost is in the fixtures, and a construction site is not only a field write: **any literal reaching a parameter of the branded type is one too.** Counting both, branding the mode would force a mint at **32 sites across eight files** — 22 literals passed to `getLinks`, `buildLinkSet` and `rewriteLinks`, nine `arrowMode` field writes, and the one `src/` producer — plus the one file declaring the alias. (The two files carrying an `arrowMode` field only *name* the alias and would need no edit; a tenth field write escapes only because its fixture is typed `Record<keyof GanttData, unknown>`.) Against `DataSourceCapabilities`' eleven of twelve files the two are close by files touched, while the mode is far the heavier by mint sites. So the rejection was right and its stated reason was too weak: the ripple is bigger than the reference count suggested, not merely differently placed. Treat the *reason* as the durable part — a shared type reached by many producers, most of them fixtures — and re-measure, over parameters as well as fields, before citing a number. The count the original rejection was argued from is not recoverable from the session record *(session history)*.
 
 What shipped instead brands the *pair* the reader answers, not the mode itself (`src/controller/GanttController.ts`):
 
@@ -188,7 +188,7 @@ function toCellData(fields: CellDataFields): CellData {
 ...or type a **local** on the unbranded shape and cast the local (`src/controller/GanttController.ts`, and the same idiom in `src/bases/register.ts`):
 
 ```ts
-// Typed as the unbranded shape first: a literal cast straight to a branded
+// Typed as the unbranded shape first: casting the literal straight to the
 // brand would not catch a missing field.
 const linkSet: RenderLinkSetFields = { links: await this.getLinks(mode), mode };
 return linkSet as RenderLinkSet;
@@ -235,10 +235,16 @@ Listing the **deliberate exceptions** rather than the brands inverts the mainten
 2. adding a new *unbranded* field -> not on the exception list -> the assertion fails, with no edit to the guard;
 3. adding a new *required*, distinctly branded field -> costs no edit at all;
 4. an **optional** field of any kind is misread: `T[K]` widens to `Branded<...> | undefined`,
-   which does not extend `AnyBranded`, so the field is classified unbranded *and* injects
-   `undefined` into the derived set. Keep the input's fields required and put the optionality
-   inside the brand (`Branded<X | null, N>`); do not "repair" it by adding `undefined` to the
-   exception list, which would blind the guard to every future optional field;
+   which does not extend `AnyBranded`, so the field is misclassified as unbranded; and,
+   *independently*, the mapped type keeps the `?`, so `undefined` joins the derived set whatever
+   the brand check answers. Assert the two separately — together, the case still passes after
+   either one is repaired. Keep the input's fields required. Note that neither simple
+   nullable form works: `Branded<X | null, N>` collapses to `Branded<X, N>`, because the brand is
+   an intersection and `null & object` reduces to `never`, so the null is silently dropped; while
+   `Branded<X, N> | null` keeps the null but reads as *unbranded* to the derivation. Wrap instead
+   (`Branded<{ value: X | null }, N>`), or put the field on the exception list deliberately. Do not
+   "repair" it by adding `undefined` to the list, which would blind the guard to every future
+   optional field;
 5. a branded **boolean** is still detected — `Branded<boolean, N>` distributes to `(true & B) | (false & B)`, and a union extends `AnyBranded` when every member does, so the boolean brands here are not false negatives.
 
 After it, no brand can go missing in silence - established by construction rather than by
@@ -307,7 +313,7 @@ document's fourth rule is about, committed one level up.
 
 There is also a warning about the instruments. The author's brand-coverage sweep first reported a **fourth** silently-removable brand that turned out to be a measurement artifact: the substitution used to "remove" the brand still preserved role distinction through a phantom property, so what it actually measured was *"can I swap this brand for a weaker one"*, not *"can I remove it"*. The instrument had the same defect shape as the code it was measuring — a check that stopped one step short of the property it claimed to test. Sweep results are claims like any other; state what the substitution actually was.
 
-Then the same shape survived into this document's own review, twice, after six clean cross-model rounds had passed the draft. Rule 3 named the wrong mechanism outright: it credited the excess-property check for a rejection that is really comparability failing in both directions, which mispredicts a cast made through a variable and mispredicts the optional-phantom-property brand idiom completely — and that wrong mechanism had already reached seven sites, three of them production comments. Rule 4's guard was written as `[derived] extends [list]`, a one-directional check that reads like an equality assertion and is not: adding a name to the exception list that is no key of the input at all produced **zero diagnostics** against this repo's real guard. That is precisely the `Omit`/`Exclude` trap this document teaches, committed inside the guard written to close it. Both are fixed here, and the second was a genuine hole in shipped code rather than only in the prose describing it.
+Then the same shape survived into this document's own review, twice, after six clean cross-model rounds had passed the draft. Rule 3 named the wrong mechanism outright: it credited the excess-property check for a rejection that is really comparability failing in both directions, which mispredicts a cast made through a variable and mispredicts the optional-phantom-property brand idiom completely. Its spread is worth stating exactly, because it is this section's own subject: the claim pre-existed at **three** sites, all production comments, and the branch writing *this document* propagated it into four more — the glossary, the backlog, and the document's own rule and examples — before that branch's review caught it. The pattern below was not being described from memory; it was running while the description was written. Rule 4's guard was written as `[derived] extends [list]`, a one-directional check that reads like an equality assertion and is not: adding a name to the exception list that is no key of the input at all produced **zero diagnostics** against this repo's real guard. That is precisely the `Omit`/`Exclude` trap this document teaches, committed inside the guard written to close it. Both are fixed here, and the second was a genuine hole in shipped code rather than only in the prose describing it.
 
 The transferable lesson is narrower than "review harder". When a metric or a mechanism changes, the sentences needing re-derivation are not the ones carrying the old *number* — grep finds those — but the ones carrying the old *conclusion*. This document's own counter-example was argued from a reference count in the section that had just finished replacing reference counts with construction sites, and it reached the right verdict for a reason its evidence did not support. Nothing mechanical catches that: every number in the sentence was true.
 
@@ -322,6 +328,7 @@ Reach for a brand when a value's validity is **which value it is** — which col
 Do **not** brand when:
 
 - The type is a shared domain type with many consumers — measure how many sites **construct** one, with its scope, and brand the producing reader's return instead. The reference count is the wrong instrument: most references only read.
+- Branding a string-literal union additionally costs every consumer that switches on it, because exhaustiveness narrowing is lost. That is neither a reference nor a construction site; this repo escapes it only because both consumers compare with `===`.
 - The host is the rightful producer of the value, or the value's own type already makes a substitute obvious. Those are the deliberate exceptions the coverage guard lists.
 
 And when reviewing a branded design, run these four checks in order:
@@ -359,8 +366,9 @@ return linkSet as RenderLinkSet;
 
 The extra-key rejection survives only while the initializer - or the helper's argument - is a
 fresh literal, because excess-property checking *is* freshness-gated even though the comparability
-rule above is not. Feed either repair a pre-built variable and it is gone; `satisfies
-CellDataFields` on the source expression keeps both.
+rule above is not. Feed either repair a pre-built variable and it is gone — and `satisfies` on *that variable*
+does not bring it back, because `satisfies` is freshness-gated too. The annotation has to sit on
+the literal that builds the value: `const fields = { ... } satisfies CellDataFields`.
 
 ```ts
 // WRONG - coverage by hand-kept fabricate cases: covers the brands someone remembered.
@@ -448,17 +456,27 @@ type _SubsetMissesIt = AssertTrue<
 >;
 
 type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
-type _ExactCatchesIt = AssertTrue<
-  // @ts-expect-error the mutual form rejects a list naming a field that is branded
+type _ExactCatchesABrandedNameOnTheList = AssertTrue<
+  // @ts-expect-error the mutual form rejects a list naming a field that IS branded
   Exact<UnbrandedInputFields<Input>, 'instances' | 'passthrough' | 'capabilities'>
 >;
+type _ExactCatchesAStaleName = AssertTrue<
+  // @ts-expect-error and rejects a name that is no key of the input at all
+  Exact<UnbrandedInputFields<Input>, 'instances' | 'passthrough' | 'notAKeyAtAll'>
+>;
 
-// An OPTIONAL branded field is misread, in both halves at once.
+// An OPTIONAL branded field fails in two INDEPENDENT ways. Asserting them
+// together would leave a case that still passes after either one is repaired.
 interface WithOptional extends Input { maybe?: Branded<string, 'view.maybe'> }
-type _OptionalMisread = AssertTrue<
-  // @ts-expect-error `Branded<string,'view.maybe'> | undefined` does not extend AnyBranded,
-  //                  so the field is classified unbranded and `undefined` joins the set
-  [UnbrandedInputFields<WithOptional>] extends ['instances' | 'passthrough'] ? true : false
+// One: `Branded<string,'view.maybe'> | undefined` does not extend AnyBranded,
+//      so the field is misclassified as unbranded.
+type _OptionalMisclassified = AssertTrue<
+  'maybe' extends UnbrandedInputFields<WithOptional> ? true : false
+>;
+// Two: the mapped type keeps the `?`, so `undefined` joins the derived set
+//      whatever the brand check answers.
+type _OptionalInjectsUndefined = AssertTrue<
+  undefined extends UnbrandedInputFields<WithOptional> ? true : false
 >;
 ```
 

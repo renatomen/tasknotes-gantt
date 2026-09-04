@@ -987,3 +987,18 @@ counts, at-ceiling counts). The book's yardstick is stability/throughput — tie
 one claim per future trend report to an outcome class: incident cost, measured flake
 instances, or false-greens surfaced. Needs a maintainer ruling at the next re-measure.
 Source: docs/plans/2026-08-27-001-refactor-ganttcontainer-style-extraction-plan.md (U2).
+
+### P2 — Nothing compiles the TypeScript in `docs/solutions/`, so a durable learning can rot silently (2026-09-05)
+Raised by two independent reviewers while reviewing the nominal-branding learning. That document's
+central claims rest on two self-contained programs that were compiled by hand at TS 5.9.2 and are
+not compiled by anything again. A TypeScript release that changed assertion comparability, or the
+`null & object` reduction, would falsify the document with no build signal — and the same review
+found a quoted source comment that had already drifted out of step with the file it quotes, caught
+by a reader rather than by a mechanism. The repo's rule of the house is mechanism, not memory, and
+this is an invariant with no guard.
+
+Parked rather than built here under the standing ruling that code and bug fixes outrank tooling
+unless the harness is the measured bottleneck; it is not. Whoever takes it should extract every
+fenced `ts` block under `docs/solutions/` and typecheck it, treating a block's `@ts-expect-error`
+directives as part of the assertion — and should decide whether quoted source snippets are worth
+pinning to their files at the same time.

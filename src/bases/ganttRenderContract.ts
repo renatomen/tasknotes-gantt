@@ -81,11 +81,24 @@ export interface CalendarShadingContribution {
 
 type AssertTrue<T extends true> = T;
 
+type AssertFalse<T extends false> = T;
+
 /**
  * Mutual assignability. A one-directional `extends` accepts a wider right-hand
  * side, so it cannot see a name listed there that does not belong.
+ *
+ * Sound for the key unions it is used on, where mutual assignability is set
+ * equality. It is not a general type-equality operator: `any` satisfies it in
+ * both directions, and for object types an optional extra property is mutually
+ * assignable and so reads as equal.
  */
 type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+
+/**
+ * A guard nothing can observe failing is not a guard. This is the property the
+ * assertion below relies on and the one a one-directional `extends` loses.
+ */
+type _ExactRejectsAWiderRightHandSide = AssertFalse<Exact<'a', 'a' | 'b'>>;
 
 /** Contract fields this projection produces. */
 type ComputedContractKeys =
