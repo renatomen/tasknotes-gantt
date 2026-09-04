@@ -108,7 +108,15 @@ interface RenderLinkSetFields {
 export type RenderLinkSet = Branded<RenderLinkSetFields, 'controller.linkSet'>;
 ```
 
-That closes a real defect class the mode-brand would not have: a host that assembles the two halves itself can publish `'primary'` beside links rewritten for `'all'`, which typechecks, draws no arrows for the extra endpoints, and still stamps the has-dependencies indicator on the instances they belong to.
+That closes a real defect class the mode-brand would not have: a host that assembles the two halves
+itself can publish one half's mode beside the other half's links, and it typechecks. Both directions
+render wrongly, and it is worth naming which is which, because the consequence is not symmetric.
+Links are handed to the chart unfiltered while the mode drives a separate indicator
+(`src/bases/ganttSync.ts` shows the indicator on non-primary instances only when the mode reads
+`primary`), so `'all'` links published as `'primary'` draw the extra arrows **and** stamp the
+indicator that exists to stand in for an arrow not drawn — belt and braces on the same instance.
+The reverse, `'primary'` links published as `'all'`, draws neither: the dependency simply vanishes
+from the non-primary rows.
 
 ### 2. Mint each brand in exactly one reader
 
