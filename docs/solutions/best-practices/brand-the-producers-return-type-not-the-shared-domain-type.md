@@ -362,8 +362,12 @@ Three caveats that are part of the guidance:
    resolve to something other than what you read, including a hand-written union; only a literal
    written in place is exempt: each assertion has two sides,
    and guarding one says nothing about the other — measured, degenerating the *expected* set instead
-   of the derived one leaves every assertion green and a removed brand undetected. The pairs guard
-   itself needs no help, because the empty type admits nothing.
+   of the derived one leaves every assertion green and a removed brand undetected. The pairs guard needs no `any`
+   rejection, because the empty type admits nothing — but it does need a positive probe, because a
+   derivation that has degenerated to the empty type satisfies it perfectly. Guarding against the
+   escape-hatch type and guarding against emptiness are separate obligations, and this one assertion
+   happens to need only the second. The filed entry carries the declarations; they are not repeated
+   here, because a recipe stated in two places is the pair this document warns about.
 3. **A non-emptiness check must name a witness, not restate the union.** `T = T` is a tautology, and
    it is most convincing exactly when `T` has collapsed to `never`. Assert a member you know must be
    there.
