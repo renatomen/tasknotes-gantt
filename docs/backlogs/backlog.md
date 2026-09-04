@@ -1022,9 +1022,22 @@ confident closing claim disproven by later work is the exact failure this entry 
 The measured alternative asserts with the compiler's own assignability check on DECLARED VALUES
 rather than by computing a boolean and asserting the boolean:
 
+This block is the complete set, not a sample: it instantiates the per-operand rule stated below
+rather than leaving it to prose. Compiled against the real module at TS 5.9.2 — silent on the healthy
+build, with a planted canary confirming the build was being checked.
+
 ```ts
+// The coverage assertion, both directions. Neither direction alone is enough: one accepts a
+// derived set that is a strict subset, the other accepts a listed name that is no key at all.
 const _derivedIsListed: UnbrandedException = null as unknown as UnbrandedInputFields;
 const _listedIsDerived: UnbrandedInputFields = null as unknown as UnbrandedException;
+// Both operands are type NAMES, so both carry a sentinel. Omitting either one leaves that side
+// free to degenerate with all the mutual assignments still compiling.
+const _derivationIsNotAny: never = null as unknown as (0 & UnbrandedInputFields);
+const _exceptionIsNotAny: never = null as unknown as (0 & UnbrandedException);
+
+// No sentinel here, and this is the one real exception: an expectation of the empty type admits
+// nothing, so it rejects a degenerate operand unaided.
 const _noPairs: never = null as unknown as InterchangeableFieldPairs<RenderContractInput>;
 
 // The pair derivation still needs a positive probe, and the key union still needs a
@@ -1034,26 +1047,28 @@ const _probeFindsThePair: ['wide', 'narrow'] =
   null as unknown as InterchangeableFieldPairs<InterchangeabilityProbe>;
 const _pairIsThatProbe: InterchangeableFieldPairs<InterchangeabilityProbe> =
   null as unknown as ['wide', 'narrow'];
+// `null &`, not `0 &`: the operand is a tuple, and `0 &` does not reduce for one, so that
+// sentinel would fail on the healthy build. Pick the sentinel by the operand's kind.
+const _pairProbeIsNotAny: never =
+  null as unknown as (null & InterchangeableFieldPairs<InterchangeabilityProbe>);
+
 const _namedKeysAreContractFields: keyof GanttData = null as unknown as NamedContractKeys;
 // A witness, not a tautology: `NamedContractKeys = NamedContractKeys` compiles even when both
 // sides are `never`, so the check has to name a key it must contain.
 const _namedKeysAreNonEmpty: NamedContractKeys = null as unknown as 'links';
+// The subset check and the witness both accept a degenerate operand, so this one is needed too.
+const _namedKeysAreNotAny: never = null as unknown as (0 & NamedContractKeys);
 ```
 
 `UnbrandedException` is the nine-name union, which is inlined in the guard today and would have to
 be lifted to a named alias first.
 
-It must also reject `any` for the unbranded-field derivation, and it can do that by declaration too,
-which is better than the first draft of this entry proposed. Keeping `IsAny` would leave one
-computed checker standing with nothing observing it — weaken it to a constant and the guard is green
-while broken, which is the whole defect this entry exists to remove. Assert instead that the
-derivation intersected with a disjoint literal is empty:
+The escape-hatch rejections above replace `IsAny`, which comes out with the rest. Keeping it would
+leave one computed checker standing with nothing observing it — weaken it to a constant and the guard
+is green while broken, which is the whole defect this entry exists to remove. The declaration form
+asserts instead that the operand intersected with a disjoint sentinel is empty.
 
-```ts
-const _derivationIsNotAny: never = null as unknown as (0 & UnbrandedInputFields);
-```
-
-One of these per computed operand, not one in total. Each declaration above has two sides, and a
+One of these per named operand, not one in total. Each declaration above has two sides, and a
 guard on one says nothing about the other: measured, if `UnbrandedException` degenerates instead,
 both mutual assignments AND `_derivationIsNotAny` compile, and a removed brand goes undetected —
 the same false-green by a different door. The rule, rather than the list: **every operand that is a
