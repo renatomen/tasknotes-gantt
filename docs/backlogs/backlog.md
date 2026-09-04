@@ -1021,6 +1021,12 @@ const _listedIsDerived: UnbrandedInputFields = null as unknown as UnbrandedExcep
 const _noPairs: never = null as unknown as InterchangeableFieldPairs<RenderContractInput>;
 ```
 
+It must also keep an explicit `any` rejection for the unbranded-field derivation. Mutual
+assignability does NOT supply one: if `UnbrandedInputFields` degenerates to `any`, both assignments
+compile, because `any` is assignable in both directions. The `never` declaration protects only the
+pairs derivation. So `IsAny` survives the deletion even though `AssertTrue`, `IsExactly`, `Exact`
+and the tuple do not.
+
 Every right-hand side must be a concrete expression, not a `declare const` binding. TypeScript erases
 the declaration but emits the initialized constant, so `declare const x: T;` followed by
 `const _a: U = x;` compiles and then throws `ReferenceError: x is not defined` the moment the module
@@ -1045,3 +1051,25 @@ Residual the replacement does NOT fix, and no further level would: the assertion
 Removing an assertion and then weakening what it guarded is two edits and leaves both typechecks
 green. That is diff-visible rather than silent, so it is review surface, not a hole. Only
 `NamedContractKeys` is load-bearing on production code today.
+
+### P1 — A nested boolean swap in the render-contract wiring compiles and passes (2026-09-05)
+Pre-existing on `main`; the fields arrived with PR #480 and this is not a regression from the
+branding work. Found by the cross-model peer while reviewing that branch.
+
+`RenderContractInput` carries `calendarItems: { showRecurring: boolean }` and
+`externalCalendars: { enabled: boolean; representativeColor: string | null }`. The two enclosing
+object types differ, so the pairwise interchangeability guard correctly reports `never` — but the
+guard is top-level only, and the two LEAF booleans are interchangeable. Swapping the values assigned
+to them in `src/bases/register.ts` is a clean compile AND a green unit suite: measured, zero
+typecheck diagnostics and 21/21 passing. With recurring enabled and external calendars disabled,
+the legend then receives the opposite state and selects external-event treatment.
+
+Two reasons nothing catches it. The brands protect top-level fields, and a value nested one level
+down is outside the derivation — a limit the branding learning states but does not close. And the
+projection fixture assigns `true` to both, so even a test that exercised the swap could not see it:
+a fixture with identical values cannot detect a crossing.
+
+Whoever takes it should do both halves: give the leaves distinguishing values in the fixture
+(`true`/`false`), and add a register-level wiring assertion, since the projection's own test builds
+its input directly and structurally cannot catch a miswire in the caller that assembles it. Branding
+the leaf values, or having the reader mint the bundle, is the design fix behind both.
