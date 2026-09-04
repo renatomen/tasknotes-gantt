@@ -246,8 +246,11 @@ guard: with the one-directional form, adding `'notAKeyAtAll'` to the exception l
 diagnostics**; with `Exact` it fails. PR #480 shipped the one-directional form; this document's
 review is what caught it.
 
-The `IsExactly` wrapper around it is load-bearing too, and it took three attempts to get right —
-which is the more useful half of the story. **Every loose way of asserting a type-level result
+The `IsExactly` wrapper around it is load-bearing too, and it took three attempts to get right, then
+a fourth to be adequately tested — which is the more useful half of the story. The fourth: its answer
+matrix pinned every case but the empty type, so a rewrite comparing distributively rather than
+exactly answered the empty type there, and because an assertion constrained to the true literal
+accepts the empty type, the guard built on it went silent. **Every loose way of asserting a type-level result
 accepts something.** `AssertTrue<T extends true>` is satisfied by `never`, because `never` extends
 everything. Replacing it with a one-directional `[false] extends [T]` fixes `never` and then accepts
 `boolean`, `unknown` and `any`, since each is a supertype of `false`. Only a *mutual* comparison,
