@@ -141,6 +141,20 @@ today. That is a production behaviour change and belongs in its own test-first u
 `2026-09-03-001` therefore leaves the call untouched and treats its position as a review
 obligation on the U1 diff.
 
+### P2 — The capabilities brand is minted from an object literal, so a new required field would slip through (2026-09-04)
+Found by the cross-model peer while reviewing the nominal-branding learning, and verified by
+compiling. `GanttController.capabilities` mints its brand as
+`(this.activeSource?.capabilities ?? { write: false }) as SourceCapabilities`. A cast from an object
+literal to a branded type keeps the excess-property check but **drops the missing-field check**, so
+if `DataSourceCapabilities` ever gains a required field, that fallback literal still compiles and
+the no-source path yields the new field as `undefined` rather than failing the build. The repair is
+the one already applied at the other three mint sites in PR #480 — assign to a
+`DataSourceCapabilities` local, then brand the local — and it is two lines. It is parked rather
+than folded into the docs PR that found it because `src/controller/GanttController.ts` is
+ranked-defect entry 4, and touching it carries the ranking citation and argument that a
+documentation change should not be smuggling in. Whoever takes it should sweep the other brand
+readers for the same shape at the same time.
+
 ### P2 — `buildCalendarShading` is a value builder that also registers watches (2026-09-04)
 Parked at U1 of `docs/plans/2026-09-03-001-refactor-register-render-data-characterization-plan.md`,
 which its Files list requires. `ObsidianGanttBasesView.buildCalendarShading()` computes the shading

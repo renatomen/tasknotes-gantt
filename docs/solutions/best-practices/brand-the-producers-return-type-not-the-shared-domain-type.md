@@ -72,14 +72,26 @@ public get capabilities(): SourceCapabilities {
 }
 ```
 
+That reader is also a live instance of rule 3 below, left here rather than quietly repaired: the
+fallback is an object literal cast straight to the brand, so if `DataSourceCapabilities` ever gains
+a required field, `{ write: false }` still compiles and the no-source path yields it as `undefined`.
+The repair is the same one rule 3 prescribes — assign to a `DataSourceCapabilities` local, then
+brand the local. It is parked rather than applied because it is a production change to a
+ranked-defect file. That a doc arguing this exact point still shipped the shape in its own showcase
+snippet is the most honest evidence available that rule 3 is easy to miss.
+
 Outside its own declaration and reader, `SourceCapabilities` is named at two sites in `src/` — an import and a field, both in `src/bases/ganttRenderContract.ts` — plus an import and a type argument in its unit test. Every other reader of the plain interface is untouched, and the branded value is still readable as its underlying type: `GanttController` does `const write = this.capabilities.write;` with no cast.
 
 **State the scope with the count, always.** These numbers move with the directories you search, and a figure separated from its command is the beginning of a false claim. The same identifier measures 6 files over `src/` alone and 12 across `src/` plus `test/` — both true on the same day. The ruling that established this practice recorded "6 files" from an `src/`-scoped grep; a later `src/`+`test/` grep returned 12, and the two looked contradictory for exactly as long as it took to re-run both *(session history)*. Cite the command:
 
 ```bash
-grep -rl 'DataSourceCapabilities' src/ test/ | wc -l    # files
-grep -r  'DataSourceCapabilities' src/ test/ | wc -l    # references
+grep -rl  'DataSourceCapabilities' src/ test/ | wc -l   # files
+grep -roh 'DataSourceCapabilities' src/ test/ | wc -l   # references
 ```
+
+`-oh` is load-bearing: plain `grep -r … | wc -l` counts matching *lines*, so it silently
+under-reports the moment one line names the identifier twice. The two agree at the time of
+writing, which is exactly why the wrong one would have gone unnoticed.
 
 The same repo has the measured counter-example. An earlier attempt branded `LinkRewriteMode` — the dependency-arrow mode — which is a **shared domain type** at 14 references across six source files (`src/bases/ganttSync.ts`, `src/bases/register.ts`, `src/bases/types/gantt-view-data.ts`, `src/controller/GanttController.ts`, `src/controller/index.ts`, `src/controller/InstanceExpansion.ts`), essentially the same blast radius as `DataSourceCapabilities` at `src/` scope. It was rejected for that ripple. Those two figures are a measurement taken at the current tree while writing this doc; the count the original rejection was argued from is not recoverable from the session record, so treat the *reason* as the durable part and re-measure before citing a number *(session history)*.
 
@@ -98,7 +110,13 @@ That closes a real defect class the mode-brand would not have: a host that assem
 
 ### 2. Mint each brand in exactly one reader
 
-The single-mint invariant is the whole guarantee. A second mint site anywhere in `src/` hands the host the cast it was denied. There are 19 brand declarations in `src/` (`grep -rn "= Branded<" src/`), covering 20 fields of `RenderContractInput` — `ChoiceCatalog<Role>` is one generic declaration serving both `statusChoices` and `priorityChoices`, which is itself the point: a role-parameterized reader answering the same shape for two roles needs the *role* in the brand, or the priority picker silently offers status values.
+The single-mint invariant is the whole guarantee — and nothing in the type system enforces it.
+Any module that can name the branded alias can write `value as SourceCapabilities`, and typecheck,
+the pairwise guard, and the coverage guard all stay green. The invariant is held by convention and
+by review, so it is worth a mechanical guard of its own: a structural check that the mint sites for
+each brand live in one production reader, in the spirit of a source-shape pin. Until such a guard
+exists, treat "one mint" as an assertion a reviewer must actually check, not one the compiler is
+making for you. A second mint site anywhere in `src/` hands the host the cast it was denied. There are 19 brand declarations in `src/` (`grep -rn "= Branded<" src/`), covering 20 fields of `RenderContractInput` — `ChoiceCatalog<Role>` is one generic declaration serving both `statusChoices` and `priorityChoices`, which is itself the point: a role-parameterized reader answering the same shape for two roles needs the *role* in the brand, or the priority picker silently offers status values.
 
 State the invariant as **one reader**, not one cast expression. Two brands legitimately cast twice inside a single method — `ManagedTaskPaths` and `ChoiceCatalog` in `src/controller/GanttController.ts` — because each method has a cache-hit return and a cache-miss return. Every other brand casts exactly once. A review rule phrased as "one cast per brand" would fire falsely on both and teach reviewers to wave the check through.
 
@@ -247,9 +265,12 @@ And when reviewing a branded design, run these four checks in order:
 ### The defect shapes, side by side
 
 ```ts
-// WRONG - brands the shared domain type: reaches all 24 references across 12 files.
-export interface DataSourceCapabilities { write: boolean }
-//  -> every source, every test double, every consumer must now name the brand.
+// WRONG - brands the shared domain type itself: every producer of one must now mint it,
+//         across all 24 references in 12 files.
+export type DataSourceCapabilities =
+  Branded<{ write: boolean }, 'datasource.capabilities'>;
+//  -> each source implementation and each test double has to cast; only read-only
+//     consumers of `.write` stay untouched, which is the half that misleads you.
 
 // RIGHT - brands the producer's declared return: reaches exactly one consumer.
 export type SourceCapabilities = Branded<DataSourceCapabilities, 'controller.capabilities'>;
