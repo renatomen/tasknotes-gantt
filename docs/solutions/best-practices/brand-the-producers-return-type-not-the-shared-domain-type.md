@@ -484,6 +484,7 @@ type _OptionalInjectsUndefined = AssertTrue<
 
 ```ts
 type AssertTrue<T extends true> = T;
+type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
 interface StatusColor { value: string; color: string; isCompleted: boolean; icon?: string }
 interface PriorityColor { value: string; color: string; icon?: string }
@@ -502,8 +503,10 @@ type Mutual<T> = {
 }[keyof T];
 
 // Ordered FINDS the miswire; Mutual reports the input clean.
-type _Found  = AssertTrue<[Ordered<Unbranded>] extends [['statusColors', 'priorityColors']] ? true : false>;
-type _Missed = AssertTrue<[Mutual<Unbranded>] extends [never] ? true : false>;
+// `_Found` must be MUTUAL: a one-directional `extends` is satisfied by `never`,
+// so it would pass while finding nothing, which is the claim it exists to make.
+type _Found  = AssertTrue<Exact<Ordered<Unbranded>, ['statusColors', 'priorityColors']>>;
+type _Missed = AssertTrue<Exact<Mutual<Unbranded>, never>>;
 ```
 
 ## Related

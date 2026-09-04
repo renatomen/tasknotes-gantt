@@ -95,10 +95,13 @@ type AssertFalse<T extends false> = T;
 type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
 /**
- * A guard nothing can observe failing is not a guard. This is the property the
- * assertion below relies on and the one a one-directional `extends` loses.
+ * A guard nothing can observe failing is not a guard. These are the properties
+ * the assertion below relies on, and both are needed: either one alone is
+ * satisfied by a comparison written in the opposite single direction, which is
+ * the failure being guarded against.
  */
 type _ExactRejectsAWiderRightHandSide = AssertFalse<Exact<'a', 'a' | 'b'>>;
+type _ExactRejectsAWiderLeftHandSide = AssertFalse<Exact<'a' | 'b', 'a'>>;
 
 /** Contract fields this projection produces. */
 type ComputedContractKeys =
