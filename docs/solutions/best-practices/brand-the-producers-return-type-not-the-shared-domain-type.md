@@ -261,6 +261,15 @@ The four failures share one shape: **a guard that stops one step short of where 
 
 These four are a different set from the four rules above: they are the instances of this one shape that actually shipped in that PR, and **not one of them was found by the author**. Three came from the local review layer — the crossed output pair, the literal-cast class, and the unchecked key union — and the fourth, the coverage class, from the cross-model peer, which found it on a commit the local layers had already returned clean. That distribution is the practical argument for a layered gate, and against trusting a green typecheck as evidence that a *type-level* guard guards anything. Every one of these compiles clean in its defective form. (Which gate caught which rests on this project's review records, which are deliberately never committed, so it is not independently checkable from the repository.)
 
+One of these claims was wrong in five places at once, and how it spread is the reusable part. It was
+written into the plan first, then copied into a declaration comment, a method's JSDoc, the prose of a
+pull request, and finally this document — because each artifact was drafted from the one before it. A
+false claim propagates along the path the work took, not along any path you would think to search.
+Grepping the distinctive phrase found four of the five; the fifth had been reworded in transit and
+only a search by *concept* — the mode names near the rendering nouns — turned it up. Sweeping by
+phrase is a hand-maintained list of sites wearing a search's clothes, which is the same defect this
+document's fourth rule is about, committed one level up.
+
 There is also a warning about the instruments. The author's brand-coverage sweep first reported a **fourth** silently-removable brand that turned out to be a measurement artifact: the substitution used to "remove" the brand still preserved role distinction through a phantom property, so what it actually measured was *"can I swap this brand for a weaker one"*, not *"can I remove it"*. The instrument had the same defect shape as the code it was measuring — a check that stopped one step short of the property it claimed to test. Sweep results are claims like any other; state what the substitution actually was.
 
 ## When to Apply

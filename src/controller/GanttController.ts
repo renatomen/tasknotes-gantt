@@ -938,9 +938,10 @@ export class GanttController {
    *
    * Taking the mode once and answering both parts is what closes the pairing: a
    * caller that assembles the two itself can publish `'primary'` beside links
-   * generated for `'all'`, which typechecks, renders no arrows for the extra
-   * endpoints, and still stamps the has-dependencies indicator on the
-   * non-primary instances they belong to.
+   * generated for `'all'`, which typechecks and then renders both halves of the
+   * mismatch — the links reach the chart unfiltered so the extra arrows draw,
+   * while the published mode also stamps the indicator that stands in for an
+   * arrow not drawn. The reverse pairing renders neither.
    *
    * @param mode - Endpoint cardinality for link rewriting.
    */
