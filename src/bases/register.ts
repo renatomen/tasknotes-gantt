@@ -22,7 +22,11 @@ import { get, writable, type Writable } from 'svelte/store';
 import GanttContainer from './GanttContainer.svelte';
 import { pickActiveFocusEntry } from './focusController';
 import type { GanttData } from './types/gantt-view-data';
-import type { EffectiveFieldMappings, RawFieldMappings } from './types/field-mapping';
+import type {
+  EffectiveFieldMappings,
+  FieldMappings,
+  RawFieldMappings,
+} from './types/field-mapping';
 import {
   projectRenderContract,
   type DateIndicatorToggle,
@@ -797,7 +801,10 @@ class ObsidianGanttBasesView extends BasesView {
     // is always READ for inference regardless of mode (R5/R6); the mode only gates
     // whether a resize writes it back. Default `dont-update`.
     const timeEstimateMode = readTimeEstimateMode(get, { companionAvailable });
-    return { ...base, progressMode, timeEstimateMode } as RawFieldMappings;
+    // Typed as the unbranded shape first: a literal cast straight to a branded
+    // type checks excess properties but not missing ones.
+    const mappings: FieldMappings = { ...base, progressMode, timeEstimateMode };
+    return mappings as RawFieldMappings;
   }
 
   /**

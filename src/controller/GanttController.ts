@@ -495,10 +495,12 @@ export type PriorityWritable = Branded<boolean, 'controller.priorityWritable'>;
  * generated for `all`, which stamps the has-dependencies indicator on
  * non-primary instances whose arrows are never drawn.
  */
-export type RenderLinkSet = Branded<
-  { links: RenderLink[]; mode: LinkRewriteMode },
-  'controller.linkSet'
->;
+interface RenderLinkSetFields {
+  links: RenderLink[];
+  mode: LinkRewriteMode;
+}
+
+export type RenderLinkSet = Branded<RenderLinkSetFields, 'controller.linkSet'>;
 
 /** {@link GanttController.buildRefreshGeneration}. */
 export type RefreshGenerationReader = Branded<
@@ -943,7 +945,10 @@ export class GanttController {
    * @param mode - Endpoint cardinality for link rewriting.
    */
   public async buildLinkSet(mode: LinkRewriteMode): Promise<RenderLinkSet> {
-    return { links: await this.getLinks(mode), mode } as RenderLinkSet;
+    // Typed as the unbranded shape first: a literal cast straight to a branded
+    // type checks excess properties but not missing ones.
+    const linkSet: RenderLinkSetFields = { links: await this.getLinks(mode), mode };
+    return linkSet as RenderLinkSet;
   }
 
   /**

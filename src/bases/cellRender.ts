@@ -63,6 +63,17 @@ interface CellDataFields {
 export type CellData = Branded<CellDataFields, 'cellRender.cellData'>;
 
 /**
+ * The single mint for {@link CellData}. Taking the unbranded shape as a
+ * parameter is what keeps the literal completeness-checked: casting an object
+ * literal straight to a branded type checks excess properties but not missing
+ * ones, so a field added to {@link CellDataFields} could be dropped at one
+ * return site with no diagnostic.
+ */
+function toCellData(fields: CellDataFields): CellData {
+  return fields as CellData;
+}
+
+/**
  * Build one cell's render descriptor from its raw value, classified value, and
  * resolved render type. A markdown descriptor whose source is empty degrades to
  * an empty text cell (nothing to render, and MarkdownRenderer on `''` is noise).
@@ -126,7 +137,7 @@ export function buildCellData(
   const { extractor, resolveRenderType, dateLocale } = context;
   const cellRenders = new Map<string, Record<string, CellRender>>();
   const propertyValues = new Map<string, Record<string, TypedValue>>();
-  if (visiblePropIds.length === 0) return { cellRenders, propertyValues, dateLocale } as CellData;
+  if (visiblePropIds.length === 0) return toCellData({ cellRenders, propertyValues, dateLocale });
 
   for (const entry of entries) {
     const path = (entry as { file?: { path?: unknown } })?.file?.path;
@@ -143,7 +154,7 @@ export function buildCellData(
     cellRenders.set(path, renders);
     propertyValues.set(path, typed);
   }
-  return { cellRenders, propertyValues, dateLocale } as CellData;
+  return toCellData({ cellRenders, propertyValues, dateLocale });
 }
 
 /**

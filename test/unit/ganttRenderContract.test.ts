@@ -183,7 +183,10 @@ function makeInput(overrides: Partial<RenderContractInput> = {}): RenderContract
     statusWritable: mint<StatusWritable>(true),
     priorityWritable: mint<PriorityWritable>(true),
     taskNotesPresent: mint<TaskNotesPresence>(true),
-    showDateIndicators: mint<DateIndicatorToggle>(true),
+    // Distinguishable from taskNotesPresent on purpose: the two are branded
+    // apart on the input, but the projection publishes them into GanttData's
+    // unbranded booleans, where only differing values can catch a swap.
+    showDateIndicators: mint<DateIndicatorToggle>(false),
     barFillSource: mint<BarFillChannel>('status'),
     barStripSource: mint<BarStripChannel>('calendar'),
     barIconSource: mint<BarIconChannel>('priority'),
@@ -229,7 +232,7 @@ function expectedContract(input: RenderContractInput): Record<keyof GanttData, u
     links: [],
     arrowMode: 'all',
     capabilities: input.capabilities,
-    showDateIndicators: true,
+    showDateIndicators: false,
     statusColors: input.statusColors,
     priorityColors: input.priorityColors,
     choiceOptions: { status: input.statusChoices, priority: input.priorityChoices },
@@ -515,7 +518,7 @@ describe('projectRenderContract: the legend context', () => {
       priorityColors: input.priorityColors,
       calendarPalette: SHADING.calendarPalette,
       calendarMarkerColor: SHADING.calendarMarkerColor,
-      showDateIndicators: true,
+      showDateIndicators: false,
       estimateMeaning: 'calendar-days',
       nonWorkingRendering: 'split',
       calendarItems: { showRecurring: true },
@@ -598,102 +601,87 @@ describe('projectRenderContract: the legend context', () => {
   });
 });
 
-describe('RenderContractInput: the host can neither fabricate nor cross its values', () => {
-  /**
-   * Each directive sits directly above the offending property, never above the
-   * literal: `@ts-expect-error` suppresses the NEXT line only, so a directive on
-   * the opening brace reports as unused while the real error still stands — and
-   * dropping a brand would then leave the case silently passing.
-   */
-  it('rejects, at compile time, every miswire no runtime tier can observe', () => {
-    const input = makeInput();
+/**
+ * The miswires no runtime tier can observe, rejected at compile time.
+ *
+ * These are declarations rather than a Jest case, deliberately. The only
+ * runtime assertion available over them is that a list of object literals is
+ * non-null — true by construction — so a green Jest result would claim a guard
+ * Jest cannot see. `npm run typecheck` is what enforces them: an
+ * `@ts-expect-error` that stops matching becomes an unused-directive error, so
+ * dropping a brand fails the build instead of passing quietly.
+ *
+ * Each directive sits directly above the offending property, never above the
+ * literal, because it suppresses the NEXT line only.
+ */
+const miswire = makeInput();
 
-    // Interchangeable siblings: the same underlying type from distinct producers.
-    const crossedColors: RenderContractInput = {
-      ...input,
-      // @ts-expect-error the status palette is assignable to a bare priority slot (StatusColor carries every PriorityColor field plus isCompleted)
-      priorityColors: input.statusColors,
-    };
-    const crossedChoices: RenderContractInput = {
-      ...input,
-      // @ts-expect-error the two choice catalogs come from one role-parameterized reader
-      priorityChoices: input.statusChoices,
-    };
-    const crossedChannels: RenderContractInput = {
-      ...input,
-      // @ts-expect-error the bar-icon source is a strict subset of the fill/strip union
-      barFillSource: input.barIconSource,
-    };
-    const crossedFillStrip: RenderContractInput = {
-      ...input,
-      // @ts-expect-error the fill and strip channels are the same union
-      barStripSource: input.barFillSource,
-    };
-    const crossedMappings: RenderContractInput = {
-      ...input,
-      // @ts-expect-error the resolved mappings decide identity, the raw set decides the write gates
-      rawMappings: input.effectiveMappings,
-    };
-    const crossedFlags: RenderContractInput = {
-      ...input,
-      // @ts-expect-error TaskNotes presence and the date-indicator toggle are both plain booleans
-      showDateIndicators: input.taskNotesPresent,
-    };
-    const crossedWritability: RenderContractInput = {
-      ...input,
-      // @ts-expect-error the two writability answers are both plain booleans
-      statusWritable: input.priorityWritable,
-    };
+// Interchangeable siblings: the same underlying type from distinct producers.
+const _crossedColors: RenderContractInput = {
+  ...miswire,
+  // @ts-expect-error the status palette is assignable to a bare priority slot (StatusColor carries every PriorityColor field plus isCompleted)
+  priorityColors: miswire.statusColors,
+};
+const _crossedChoices: RenderContractInput = {
+  ...miswire,
+  // @ts-expect-error the two choice catalogs come from one role-parameterized reader
+  priorityChoices: miswire.statusChoices,
+};
+const _crossedChannels: RenderContractInput = {
+  ...miswire,
+  // @ts-expect-error the bar-icon source is a strict subset of the fill/strip union
+  barFillSource: miswire.barIconSource,
+};
+const _crossedFillStrip: RenderContractInput = {
+  ...miswire,
+  // @ts-expect-error the fill and strip channels are the same union
+  barStripSource: miswire.barFillSource,
+};
+const _crossedMappings: RenderContractInput = {
+  ...miswire,
+  // @ts-expect-error the resolved mappings decide identity, the raw set decides the write gates
+  rawMappings: miswire.effectiveMappings,
+};
+const _crossedFlags: RenderContractInput = {
+  ...miswire,
+  // @ts-expect-error TaskNotes presence and the date-indicator toggle are both plain booleans
+  showDateIndicators: miswire.taskNotesPresent,
+};
+const _crossedWritability: RenderContractInput = {
+  ...miswire,
+  // @ts-expect-error the two writability answers are both plain booleans
+  statusWritable: miswire.priorityWritable,
+};
 
-    // Values only a collaborator can answer: uniquely typed, so no pairwise
-    // guard can see them, and a plausible stand-in compiles without a brand.
-    const fakeCapabilities: RenderContractInput = {
-      ...input,
-      // @ts-expect-error a fabricated read-only capability silently seeds SVAR read-only
-      capabilities: { write: false },
-    };
-    const fakePaths: RenderContractInput = {
-      ...input,
-      // @ts-expect-error an empty managed-path set marks every row non-editable
-      managedPaths: new Set<string>(),
-    };
-    const fakeGeneration: RenderContractInput = {
-      ...input,
-      // @ts-expect-error a bare method reference loses its receiver and throws after a drag write
-      refreshGeneration: () => ({ started: 0, delivered: 0 }),
-    };
-    const fakeDerivation: RenderContractInput = {
-      ...input,
-      // @ts-expect-error the span derivation answers from the controller's blocking facts
-      deriveSpan: () => ({}) as DerivedGeometry,
-    };
-    const fakeLinkSet: RenderContractInput = {
-      ...input,
-      // @ts-expect-error the host cannot assemble the links/mode pair itself
-      linkSet: { links: [], mode: 'primary' },
-    };
-    const fakeCellData: RenderContractInput = {
-      ...input,
-      // @ts-expect-error the cell data carries the locale its own pass formatted with
-      cellData: { cellRenders: new Map(), propertyValues: new Map(), dateLocale: 'en-GB' },
-    };
-
-    expect(
-      [
-        crossedColors,
-        crossedChoices,
-        crossedChannels,
-        crossedFillStrip,
-        crossedMappings,
-        crossedFlags,
-        crossedWritability,
-        fakeCapabilities,
-        fakePaths,
-        fakeGeneration,
-        fakeDerivation,
-        fakeLinkSet,
-        fakeCellData,
-      ].every((candidate) => candidate !== null),
-    ).toBe(true);
-  });
-});
+// Values only a collaborator can answer: uniquely typed, so no pairwise guard
+// can see them, and a plausible stand-in compiles without a brand.
+const _fakeCapabilities: RenderContractInput = {
+  ...miswire,
+  // @ts-expect-error a fabricated read-only capability silently seeds SVAR read-only
+  capabilities: { write: false },
+};
+const _fakePaths: RenderContractInput = {
+  ...miswire,
+  // @ts-expect-error an empty managed-path set marks every row non-editable
+  managedPaths: new Set<string>(),
+};
+const _fakeGeneration: RenderContractInput = {
+  ...miswire,
+  // @ts-expect-error a bare method reference loses its receiver and throws after a drag write
+  refreshGeneration: () => ({ started: 0, delivered: 0 }),
+};
+const _fakeDerivation: RenderContractInput = {
+  ...miswire,
+  // @ts-expect-error the span derivation answers from the controller's blocking facts
+  deriveSpan: () => ({}) as DerivedGeometry,
+};
+const _fakeLinkSet: RenderContractInput = {
+  ...miswire,
+  // @ts-expect-error the host cannot assemble the links/mode pair itself
+  linkSet: { links: [], mode: 'primary' },
+};
+const _fakeCellData: RenderContractInput = {
+  ...miswire,
+  // @ts-expect-error the cell data carries the locale its own pass formatted with
+  cellData: { cellRenders: new Map(), propertyValues: new Map(), dateLocale: 'en-GB' },
+};

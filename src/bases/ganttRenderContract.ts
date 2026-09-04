@@ -79,6 +79,8 @@ export interface CalendarShadingContribution {
   calendarMarkerColor: string | undefined;
 }
 
+type AssertTrue<T extends true> = T;
+
 /** Contract fields this projection produces. */
 type ComputedContractKeys =
   | 'links'
@@ -119,6 +121,18 @@ type GuardedContractKeys =
 type NamedContractKeys = ComputedContractKeys | ReadContractKeys | GuardedContractKeys;
 
 /**
+ * Compile-time proof that every named key is a field of the contract.
+ *
+ * `Omit` and `Exclude` both accept a key their subject does not declare, so a
+ * stale or misspelled entry above would otherwise produce no diagnostic at
+ * all: the field it was meant to name would fall silently into the passthrough
+ * group and become host-supplied instead of projected.
+ */
+type _NamedKeysAreContractFields = AssertTrue<
+  [NamedContractKeys] extends [keyof GanttData] ? true : false
+>;
+
+/**
  * Every contract field the projection copies without inspecting, carried as one
  * group so a new inert view option costs no edit here — the group's type is
  * derived from `GanttData`, not enumerated.
@@ -126,8 +140,8 @@ type NamedContractKeys = ComputedContractKeys | ReadContractKeys | GuardedContra
  * The intersection is deliberate and both halves are load-bearing: `Omit`
  * preserves the real value types, and the mapped half re-declares every key as
  * REQUIRED. A plain `Omit` would keep optionality, letting the host drop an
- * optional field — `choiceOptions` is the demonstrated case, and a view that
- * lost it offers pickers that refuse to open.
+ * optional field — `gridWidth` is the demonstrated case, and a view that
+ * lost it reverts its divider to SVAR's column-sum default.
  *
  * Two same-typed fields INSIDE this group can still be crossed: the group
  * carries the contract's own unbranded types, and closing that would mean
@@ -191,8 +205,6 @@ type InterchangeableFieldPairs<T> = {
     [L in Exclude<keyof T, K>]: T[K] extends T[L] ? [K, L] : never;
   }[Exclude<keyof T, K>];
 }[keyof T];
-
-type AssertTrue<T extends true> = T;
 
 /**
  * Compile-time proof that no two fields of the input are interchangeable, so
