@@ -96,10 +96,15 @@ type IsAny<T> = 0 extends 1 & T ? true : false;
 
 /**
  * `T` is exactly `V`, admitting no supertype and no degenerate answer. Every
- * assertion in this file goes through it, because the looser phrasings all
- * accept something: `T extends false` accepts `never`, and a single-direction
- * `[false] extends [T]` accepts `boolean`, `unknown` and `any` — each of which
- * a plausibly wrong comparison actually returns.
+ * comparison of a derived RESULT in this file goes through it, because the
+ * looser phrasings all accept something: `T extends false` accepts `never`, and
+ * a single-direction `[false] extends [T]` accepts `boolean`, `unknown` and
+ * `any` — each of which a plausibly wrong comparison actually returns.
+ *
+ * It cannot rescue an assertion whose degenerate value sits in the OPERAND
+ * rather than the result: a subset check is vacuously true on an empty left
+ * side, whatever wraps its answer. Those two are guarded by a companion
+ * assertion each, below, rather than by rerouting them through here.
  */
 type IsExactly<T, V> = IsAny<T> extends true
   ? false
@@ -108,6 +113,31 @@ type IsExactly<T, V> = IsAny<T> extends true
       ? true
       : false
     : false;
+
+/**
+ * `IsExactly` is itself a guard, so it needs the same treatment it exists to
+ * apply. These answers are compared against a literal tuple rather than through
+ * `IsExactly`, which would be circular: a rewrite that always answers `true`,
+ * always `false`, always `never`, or that keeps only one direction — the
+ * phrasing this file previously used and deleted — is rejected here, as is one
+ * that drops the `IsAny` probe.
+ */
+type IsExactlyAnswers = [
+  IsExactly<false, false>,
+  IsExactly<true, false>,
+  IsExactly<boolean, false>,
+  IsExactly<never, false>,
+  IsExactly<unknown, false>,
+  IsExactly<true, true>,
+  IsExactly<ReturnType<typeof JSON.parse>, false>,
+];
+type _IsExactlyAnswersCorrectly = AssertTrue<
+  [IsExactlyAnswers] extends [[true, false, false, false, false, true, false]]
+    ? [[true, false, false, false, false, true, false]] extends [IsExactlyAnswers]
+      ? true
+      : false
+    : false
+>;
 
 /**
  * A guard nothing can observe failing is not a guard. Both directions are
@@ -166,6 +196,11 @@ type NamedContractKeys = ComputedContractKeys | ReadContractKeys | GuardedContra
  */
 type _NamedKeysAreContractFields = AssertTrue<
   [NamedContractKeys] extends [keyof GanttData] ? true : false
+>;
+
+/** ...and non-empty, since the subset check above is vacuous on an empty union. */
+type _NamedKeysAreNonEmpty = AssertTrue<
+  IsExactly<[NamedContractKeys] extends [never] ? true : false, false>
 >;
 
 /**
@@ -250,6 +285,19 @@ type InterchangeableFieldPairs<T> = {
  */
 type _NoInterchangeableInputFields = AssertTrue<
   [InterchangeableFieldPairs<RenderContractInput>] extends [never] ? true : false
+>;
+
+/**
+ * A derivation that can never find anything proves nothing by staying silent.
+ * This model has one field assignable to another, so the derivation must report
+ * that pair; without this, breaking it would leave the assertion above green.
+ */
+interface InterchangeabilityProbe {
+  wide: { a: string; b: string };
+  narrow: { a: string };
+}
+type _PairDerivationCanFindAPair = AssertTrue<
+  IsExactly<InterchangeableFieldPairs<InterchangeabilityProbe>, ['wide', 'narrow']>
 >;
 
 /** The input fields carrying no brand, derived from the input's own types. */
