@@ -1056,9 +1056,12 @@ const _derivationIsNotAny: never = null as unknown as (0 & UnbrandedInputFields)
 One of these per computed operand, not one in total. Each declaration above has two sides, and a
 guard on one says nothing about the other: measured, if `UnbrandedException` degenerates instead,
 both mutual assignments AND `_derivationIsNotAny` compile, and a removed brand goes undetected —
-the same false-green by a different door. The rule, rather than the list: **every COMPUTED type
-appearing in one of these declarations carries its own emptiness guard**, because the intersection
-tests exactly the operand it names and nothing else.
+the same false-green by a different door. The rule, rather than the list: **every operand that is a
+TYPE NAME carries its own emptiness guard**, because the intersection tests exactly the operand it
+names and nothing else. Name, not "computed" — the distinction that matters is whether the operand
+can resolve to something other than what you read, and a hand-written union like the exception set
+can, because someone can redefine it. Only a literal written in place is exempt, since there is
+nothing to resolve.
 
 Two things the rule does not excuse you from checking, both measured:
 
