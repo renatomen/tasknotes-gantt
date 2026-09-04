@@ -482,8 +482,20 @@ like a real finding. **Differential measurement held up; absolute counts did not
   diagnostic — `TS2578` at the *self-test*, while the broken guard itself emits nothing. Counting
   would have called that "detected". It was detected by a different assertion covering for a dead one.
 
+- **A compiler that reported nothing at all.** A scratch `tsconfig` whose `typeRoots` override left
+  a declared type library unresolvable emits `TS2688` and then suppresses *every semantic
+  diagnostic*, while still reporting syntax errors and still listing the file in the program. Four
+  mutations in a row came back clean. The output was indistinguishable from "the guards are not
+  load-bearing", which is the conclusion it was about to support.
+
 So: read *which* assertion fired and confirm it is the one you mutated. A guard verified by counting
 diagnostics is a guard verified by the same reasoning that produced every level of this sequence.
+
+And before believing a mutation's *silence*, prove the instrument can speak on that exact build:
+plant an error that must be reported — a canary — and confirm it is. Silence has two causes, a guard
+that holds and an instrument that is not looking, and nothing in the output distinguishes them. Every
+failure above except the last produced a wrong signal; the last produced no signal, which is worse,
+because a wrong signal invites a second look and an absent one reads as confirmation.
 
 ## When to Apply
 

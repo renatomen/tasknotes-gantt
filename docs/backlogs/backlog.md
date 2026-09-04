@@ -1098,6 +1098,23 @@ declaration. With `_derivationIsNotAny` in place, `IsAny` goes with everything e
 would leave one computed checker standing that nothing observes, which is the defect this entry
 exists to remove. Delete `AssertTrue`, `IsExactly`, `Exact`, the tuple AND `IsAny`.
 
+**Measured, 2026-09-05, TS 5.9.2 under the project `tsconfig`.** The guard set above was compiled
+rather than reasoned about: a copy of the module with these declarations appended, mutated one axis
+at a time. On the healthy build all eleven declarations are silent — including `null &` on the tuple
+operand and `0 &` on the unions — while a planted `const _canary: number = "s"` errors, so the
+silence is the guards holding and not the compiler idling. Each mutation then fired its own
+declaration and no other: the derivation degenerated to the escape-hatch type fired
+`_derivationIsNotAny`; the exception union degenerated fired `_exceptionIsNotAny`; a removed brand
+fired `_derivedIsListed`; the pair derivation degenerated fired `_noPairs` and `_pairProbeIsNotAny`.
+The surviving tower fired on those same mutations, so the replacement gives up no coverage on them.
+
+Two limits on that result, both worth carrying into the implementation. The mutations exercised the
+operands this guard set actually has, which are unions of string-literal keys and one tuple — the
+**object-operand rule above is still prose**, because no operand here is object-valued, and it should
+be measured when one is. And a passing declaration set is not the same as a deleted tower: removing
+`AssertTrue`, `IsExactly`, `Exact` and `IsAny` is the change this entry asks for, and the measurement
+covers only that the declarations catch what the tower caught, not that nothing else read them.
+
 Every right-hand side must be a concrete expression, not a `declare const` binding. TypeScript erases
 the declaration but emits the initialized constant, so `declare const x: T;` followed by
 `const _a: U = x;` compiles and then throws `ReferenceError: x is not defined` the moment the module
