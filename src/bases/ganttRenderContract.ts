@@ -81,8 +81,6 @@ export interface CalendarShadingContribution {
 
 type AssertTrue<T extends true> = T;
 
-type AssertFalse<T extends false> = T;
-
 /**
  * Mutual assignability. A one-directional `extends` accepts a wider right-hand
  * side, so it cannot see a name listed there that does not belong.
@@ -95,13 +93,21 @@ type AssertFalse<T extends false> = T;
 type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
 
 /**
- * A guard nothing can observe failing is not a guard. These are the properties
- * the assertion below relies on, and both are needed: either one alone is
- * satisfied by a comparison written in the opposite single direction, which is
- * the failure being guarded against.
+ * A guard nothing can observe failing is not a guard. Both directions are
+ * needed: either alone is satisfied by a comparison written in the opposite
+ * single direction, which is the failure being guarded against.
+ *
+ * Each is phrased as `[false] extends [...]` rather than through a `T extends
+ * false` helper, because `never` satisfies such a constraint — so a comparison
+ * whose failing branch yields `never` would pass every assertion here while
+ * silencing the one below.
  */
-type _ExactRejectsAWiderRightHandSide = AssertFalse<Exact<'a', 'a' | 'b'>>;
-type _ExactRejectsAWiderLeftHandSide = AssertFalse<Exact<'a' | 'b', 'a'>>;
+type _ExactRejectsAWiderRightHandSide = AssertTrue<
+  [false] extends [Exact<'a', 'a' | 'b'>] ? true : false
+>;
+type _ExactRejectsAWiderLeftHandSide = AssertTrue<
+  [false] extends [Exact<'a' | 'b', 'a'>] ? true : false
+>;
 
 /** Contract fields this projection produces. */
 type ComputedContractKeys =
@@ -264,18 +270,22 @@ type UnbrandedInputFields = {
  * no key of the input at all could sit here unnoticed.
  */
 type _OnlyTheseInputFieldsAreUnbranded = AssertTrue<
-  Exact<
-    UnbrandedInputFields,
-    | 'instances'
-    | 'gridColumns'
-    | 'calendarShading'
-    | 'taskNotesFieldType'
-    | 'estimateMeaning'
-    | 'nonWorkingRendering'
-    | 'calendarItems'
-    | 'externalCalendars'
-    | 'passthrough'
-  >
+  [true] extends [
+    Exact<
+      UnbrandedInputFields,
+      | 'instances'
+      | 'gridColumns'
+      | 'calendarShading'
+      | 'taskNotesFieldType'
+      | 'estimateMeaning'
+      | 'nonWorkingRendering'
+      | 'calendarItems'
+      | 'externalCalendars'
+      | 'passthrough'
+    >
+  ]
+    ? true
+    : false
 >;
 
 /** The row-independent view facts the presentation-only legend catalogue reads. */
