@@ -141,6 +141,20 @@ today. That is a production behaviour change and belongs in its own test-first u
 `2026-09-03-001` therefore leaves the call untouched and treats its position as a review
 obligation on the U1 diff.
 
+### P2 — The capabilities brand is minted from an object literal, so a new required field would slip through (2026-09-04)
+Found by the cross-model peer while reviewing the nominal-branding learning, and verified by
+compiling. `GanttController.capabilities` mints its brand as
+`(this.activeSource?.capabilities ?? { write: false }) as SourceCapabilities`. A cast to a branded type is checked only for
+comparability in either direction, so it **drops the missing-field check**: if
+`DataSourceCapabilities` ever gains a required field, that fallback literal still compiles and the
+no-source path yields the new field as `undefined` rather than failing the build. The repair is
+the one already applied at the other three mint sites in PR #480 — assign to a
+`DataSourceCapabilities` local, then brand the local — and it is two lines. It is parked rather
+than folded into the docs PR that found it because `src/controller/GanttController.ts` is
+ranked-defect entry 4, and touching it carries the ranking citation and argument that a
+documentation change should not be smuggling in. Whoever takes it should sweep the other brand
+readers for the same shape at the same time.
+
 ### P2 — `buildCalendarShading` is a value builder that also registers watches (2026-09-04)
 Parked at U1 of `docs/plans/2026-09-03-001-refactor-register-render-data-characterization-plan.md`,
 which its Files list requires. `ObsidianGanttBasesView.buildCalendarShading()` computes the shading
@@ -973,3 +987,106 @@ counts, at-ceiling counts). The book's yardstick is stability/throughput — tie
 one claim per future trend report to an outcome class: incident cost, measured flake
 instances, or false-greens surfaced. Needs a maintainer ruling at the next re-measure.
 Source: docs/plans/2026-08-27-001-refactor-ganttcontainer-style-extraction-plan.md (U2).
+
+### P2 — Nothing compiles the TypeScript in `docs/solutions/`, so a durable learning can rot silently (2026-09-05)
+Raised by two independent reviewers while reviewing the nominal-branding learning. That document's
+central claims rest on two self-contained programs that were compiled by hand at TS 5.9.2 and are
+not compiled by anything again. A TypeScript release that changed assertion comparability, or the
+`null & object` reduction, would falsify the document with no build signal — and the same review
+found a quoted source comment that had already drifted out of step with the file it quotes, caught
+by a reader rather than by a mechanism. The repo's rule of the house is mechanism, not memory, and
+this is an invariant with no guard.
+
+Parked rather than built here under the standing ruling that code and bug fixes outrank tooling
+unless the harness is the measured bottleneck; it is not. Whoever takes it should extract every
+fenced `ts` block under `docs/solutions/` and typecheck it, treating a block's `@ts-expect-error`
+directives as part of the assertion — and should decide whether quoted source snippets are worth
+pinning to their files at the same time.
+
+### P1 — Replace the type-level assertion tower with declaration assignability (2026-09-05)
+Eight successive reviews found the same defect in `src/bases/ganttRenderContract.ts`, each inside
+the fix for the one before: a guard that used `extends` where it meant equality, then a self-test
+checking one direction, then helpers accepting `never`, then `boolean`/`unknown`/`any`, then an
+unobserved `IsExactly`, then a tuple accepting an `any` answer, then a one-token widening of
+`AssertTrue` that disabled all eight assertions, then `Exact` accepting `any` operands. Every level
+now self-detects under mutation, and the reviewer that found level 8 confirmed there is no level 9
+inside the tower — but also showed the tower is unnecessary.
+
+The measured alternative asserts with the compiler's own assignability check on DECLARED VALUES
+rather than by computing a boolean and asserting the boolean:
+
+```ts
+const _derivedIsListed: UnbrandedException = null as unknown as UnbrandedInputFields;
+const _listedIsDerived: UnbrandedInputFields = null as unknown as UnbrandedException;
+const _noPairs: never = null as unknown as InterchangeableFieldPairs<RenderContractInput>;
+
+// The pair derivation still needs a positive probe, and the key union still needs a
+// non-emptiness check; both currently go through `IsExactly`, so both need a declaration
+// form too or deleting it takes them with it.
+const _probeFindsThePair: ['wide', 'narrow'] =
+  null as unknown as InterchangeableFieldPairs<InterchangeabilityProbe>;
+const _pairIsThatProbe: InterchangeableFieldPairs<InterchangeabilityProbe> =
+  null as unknown as ['wide', 'narrow'];
+const _namedKeysAreContractFields: keyof GanttData = null as unknown as NamedContractKeys;
+// A witness, not a tautology: `NamedContractKeys = NamedContractKeys` compiles even when both
+// sides are `never`, so the check has to name a key it must contain.
+const _namedKeysAreNonEmpty: NamedContractKeys = null as unknown as 'links';
+```
+
+`UnbrandedException` is the nine-name union, which is inlined in the guard today and would have to
+be lifted to a named alias first.
+
+It must also keep an explicit `any` rejection for the unbranded-field derivation. Mutual
+assignability does NOT supply one: if `UnbrandedInputFields` degenerates to `any`, both assignments
+compile, because `any` is assignable in both directions. The `never` declaration protects only the
+pairs derivation. So `IsAny` survives the deletion even though `AssertTrue`, `IsExactly`, `Exact`
+and the tuple do not.
+
+Every right-hand side must be a concrete expression, not a `declare const` binding. TypeScript erases
+the declaration but emits the initialized constant, so `declare const x: T;` followed by
+`const _a: U = x;` compiles and then throws `ReferenceError: x is not defined` the moment the module
+is imported. Verified by reading the emitted JavaScript: the declared form emits
+`export const _derivedIsListed = derivedUnbranded;`, the form above emits `= null`. A
+typecheck-only `.d.ts` would also work, at the cost of splitting the guard from what it guards.
+
+Measured RED for a removed brand, a stale exception name, an interchangeable pair, a derivation
+degenerated to `never`, and one degenerated to all keys — and the `never` declaration rejects
+`any` for free. It deletes `AssertTrue` and its self-test, `IsExactly`, the eight-case tuple and
+both tuple assertions, and `Exact` with its mirrors — but NOT `IsAny`, which the paragraph
+above requires, and not the pair probe or the key-union assertions, which need the declaration forms
+shown above rather than deletion: levels 1-8 stop existing, because
+those levels existed only to reject a degenerate ANSWER and a variable declaration has no answer to
+degenerate. It also produces actionable error text instead of "Type 'false' does not satisfy the
+constraint 'true'".
+
+Explicitly NOT the jest-plus-`tsc` mutation harness first proposed: that is a second mechanism for
+what the `@ts-expect-error` cases already do (principle 4), costs a compiler subprocess per
+mutation, and its mutation set would be a hand-kept list — reintroducing "a list is not a rule"
+at the layer meant to end the regress.
+
+Residual the replacement does NOT fix, and no further level would: the assertions are deletable.
+Removing an assertion and then weakening what it guarded is two edits and leaves both typechecks
+green. That is diff-visible rather than silent, so it is review surface, not a hole. Only
+`NamedContractKeys` is load-bearing on production code today.
+
+### P1 — A nested boolean swap in the render-contract wiring compiles and passes (2026-09-05)
+Pre-existing on `main`; the fields arrived with PR #480 and this is not a regression from the
+branding work. Found by the cross-model peer while reviewing that branch.
+
+`RenderContractInput` carries `calendarItems: { showRecurring: boolean }` and
+`externalCalendars: { enabled: boolean; representativeColor: string | null }`. The two enclosing
+object types differ, so the pairwise interchangeability guard correctly reports `never` — but the
+guard is top-level only, and the two LEAF booleans are interchangeable. Swapping the values assigned
+to them in `src/bases/register.ts` is a clean compile AND a green unit suite: measured, zero
+typecheck diagnostics and 21/21 passing. With recurring enabled and external calendars disabled,
+the legend then receives the opposite state and selects external-event treatment.
+
+Two reasons nothing catches it. The brands protect top-level fields, and a value nested one level
+down is outside the derivation — a limit the branding learning states but does not close. And the
+projection fixture assigns `true` to both, so even a test that exercised the swap could not see it:
+a fixture with identical values cannot detect a crossing.
+
+Whoever takes it should do both halves: give the leaves distinguishing values in the fixture
+(`true`/`false`), and add a register-level wiring assertion, since the projection's own test builds
+its input directly and structurally cannot catch a miswire in the caller that assembles it. Branding
+the leaf values, or having the reader mint the bundle, is the design fix behind both.

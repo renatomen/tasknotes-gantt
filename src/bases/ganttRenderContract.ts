@@ -81,6 +81,119 @@ export interface CalendarShadingContribution {
 
 type AssertTrue<T extends true> = T;
 
+/**
+ * Every assertion below routes through `AssertTrue`, so a one-token widening of
+ * its constraint to `boolean` — or dropping the constraint — disables all of
+ * them at once, silently. This observes that it still rejects a false answer;
+ * under either weakening the directive stops being used and the build fails.
+ *
+ * It does not observe `never`, which satisfies `extends true` and cannot be
+ * excluded by a constraint. That is inert only because every operand reaching
+ * here is a conditional resolving to `true` or `false`; an assertion written
+ * over a naked type parameter would reopen it.
+ */
+// @ts-expect-error the assertion primitive must reject a false answer
+type _AssertTrueRejectsFalse = AssertTrue<false>;
+
+/**
+ * Mutual assignability. A one-directional `extends` accepts a wider right-hand
+ * side, so it cannot see a name listed there that does not belong.
+ *
+ * Sound for the key unions it is used on, where mutual assignability is set
+ * equality. It is not a general type-equality operator: `any` satisfies it in
+ * both directions, and for object types an optional extra property is mutually
+ * assignable and so reads as equal.
+ */
+type Exact<A, B> = IsAny<A> extends true
+  ? false
+  : IsAny<B> extends true
+    ? false
+    : [A] extends [B]
+      ? [B] extends [A]
+        ? true
+        : false
+      : false;
+
+type IsAny<T> = 0 extends 1 & T ? true : false;
+
+/**
+ * `T` is exactly `V`, admitting no supertype and no degenerate answer. Every
+ * comparison of a derived RESULT in this file goes through it, because the
+ * looser phrasings all accept something: `T extends false` accepts `never`, and
+ * a single-direction `[false] extends [T]` accepts `boolean`, `unknown` and
+ * `any` — each of which a plausibly wrong comparison actually returns.
+ *
+ * It cannot rescue an assertion whose degenerate value sits in the OPERAND
+ * rather than the result: a subset check is vacuously true on an empty left
+ * side, whatever wraps its answer. Those two are guarded by a companion
+ * assertion each, below, rather than by rerouting them through here.
+ */
+type IsExactly<T, V> = IsAny<T> extends true
+  ? false
+  : [V] extends [T]
+    ? [T] extends [V]
+      ? true
+      : false
+    : false;
+
+/**
+ * `IsExactly` is itself a guard, so it needs the same treatment it exists to
+ * apply. These answers are compared against a literal tuple rather than through
+ * `IsExactly`, which would be circular: a rewrite that always answers `true`,
+ * always `false`, always `never`, or that keeps only one direction — the
+ * phrasing this file previously used and deleted — is rejected here, as is one
+ * that drops the `IsAny` probe.
+ */
+type IsExactlyAnswers = [
+  IsExactly<false, false>,
+  IsExactly<true, false>,
+  IsExactly<boolean, false>,
+  IsExactly<never, false>,
+  IsExactly<unknown, false>,
+  IsExactly<true, true>,
+  IsExactly<ReturnType<typeof JSON.parse>, false>,
+  IsExactly<false, true>,
+  // `V = never` is its own case: a distributive inner check answers `never` here
+  // rather than `false`, and `AssertTrue<never>` compiles, which is exactly how
+  // the no-pairs assertion below would go silent.
+  IsExactly<'a', never>,
+];
+/**
+ * ...and none of those answers may be `any`, which the tuple comparison below
+ * cannot see: `any` is assignable in both directions, so a rewrite returning it
+ * would satisfy the very check written to reject it. Breaking `IsAny` the other
+ * way is caught by the tuple instead, since the `any` probe among them would flip.
+ */
+type _IsExactlyAnswersAreNotAny = AssertTrue<
+  IsAny<IsExactlyAnswers[number]> extends true ? false : true
+>;
+type _IsExactlyAnswersCorrectly = AssertTrue<
+  [IsExactlyAnswers] extends [[true, false, false, false, false, true, false, false, false]]
+    ? [[true, false, false, false, false, true, false, false, false]] extends [IsExactlyAnswers]
+      ? true
+      : false
+    : false
+>;
+
+/**
+ * A guard nothing can observe failing is not a guard. Both directions are
+ * needed: either alone is satisfied by a comparison written in the opposite
+ * single direction, which is the failure being guarded against.
+ */
+type _ExactRejectsAWiderRightHandSide = AssertTrue<IsExactly<Exact<'a', 'a' | 'b'>, false>>;
+type _ExactRejectsAWiderLeftHandSide = AssertTrue<IsExactly<Exact<'a' | 'b', 'a'>, false>>;
+/**
+ * ...and rejects `any` on either side. Without this, a derived operand that
+ * degenerated to `any` would make `Exact` answer `true` and the coverage
+ * assertion below would pass with the derivation corrupted.
+ */
+type _ExactRejectsAnyOnTheLeft = AssertTrue<
+  IsExactly<Exact<ReturnType<typeof JSON.parse>, 'a'>, false>
+>;
+type _ExactRejectsAnyOnTheRight = AssertTrue<
+  IsExactly<Exact<'a', ReturnType<typeof JSON.parse>>, false>
+>;
+
 /** Contract fields this projection produces. */
 type ComputedContractKeys =
   | 'links'
@@ -130,6 +243,11 @@ type NamedContractKeys = ComputedContractKeys | ReadContractKeys | GuardedContra
  */
 type _NamedKeysAreContractFields = AssertTrue<
   [NamedContractKeys] extends [keyof GanttData] ? true : false
+>;
+
+/** ...and non-empty, since the subset check above is vacuous on an empty union. */
+type _NamedKeysAreNonEmpty = AssertTrue<
+  IsExactly<[NamedContractKeys] extends [never] ? true : false, false>
 >;
 
 /**
@@ -213,7 +331,20 @@ type InterchangeableFieldPairs<T> = {
  * it is branded apart.
  */
 type _NoInterchangeableInputFields = AssertTrue<
-  [InterchangeableFieldPairs<RenderContractInput>] extends [never] ? true : false
+  IsExactly<InterchangeableFieldPairs<RenderContractInput>, never>
+>;
+
+/**
+ * A derivation that can never find anything proves nothing by staying silent.
+ * This model has one field assignable to another, so the derivation must report
+ * that pair; without this, breaking it would leave the assertion above green.
+ */
+interface InterchangeabilityProbe {
+  wide: { a: string; b: string };
+  narrow: { a: string };
+}
+type _PairDerivationCanFindAPair = AssertTrue<
+  IsExactly<InterchangeableFieldPairs<InterchangeabilityProbe>, ['wide', 'narrow']>
 >;
 
 /** The input fields carrying no brand, derived from the input's own types. */
@@ -235,21 +366,28 @@ type UnbrandedInputFields = {
  * silence. Listing the deliberate exceptions rather than the brands is what
  * makes a NEW branded field cost no edit here, while removing a brand cannot
  * pass.
+ *
+ * The assertion is mutual on purpose. A one-directional `extends` passes
+ * whenever the derived set is a SUBSET of the list, so a field that is both
+ * branded and named below could lose its brand in silence, and a name that is
+ * no key of the input at all could sit here unnoticed.
  */
 type _OnlyTheseInputFieldsAreUnbranded = AssertTrue<
-  [UnbrandedInputFields] extends [
-    | 'instances'
-    | 'gridColumns'
-    | 'calendarShading'
-    | 'taskNotesFieldType'
-    | 'estimateMeaning'
-    | 'nonWorkingRendering'
-    | 'calendarItems'
-    | 'externalCalendars'
-    | 'passthrough'
-  ]
-    ? true
-    : false
+  IsExactly<
+    Exact<
+      UnbrandedInputFields,
+      | 'instances'
+      | 'gridColumns'
+      | 'calendarShading'
+      | 'taskNotesFieldType'
+      | 'estimateMeaning'
+      | 'nonWorkingRendering'
+      | 'calendarItems'
+      | 'externalCalendars'
+      | 'passthrough'
+    >,
+    true
+  >
 >;
 
 /** The row-independent view facts the presentation-only legend catalogue reads. */

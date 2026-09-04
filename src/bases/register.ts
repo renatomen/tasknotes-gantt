@@ -801,8 +801,8 @@ class ObsidianGanttBasesView extends BasesView {
     // is always READ for inference regardless of mode (R5/R6); the mode only gates
     // whether a resize writes it back. Default `dont-update`.
     const timeEstimateMode = readTimeEstimateMode(get, { companionAvailable });
-    // Typed as the unbranded shape first: a literal cast straight to a branded
-    // type checks excess properties but not missing ones.
+    // Typed as the unbranded shape first: casting the literal straight to the
+    // brand would not catch a missing field.
     const mappings: FieldMappings = { ...base, progressMode, timeEstimateMode };
     return mappings as RawFieldMappings;
   }

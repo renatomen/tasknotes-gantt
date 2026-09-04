@@ -491,9 +491,9 @@ export type PriorityWritable = Branded<boolean, 'controller.priorityWritable'>;
 /**
  * The dependency links together with the arrow mode they were rewritten for,
  * minted as one value by {@link GanttController.buildLinkSet}. A pair the host
- * fills field by field is not a mint: it can publish `primary` beside links
- * generated for `all`, which stamps the has-dependencies indicator on
- * non-primary instances whose arrows are never drawn.
+ * fills field by field is not a mint: publishing `primary` beside links
+ * generated for `all` draws the extra arrows AND stamps the indicator that
+ * stands in for one, while the reverse mismatch renders neither.
  */
 interface RenderLinkSetFields {
   links: RenderLink[];
@@ -938,15 +938,16 @@ export class GanttController {
    *
    * Taking the mode once and answering both parts is what closes the pairing: a
    * caller that assembles the two itself can publish `'primary'` beside links
-   * generated for `'all'`, which typechecks, renders no arrows for the extra
-   * endpoints, and still stamps the has-dependencies indicator on the
-   * non-primary instances they belong to.
+   * generated for `'all'`, which typechecks and then renders both halves of the
+   * mismatch — the links reach the chart unfiltered so the extra arrows draw,
+   * while the published mode also stamps the indicator that stands in for an
+   * arrow not drawn. The reverse pairing renders neither.
    *
    * @param mode - Endpoint cardinality for link rewriting.
    */
   public async buildLinkSet(mode: LinkRewriteMode): Promise<RenderLinkSet> {
-    // Typed as the unbranded shape first: a literal cast straight to a branded
-    // type checks excess properties but not missing ones.
+    // Typed as the unbranded shape first: casting the literal straight to the
+    // brand would not catch a missing field.
     const linkSet: RenderLinkSetFields = { links: await this.getLinks(mode), mode };
     return linkSet as RenderLinkSet;
   }

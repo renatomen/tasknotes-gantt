@@ -65,9 +65,9 @@ export type CellData = Branded<CellDataFields, 'cellRender.cellData'>;
 /**
  * The single mint for {@link CellData}. Taking the unbranded shape as a
  * parameter is what keeps the literal completeness-checked: casting an object
- * literal straight to a branded type checks excess properties but not missing
- * ones, so a field added to {@link CellDataFields} could be dropped at one
- * return site with no diagnostic.
+ * literal straight to a branded type would not catch a missing field, so one
+ * added to {@link CellDataFields} could be dropped at a single return site with
+ * no diagnostic.
  */
 function toCellData(fields: CellDataFields): CellData {
   return fields as CellData;
