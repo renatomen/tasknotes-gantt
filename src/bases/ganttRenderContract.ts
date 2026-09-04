@@ -153,6 +153,10 @@ type IsExactlyAnswers = [
   IsExactly<true, true>,
   IsExactly<ReturnType<typeof JSON.parse>, false>,
   IsExactly<false, true>,
+  // `V = never` is its own case: a distributive inner check answers `never` here
+  // rather than `false`, and `AssertTrue<never>` compiles, which is exactly how
+  // the no-pairs assertion below would go silent.
+  IsExactly<'a', never>,
 ];
 /**
  * ...and none of those answers may be `any`, which the tuple comparison below
@@ -164,8 +168,8 @@ type _IsExactlyAnswersAreNotAny = AssertTrue<
   IsAny<IsExactlyAnswers[number]> extends true ? false : true
 >;
 type _IsExactlyAnswersCorrectly = AssertTrue<
-  [IsExactlyAnswers] extends [[true, false, false, false, false, true, false, false]]
-    ? [[true, false, false, false, false, true, false, false]] extends [IsExactlyAnswers]
+  [IsExactlyAnswers] extends [[true, false, false, false, false, true, false, false, false]]
+    ? [[true, false, false, false, false, true, false, false, false]] extends [IsExactlyAnswers]
       ? true
       : false
     : false

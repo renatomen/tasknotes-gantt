@@ -1028,7 +1028,9 @@ const _probeFindsThePair: ['wide', 'narrow'] =
 const _pairIsThatProbe: InterchangeableFieldPairs<InterchangeabilityProbe> =
   null as unknown as ['wide', 'narrow'];
 const _namedKeysAreContractFields: keyof GanttData = null as unknown as NamedContractKeys;
-const _namedKeysAreNonEmpty: NamedContractKeys = null as unknown as NamedContractKeys;
+// A witness, not a tautology: `NamedContractKeys = NamedContractKeys` compiles even when both
+// sides are `never`, so the check has to name a key it must contain.
+const _namedKeysAreNonEmpty: NamedContractKeys = null as unknown as 'links';
 ```
 
 `UnbrandedException` is the nine-name union, which is inlined in the guard today and would have to
