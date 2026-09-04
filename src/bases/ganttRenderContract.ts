@@ -104,7 +104,15 @@ type _AssertTrueRejectsFalse = AssertTrue<false>;
  * both directions, and for object types an optional extra property is mutually
  * assignable and so reads as equal.
  */
-type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+type Exact<A, B> = IsAny<A> extends true
+  ? false
+  : IsAny<B> extends true
+    ? false
+    : [A] extends [B]
+      ? [B] extends [A]
+        ? true
+        : false
+      : false;
 
 type IsAny<T> = 0 extends 1 & T ? true : false;
 
@@ -170,6 +178,17 @@ type _IsExactlyAnswersCorrectly = AssertTrue<
  */
 type _ExactRejectsAWiderRightHandSide = AssertTrue<IsExactly<Exact<'a', 'a' | 'b'>, false>>;
 type _ExactRejectsAWiderLeftHandSide = AssertTrue<IsExactly<Exact<'a' | 'b', 'a'>, false>>;
+/**
+ * ...and rejects `any` on either side. Without this, a derived operand that
+ * degenerated to `any` would make `Exact` answer `true` and the coverage
+ * assertion below would pass with the derivation corrupted.
+ */
+type _ExactRejectsAnyOnTheLeft = AssertTrue<
+  IsExactly<Exact<ReturnType<typeof JSON.parse>, 'a'>, false>
+>;
+type _ExactRejectsAnyOnTheRight = AssertTrue<
+  IsExactly<Exact<'a', ReturnType<typeof JSON.parse>>, false>
+>;
 
 /** Contract fields this projection produces. */
 type ComputedContractKeys =
@@ -308,7 +327,7 @@ type InterchangeableFieldPairs<T> = {
  * it is branded apart.
  */
 type _NoInterchangeableInputFields = AssertTrue<
-  [InterchangeableFieldPairs<RenderContractInput>] extends [never] ? true : false
+  IsExactly<InterchangeableFieldPairs<RenderContractInput>, never>
 >;
 
 /**
