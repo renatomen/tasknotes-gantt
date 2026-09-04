@@ -353,7 +353,8 @@ Three caveats that are part of the guidance:
    then throws `ReferenceError` on import. Verify this class of thing by reading emitted JavaScript,
    because the typecheck is precisely the instrument that cannot see it.
 2. **`any` needs its own declaration, not a surviving probe.** Mutual assignability cannot reject
-   `any` — if the derivation degenerates, *both* declarations compile. Reach for a third declaration
+   `any` wherever the expected type admits it — if the derivation degenerates, *both* declarations
+   compile. Reach for a third declaration
    rather than keeping a computed `any` predicate, which would leave one checker standing that
    nothing observes: intersect the derivation with a disjoint literal and assert the result is
    empty, since that intersection is empty for a union of literal keys and `any` for a degenerate
