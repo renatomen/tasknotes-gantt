@@ -1004,13 +1004,20 @@ directives as part of the assertion — and should decide whether quoted source 
 pinning to their files at the same time.
 
 ### P1 — Replace the type-level assertion tower with declaration assignability (2026-09-05)
-Eight successive reviews found the same defect in `src/bases/ganttRenderContract.ts`, each inside
+Nine successive reviews found the same defect in `src/bases/ganttRenderContract.ts`, each inside
 the fix for the one before: a guard that used `extends` where it meant equality, then a self-test
 checking one direction, then helpers accepting `never`, then `boolean`/`unknown`/`any`, then an
 unobserved `IsExactly`, then a tuple accepting an `any` answer, then a one-token widening of
-`AssertTrue` that disabled all eight assertions, then `Exact` accepting `any` operands. Every level
-now self-detects under mutation, and the reviewer that found level 8 confirmed there is no level 9
-inside the tower — but also showed the tower is unnecessary.
+`AssertTrue` that disabled all eight assertions, then `Exact` accepting `any` operands, and finally
+an answer matrix that pinned every case but the empty type. Every level now self-detects under
+mutation.
+
+**Corrected 2026-09-05:** this entry previously said eight levels and repeated a reviewer's finding
+that there was no ninth inside the tower. A later round in the same session found one — the matrix
+gap above — so that closing claim was falsified and is withdrawn. The separate coverage finding of
+the same session (a contract key with no fabricate case) is not a tower level and is not counted
+here. The entry is left with its correction visible rather than silently renumbered, because a
+confident closing claim disproven by later work is the exact failure this entry exists to remove.
 
 The measured alternative asserts with the compiler's own assignability check on DECLARED VALUES
 rather than by computing a boolean and asserting the boolean:
@@ -1036,11 +1043,100 @@ const _namedKeysAreNonEmpty: NamedContractKeys = null as unknown as 'links';
 `UnbrandedException` is the nine-name union, which is inlined in the guard today and would have to
 be lifted to a named alias first.
 
-It must also keep an explicit `any` rejection for the unbranded-field derivation. Mutual
-assignability does NOT supply one: if `UnbrandedInputFields` degenerates to `any`, both assignments
+It must also reject `any` for the unbranded-field derivation, and it can do that by declaration too,
+which is better than the first draft of this entry proposed. Keeping `IsAny` would leave one
+computed checker standing with nothing observing it — weaken it to a constant and the guard is green
+while broken, which is the whole defect this entry exists to remove. Assert instead that the
+derivation intersected with a disjoint literal is empty:
+
+```ts
+const _derivationIsNotAny: never = null as unknown as (0 & UnbrandedInputFields);
+```
+
+One of these per computed operand, not one in total. Each declaration above has two sides, and a
+guard on one says nothing about the other: measured, if `UnbrandedException` degenerates instead,
+both mutual assignments AND `_derivationIsNotAny` compile, and a removed brand goes undetected —
+the same false-green by a different door. The rule, rather than the list: **every operand that is a
+TYPE NAME carries its own sentinel-disjointness guard**, because the intersection tests exactly the operand it
+names and nothing else.
+
+Called a sentinel-disjointness guard, because that is what it tests: whether the operand still
+intersects the sentinel to nothing. It rejects the escape-hatch type and the top type alike — with
+an operand of the top type the intersection reduces to the sentinel itself, which is not empty —
+and it does NOT detect emptiness, since an operand collapsed to the empty type intersects to empty
+and passes. Rejecting
+the escape-hatch type and proving a set still has members are two obligations, and this mechanism
+discharges only the first — so an operand that must contain something needs a witness declaration
+as well, naming a member it cannot lose. Name, not "computed" — the distinction that matters is whether the operand
+can resolve to something other than what you read, and a hand-written union like the exception set
+can, because someone can redefine it. Only a literal written in place is exempt, since there is
+nothing to resolve.
+
+Two things the rule does not excuse you from checking, both measured:
+
+- **Guard the computed side, not the literal one.** For the pair probe that is
+  `InterchangeableFieldPairs<InterchangeabilityProbe>`, never the expected tuple written beside it —
+  a literal cannot degenerate, and a guard on it is silent while the derivation is `any`.
+- **The sentinel must be disjoint from the operand's own kind.** `0 &` works for a union of string
+  literals and is WRONG for a tuple: `0 & ['wide','narrow']` does not reduce, so that guard fails on
+  the healthy build. Use `null &` for the tuple operands here. Pick the sentinel by what the
+  operand is, then confirm the guard is silent on the healthy type before trusting it to speak on a
+  degenerate one. **An object-valued operand takes a different recipe: two mutual pairs and NO
+  sentinel.** Measured, TS 5.9.2, against `Expected = { required: string; optional?: number }`, every
+  case carrying a planted canary to prove the build was being checked:
+
+  | mutation of the operand | object mutual pair | `keyof` mutual pair |
+  | --- | --- | --- |
+  | none (healthy) | silent | silent |
+  | `optional` dropped | **silent** | fires |
+  | `optional?: number` -> `optional?: string` | fires | **silent** |
+  | operand degenerates to the escape-hatch type | **silent** | fires |
+  | a PROPERTY's value type degenerates to the escape-hatch type | **silent** | **silent** |
+
+  The two pairs are complementary across the first four rows, so an object operand needs both:
+  mutual assignability alone misses a dropped optional member, because an optional property is
+  satisfiable by absence and makes dissimilar objects mutually assignable; the key-set pair alone
+  misses a changed property type, because the key set did not change. A witness adds nothing either
+  pair does not already give.
+
+  **The last row is a known gap, not a solved case.** Neither pair sees a property whose value type
+  has become the escape-hatch type: the key set is unchanged, and that type is assignable in both
+  directions, so both pairs stay silent while the property's contract is gone. This table is the
+  mutations that were measured, not an exhaustive threat model — treat it as a floor. Closing that
+  row needs a per-property check, which is a different mechanism from anything here and should be
+  designed against a real object operand rather than a synthetic one, because there is none in this
+  guard set to test it on.
+
+  The sentinel is not merely insufficient here, it is **wrong**: `0 & { ... }` does not reduce to the
+  empty type, so that declaration fails on the HEALTHY build. It is also unnecessary, because the
+  key-set pair already catches the escape-hatch case — `keyof` of that type is
+  `string | number | symbol`, which is not assignable to the expected key union.
+
+For a union of string-literal keys the intersection is `never` and the declaration holds; if the
+derivation degenerates to `any` the intersection is `any`, which is not assignable to `never`, and
+it fails. Measured. Mutual assignability alone does NOT supply this: if `UnbrandedInputFields` degenerates to `any`, both assignments
 compile, because `any` is assignable in both directions. The `never` declaration protects only the
-pairs derivation. So `IsAny` survives the deletion even though `AssertTrue`, `IsExactly`, `Exact`
-and the tuple do not.
+pairs derivation — which is why the `any` rejection above is needed, and why it is written as a
+declaration. With `_derivationIsNotAny` in place, `IsAny` goes with everything else: keeping it
+would leave one computed checker standing that nothing observes, which is the defect this entry
+exists to remove. Delete `AssertTrue`, `IsExactly`, `Exact`, the tuple AND `IsAny`.
+
+**Measured, 2026-09-05, TS 5.9.2 under the project `tsconfig`.** The guard set above was compiled
+rather than reasoned about: a copy of the module with these declarations appended, mutated one axis
+at a time. On the healthy build all eleven declarations are silent — including `null &` on the tuple
+operand and `0 &` on the unions — while a planted `const _canary: number = "s"` errors, so the
+silence is the guards holding and not the compiler idling. Each mutation then fired its own
+declaration and no other: the derivation degenerated to the escape-hatch type fired
+`_derivationIsNotAny`; the exception union degenerated fired `_exceptionIsNotAny`; a removed brand
+fired `_derivedIsListed`; the pair derivation degenerated fired `_noPairs` and `_pairProbeIsNotAny`.
+The surviving tower fired on those same mutations, so the replacement gives up no coverage on them.
+
+Two limits on that result, both worth carrying into the implementation. The mutations exercised the
+operands this guard set actually has, which are unions of string-literal keys and one tuple; the
+object-operand case was measured separately, against a synthetic pair rather than a real operand,
+and is the reason that case carries its own two-pair recipe above. And a passing declaration set is not the same as a deleted tower: removing
+`AssertTrue`, `IsExactly`, `Exact` and `IsAny` is the change this entry asks for, and the measurement
+covers only that the declarations catch what the tower caught, not that nothing else read them.
 
 Every right-hand side must be a concrete expression, not a `declare const` binding. TypeScript erases
 the declaration but emits the initialized constant, so `declare const x: T;` followed by
@@ -1051,10 +1147,9 @@ typecheck-only `.d.ts` would also work, at the cost of splitting the guard from 
 
 Measured RED for a removed brand, a stale exception name, an interchangeable pair, a derivation
 degenerated to `never`, and one degenerated to all keys — and the `never` declaration rejects
-`any` for free. It deletes `AssertTrue` and its self-test, `IsExactly`, the eight-case tuple and
-both tuple assertions, and `Exact` with its mirrors — but NOT `IsAny`, which the paragraph
-above requires, and not the pair probe or the key-union assertions, which need the declaration forms
-shown above rather than deletion: levels 1-8 stop existing, because
+`any` for free. What it deletes is listed once, above; this paragraph does not restate it, because a
+second copy of that list is how the entry contradicted itself before. The reason it is safe to
+delete them: levels 1-8 stop existing, because
 those levels existed only to reject a degenerate ANSWER and a variable declaration has no answer to
 degenerate. It also produces actionable error text instead of "Type 'false' does not satisfy the
 constraint 'true'".
