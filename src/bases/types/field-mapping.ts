@@ -10,8 +10,33 @@
  */
 
 import type { FieldMappings } from '../../datasource';
+import type { Branded } from '../../brandedValue';
 
 export type { FieldMappings, ProgressMode, TimeEstimateMode } from '../../datasource';
+
+/**
+ * The user's own mapping choices, every unset field still empty.
+ *
+ * Read this where the user's choice is what matters — the progress and time-estimate
+ * write gates, which must not open an editor on a property the write path has no
+ * target for, because a resolved estimate property is a READ fallback in Property
+ * mode.
+ */
+export type RawFieldMappings = Branded<FieldMappings, 'view.rawFieldMappings'>;
+
+/**
+ * The same mappings as the active source resolves them: every unset field filled
+ * in from TaskNotes' configuration.
+ *
+ * Read this where an unset field must behave as the property it resolves to —
+ * which editor a cell offers, which frontmatter keys a refresh watches.
+ *
+ * The two are the same TypeScript type underneath, which is why they are branded
+ * apart: passing the resolved set where the raw set belongs opens an editor on a
+ * fallback property with no write target, and the swap is otherwise invisible to
+ * the compiler and to every fixture that maps the field explicitly.
+ */
+export type EffectiveFieldMappings = Branded<FieldMappings, 'view.effectiveFieldMappings'>;
 
 /**
  * Task structure expected by SVAR Gantt library

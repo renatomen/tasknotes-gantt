@@ -22,7 +22,16 @@ import { get, writable, type Writable } from 'svelte/store';
 import GanttContainer from './GanttContainer.svelte';
 import { pickActiveFocusEntry } from './focusController';
 import type { GanttData } from './types/gantt-view-data';
-import type { FieldMappings } from './types/field-mapping';
+import type {
+  EffectiveFieldMappings,
+  FieldMappings,
+  RawFieldMappings,
+} from './types/field-mapping';
+import {
+  projectRenderContract,
+  type DateIndicatorToggle,
+  type TaskNotesPresence,
+} from './ganttRenderContract';
 import { readFieldMappings } from './fieldMappingConfig';
 import {
   calendarItemOptionsGroup,
@@ -68,7 +77,6 @@ import {
   type DateMappingInfo,
 } from '../controller/GanttController';
 import {
-  hasRecordedRecurringOccurrences,
   type LinkRewriteMode,
 } from '../controller/InstanceExpansion';
 import { TaskNotesInteractions } from './taskNotesInteractions';
@@ -84,8 +92,7 @@ import { resolveDateLocale } from './dateLocale';
 import { resolveCellRenderType } from './cellRenderType';
 import { getObsidianPropertyWidget } from './obsidianPropertyType';
 import { resolveUserFieldTypes } from './taskNotesFieldTypes';
-import { resolveGridCellEditors } from './cellEditability';
-import { buildGridColumns, gridColumnsKey, mergeColumnSize, firstColumnWidth, DEFAULT_NAME_WIDTH } from './gridColumns';
+import { buildGridColumns, mergeColumnSize, firstColumnWidth, DEFAULT_NAME_WIDTH } from './gridColumns';
 import { persistGridWidth, resolveInitialGridWidth } from './gridWidthPersist';
 import { TaskNotesSource, type TaskPatch } from '../datasource';
 import { createCoalescer, type Coalescer } from './coalesce';
@@ -151,7 +158,6 @@ function buildDateMappingNotice(info: DateMappingInfo): string | undefined {
   return parts.length > 0 ? parts.join(' ') : undefined;
 }
 import { readDatePolicyConfig, readRowVisibilityOptions } from './datePolicyConfig';
-import { hasNonAuthoredEdgeInstance } from './visualSemantics';
 import { composeEntrySignature, frontmatterSignatureKeys, type SignatureEntry } from './entrySignature';
 import {
   computeCalendarShadingCss,
@@ -777,7 +783,7 @@ class ObsidianGanttBasesView extends BasesView {
    * choice is what matters — the progress/estimate write gates, which must not open
    * an editor on a property the write path has no target for.
    */
-  private buildFieldMappings(): FieldMappings {
+  private buildFieldMappings(): RawFieldMappings {
     const get = (key: string) => this.config.get(key);
     const base = readFieldMappings(get);
     // Resolve the Progress mode (R1–R3) and thread it onto the mappings so
@@ -795,7 +801,10 @@ class ObsidianGanttBasesView extends BasesView {
     // is always READ for inference regardless of mode (R5/R6); the mode only gates
     // whether a resize writes it back. Default `dont-update`.
     const timeEstimateMode = readTimeEstimateMode(get, { companionAvailable });
-    return { ...base, progressMode, timeEstimateMode };
+    // Typed as the unbranded shape first: a literal cast straight to a branded
+    // type checks excess properties but not missing ones.
+    const mappings: FieldMappings = { ...base, progressMode, timeEstimateMode };
+    return mappings as RawFieldMappings;
   }
 
   /**
@@ -809,8 +818,9 @@ class ObsidianGanttBasesView extends BasesView {
    * controller yet they degrade to the raw view config — every field then reads as
    * the user left it, which is the same answer for a view that maps everything.
    */
-  private getEffectiveMappings(): FieldMappings {
-    return this.ganttController?.getEffectiveMappings() ?? this.buildFieldMappings();
+  private getEffectiveMappings(): EffectiveFieldMappings {
+    return (this.ganttController?.getEffectiveMappings() ??
+      this.buildFieldMappings()) as EffectiveFieldMappings;
   }
 
   /**
@@ -978,8 +988,8 @@ class ObsidianGanttBasesView extends BasesView {
   }
 
   /** Read the per-view "show date-status indicators" toggle (R11); default on. */
-  private getShowDateIndicators(): boolean {
-    return this.config.get('tngantt_showDateIndicators') !== false;
+  private getShowDateIndicators(): DateIndicatorToggle {
+    return (this.config.get('tngantt_showDateIndicators') !== false) as DateIndicatorToggle;
   }
 
   /** Read the per-view "show toolbar" toggle (plan 002 R2); default off. */
@@ -1482,10 +1492,10 @@ class ObsidianGanttBasesView extends BasesView {
   private async buildGanttData(controller: GanttController): Promise<GanttData> {
     this.reconcileCalendarSelectionAlias();
     const arrowMode = this.getArrowMode();
-    const [instances, links, statusColors, priorityColors, managedPaths, statusOptions, priorityOptions] =
+    const [instances, linkSet, statusColors, priorityColors, managedPaths, statusOptions, priorityOptions] =
       await Promise.all([
         controller.getInstances(),
-        controller.getLinks(arrowMode),
+        controller.buildLinkSet(arrowMode),
         controller.getStatusColors(),
         controller.getPriorityColors(),
         controller.getManagedPaths(),
@@ -1508,17 +1518,13 @@ class ObsidianGanttBasesView extends BasesView {
     // every cell of this pass (matched + fetched) formats dates identically.
     const dateLocale = resolveDateLocale();
     const cellDataContext = { extractor: this.gridAdapter, resolveRenderType, dateLocale };
-    const { cellRenders, propertyValues } = buildCellData(
-      this.data?.data ?? [],
-      visiblePropIds,
-      cellDataContext,
-    );
+    const cellData = buildCellData(this.data?.data ?? [], visiblePropIds, cellDataContext);
     // Show-all *context* rows (companion-fetched subtasks) are NOT in the Bases
     // result, so the matched-only maps above leave their grid cells blank. Fill
     // their note.*/file.* columns from the metadata cache (formula columns fall
     // back to empty). Matched rows already in the maps are never overwritten.
     if (visiblePropIds.length > 0) {
-      const seen = new Set(propertyValues.keys());
+      const seen = new Set(cellData.propertyValues.keys());
       const fetchedMetas = collectFetchedFileMetas(instances, seen, (path) => {
         const file = this.app.vault.getAbstractFileByPath(path);
         if (!(file instanceof TFile)) return null;
@@ -1529,8 +1535,8 @@ class ObsidianGanttBasesView extends BasesView {
         };
       });
       const fetched = buildFetchedCellData(fetchedMetas, visiblePropIds, cellDataContext);
-      for (const [path, record] of fetched.cellRenders) cellRenders.set(path, record);
-      for (const [path, record] of fetched.propertyValues) propertyValues.set(path, record);
+      for (const [path, record] of fetched.cellRenders) cellData.cellRenders.set(path, record);
+      for (const [path, record] of fetched.propertyValues) cellData.propertyValues.set(path, record);
     }
     const gridColumns = buildGridColumns(
       visiblePropIds,
@@ -1539,31 +1545,11 @@ class ObsidianGanttBasesView extends BasesView {
       // The task-name property: the configured textProperty, else file.name.
       (this.config.get('tngantt_textProperty') as string) || 'file.name',
     );
-    // Per-column inline editors (inline cell editing): resolve each grid
-    // column's editor descriptor against the same mappings + writability the
-    // write path (`mutateProperty` → `resolvePropertyPatch`) enforces, so an
-    // editor is never offered where the write would refuse.
-    //
-    // Which property IS the status/start/… field comes from the controller's
-    // RESOLVED mappings, so a field left unset in the view settings offers the
-    // same editor as an explicitly selected one (it resolves to TaskNotes'
-    // configured property, and the write routes through that field's canonical
-    // branch). The progress/estimate writability gates stay on the RAW view
-    // config, mirroring the controller's write-target resolution: the resolved
-    // estimate property is a READ fallback with no write target in Property mode,
-    // so gating on it would open an editor the write path then refuses.
+    // Which property IS each field comes from the RESOLVED mappings; the
+    // progress/estimate write gates come from the RAW view config. The two are
+    // branded apart at their readers, so the projection names one of each and
+    // the compiler refuses the swap that a comment could only warn about.
     const viewMappings = this.buildFieldMappings();
-    const cellEditors = resolveGridCellEditors(gridColumns, {
-      taskNotesFieldType: (key) => userFieldTypes.get(key.toLowerCase()) ?? null,
-      // Identity from the RESOLVED mappings; the progress/estimate write gates from the
-      // RAW view config (their resolved property is a read-only fallback with no write
-      // target). resolveGridCellEditors documents and tests the pairing.
-      mappings: this.getEffectiveMappings(),
-      progressWritable: !isProgressReadonly(viewMappings),
-      estimateWritable: isTimeEstimateWriteEnabled(viewMappings),
-      statusWritable: controller.isStatusWritable(),
-      priorityWritable: controller.isPriorityWritable(),
-    });
     // Cache the name-column width as the unset-divider fallback (R4), read by getTableWidth().
     this.lastFirstColumnWidth = firstColumnWidth(gridColumns);
     const calendarShading = this.buildCalendarShading(instances);
@@ -1577,100 +1563,72 @@ class ObsidianGanttBasesView extends BasesView {
     const estimateMeaning = readEstimateMeaning((key) => this.config.get(key));
     const nonWorkingRendering = readNonWorkingRendering((key) => this.config.get(key));
     const externalCalendarLegendFacts = this.readExternalCalendarLegendFacts();
-    const recordedRecurringOccurrencesPresent = hasRecordedRecurringOccurrences(instances);
-    const nonAuthoredEdgesPresent = hasNonAuthoredEdgeInstance(
-      instances.map((instance) => instance.dateStatus),
-    );
-    const visibleCalendarEventColor =
-      instances
-        .map((instance) => instance.calendarItem?.color)
-        .find((color) => isSafeColor(color)) ?? null;
-    const visibleExternalOccurrenceColor =
-      instances
-        .filter((instance) => instance.calendarItem?.family === 'external-event')
-        .map((instance) => instance.calendarItem?.color)
-        .find((color) => isSafeColor(color)) ?? null;
-    return {
+    return projectRenderContract({
       instances,
-      links,
+      linkSet,
       capabilities: controller.capabilities,
-      arrowMode,
-      showDateIndicators,
-      showToolbar: this.getShowToolbar(),
-      defaultLegendPosition: this.getDefaultLegendPosition(),
-      highlightWeekends,
-      // #161: the same config key as before, now a view-level display filter.
-      hideTopLevelSubtasks: this.getHideTopLevelSubtasks(),
-      // #161: the show-undated/show-partial toggles flow through the store like
-      // hide-top — a presentation filter over the stable instance set, never a
-      // re-derivation — so a Bases config oscillation can't churn the chart.
-      ...readRowVisibilityOptions((key) => this.config.get(key)),
-      maxHeight: this.getMaxHeight(),
-      minHeight: this.getMinHeight(),
-      contextOpacity: this.getContextOpacity(),
+      managedPaths,
+      statusChoices: statusOptions,
+      priorityChoices: priorityOptions,
       statusColors,
       priorityColors,
-      choiceOptions: { status: statusOptions, priority: priorityOptions },
+      gridColumns,
+      cellData,
+      calendarShading,
+      rawMappings: viewMappings,
+      effectiveMappings: this.getEffectiveMappings(),
+      taskNotesFieldType: (key) => userFieldTypes.get(key.toLowerCase()) ?? null,
+      statusWritable: controller.isStatusWritable(),
+      priorityWritable: controller.isPriorityWritable(),
+      taskNotesPresent,
+      showDateIndicators,
       barFillSource,
       barStripSource,
-      barIcon: barIconSource,
-      // Read-only bar → the view hides the drag handle (U5/R7). True in TaskNotes
-      // mode and in Property mode with no mapped property (nowhere to persist).
-      progressReadonly: this.getProgressReadonly(),
-      // Whether a resize should write the Time Estimate back (U6/R13–R15). The
-      // container additionally gates on read-only (standalone never writes, R17).
-      timeEstimateWriteEnabled: isTimeEstimateWriteEnabled(this.buildFieldMappings()),
-      dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
-      taskNotesPresent,
-      cascadeMode: this.getCascadeMode(),
-      getInferredDragMode: () => this.getInferredDragMode(),
-      defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),
-      propertyValues,
-      cellRenders,
-      dateLocale,
-      managedPaths,
-      cellEditors,
-      gridColumns,
-      gridColumnsKey: gridColumnsKey(gridColumns),
-      gridWidth: this.getTableWidth(),
-      // Transient external-calendar fetching state (visible feeds awaiting
-      // their first completion signal) — the toolbar's honest minimal
-      // indicator. Cleared by the refresh the first completion signal
-      // (data-changed, a changed fallback tick, or a warm cache) triggers.
-      externalEventsLoading: this.externalEventsLoading,
-      calendarShadingCss: calendarShading.css,
-      calendarNotice: calendarShading.notice,
-      calendarMarkers: calendarShading.markers,
-      calendarPalette: calendarShading.calendarPalette,
-      calendarBySource: calendarShading.calendarBySource,
-      legendContext: {
-        taskNotesPresent,
-        barFillSource,
-        barStripSource,
-        barIconSource,
-        statusColors,
-        priorityColors,
-        calendarPalette: calendarShading.calendarPalette,
-        calendarMarkerColor: calendarShading.calendarMarkerColor,
-        hasRecordedRecurringOccurrences: recordedRecurringOccurrencesPresent,
-        showDateIndicators,
-        hasNonAuthoredEdges: nonAuthoredEdgesPresent,
-        calendarEventColor:
-          visibleCalendarEventColor ?? externalCalendarLegendFacts.representativeColor,
-        externalOccurrenceColor:
-          visibleExternalOccurrenceColor ?? externalCalendarLegendFacts.representativeColor,
-        estimateMeaning,
-        nonWorkingRendering,
-        calendarItems: { showRecurring: calendarItems.showRecurring },
-        externalCalendarsEnabled: externalCalendarLegendFacts.enabled,
+      barIconSource,
+      estimateMeaning,
+      nonWorkingRendering,
+      calendarItems: { showRecurring: calendarItems.showRecurring },
+      externalCalendars: {
+        enabled: externalCalendarLegendFacts.enabled,
+        representativeColor: externalCalendarLegendFacts.representativeColor,
       },
       // Span↔estimate answers come from the controller's derivation authority —
       // the write path asks; it never assembles blocking facts itself.
+      refreshGeneration: controller.buildRefreshGeneration(),
       deriveEstimate: controller.buildDeriveEstimate(),
       deriveSpan: controller.buildDeriveSpan(),
-      refreshGeneration: () => controller.recomputeGeneration(),
-      defaultDurationDays: readDatePolicyConfig((key) => this.config.get(key)).defaultDuration,
-    };
+      passthrough: {
+        showToolbar: this.getShowToolbar(),
+        defaultLegendPosition: this.getDefaultLegendPosition(),
+        highlightWeekends,
+        // #161: the same config key as before, now a view-level display filter.
+        hideTopLevelSubtasks: this.getHideTopLevelSubtasks(),
+        // #161: the show-undated/show-partial toggles flow through the store like
+        // hide-top — a presentation filter over the stable instance set, never a
+        // re-derivation — so a Bases config oscillation can't churn the chart.
+        ...readRowVisibilityOptions((key) => this.config.get(key)),
+        maxHeight: this.getMaxHeight(),
+        minHeight: this.getMinHeight(),
+        contextOpacity: this.getContextOpacity(),
+        // Read-only bar → the view hides the drag handle. True in TaskNotes mode and
+        // in Property mode with no mapped property (nowhere to persist).
+        progressReadonly: this.getProgressReadonly(),
+        // Whether a resize should write the Time Estimate back. The container
+        // additionally gates on read-only, so a standalone timeline never writes.
+        timeEstimateWriteEnabled: isTimeEstimateWriteEnabled(this.buildFieldMappings()),
+        dateMappingNotice: buildDateMappingNotice(controller.getDateMappingInfo()),
+        cascadeMode: this.getCascadeMode(),
+        getInferredDragMode: () => this.getInferredDragMode(),
+        defaultScale: normalizeDefaultScale(this.config.get('tngantt_defaultScale')),
+        // Transient external-calendar fetching state (visible feeds awaiting
+        // their first completion signal) — the toolbar's honest minimal
+        // indicator. Cleared by the refresh the first completion signal
+        // (data-changed, a changed fallback tick, or a warm cache) triggers.
+        externalEventsLoading: this.externalEventsLoading,
+        defaultDurationDays: readDatePolicyConfig((key) => this.config.get(key)).defaultDuration,
+        gridWidth: this.getTableWidth(),
+      },
+    });
   }
 
   /** Skip-if-unchanged memo for the shading stylesheet. */
@@ -1847,9 +1805,9 @@ class ObsidianGanttBasesView extends BasesView {
  * resolution in {@link TaskNotesSource}. Companion-only relationship controls
  * are shown only when this is true.
  */
-function isTaskNotesPresent(app: Plugin['app']): boolean {
+function isTaskNotesPresent(app: Plugin['app']): TaskNotesPresence {
   const handle = getTaskNotesPluginHandle(app) as { api?: unknown } | null;
-  return Boolean(handle?.api);
+  return Boolean(handle?.api) as TaskNotesPresence;
 }
 
 /**

@@ -141,6 +141,20 @@ today. That is a production behaviour change and belongs in its own test-first u
 `2026-09-03-001` therefore leaves the call untouched and treats its position as a review
 obligation on the U1 diff.
 
+### P2 — `buildCalendarShading` is a value builder that also registers watches (2026-09-04)
+Parked at U1 of `docs/plans/2026-09-03-001-refactor-register-render-data-characterization-plan.md`,
+which its Files list requires. `ObsidianGanttBasesView.buildCalendarShading()` computes the shading
+values the render contract publishes **and**, in the same call, registers the marked calendar notes
+and the per-task associations with the calendar watch and refreshes
+`this.lastAssociationTaskPaths` for the picker. Two concerns, one entry point: the values are pure
+and now testable through the projection's signature, while the registrations are side effects no
+tier observes at all — deleting one keeps `GanttData` byte-identical and every gate green, while a
+renamed or deleted calendar note stops refreshing the chart. U1 neither moves nor edits those lines
+(the host calls the builder exactly where it did before), so this plan adds no risk to them and
+closes none of it either. The fix is to split the registrations out of the builder so each is
+testable at the unit tier; it is a structural change with its own test-first unit, and it is the
+prerequisite for the P1 stale-mount registration race above rather than a duplicate of it.
+
 ### P2 — Nothing proves the render pass still consults the dependency-arrow option (2026-09-03)
 Found while reviewing `docs/plans/2026-09-03-001-refactor-register-render-data-characterization-plan.md`.
 The view reads
