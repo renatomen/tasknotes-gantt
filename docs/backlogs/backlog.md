@@ -1004,13 +1004,20 @@ directives as part of the assertion — and should decide whether quoted source 
 pinning to their files at the same time.
 
 ### P1 — Replace the type-level assertion tower with declaration assignability (2026-09-05)
-Eight successive reviews found the same defect in `src/bases/ganttRenderContract.ts`, each inside
+Nine successive reviews found the same defect in `src/bases/ganttRenderContract.ts`, each inside
 the fix for the one before: a guard that used `extends` where it meant equality, then a self-test
 checking one direction, then helpers accepting `never`, then `boolean`/`unknown`/`any`, then an
 unobserved `IsExactly`, then a tuple accepting an `any` answer, then a one-token widening of
-`AssertTrue` that disabled all eight assertions, then `Exact` accepting `any` operands. Every level
-now self-detects under mutation, and the reviewer that found level 8 confirmed there is no level 9
-inside the tower — but also showed the tower is unnecessary.
+`AssertTrue` that disabled all eight assertions, then `Exact` accepting `any` operands, and finally
+an answer matrix that pinned every case but the empty type. Every level now self-detects under
+mutation.
+
+**Corrected 2026-09-05:** this entry previously said eight levels and repeated a reviewer's finding
+that there was no ninth inside the tower. A later round in the same session found one — the matrix
+gap above — so that closing claim was falsified and is withdrawn. The separate coverage finding of
+the same session (a contract key with no fabricate case) is not a tower level and is not counted
+here. The entry is left with its correction visible rather than silently renumbered, because a
+confident closing claim disproven by later work is the exact failure this entry exists to remove.
 
 The measured alternative asserts with the compiler's own assignability check on DECLARED VALUES
 rather than by computing a boolean and asserting the boolean:

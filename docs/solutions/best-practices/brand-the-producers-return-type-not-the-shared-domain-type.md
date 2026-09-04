@@ -1,6 +1,7 @@
 ---
 title: Brand the producer's return type, not the shared domain type — and four ways a brand silently guards nothing
 date: 2026-09-04
+last_updated: 2026-09-05
 category: docs/solutions/best-practices
 module: typescript / nominal-branding
 problem_type: best_practice
@@ -295,6 +296,71 @@ while still accepting any producer's value - the same weaken-versus-remove confu
 below. The derivation is also top-level only: a brand nested one level inside an input field can be
 deleted with no diagnostic. No such nested brand exists today.
 
+### 5. The tower that enforces rule 4 cannot verify itself — terminate the regress by changing primitive
+
+Rule 4's guard needed a self-test; the self-test needed one; the assertion helper under both needed
+one. **Nine** levels inside the tower, each found in the fix for the one before, several of them in
+the author's own repair of the level above (attribution rests on this project's review records,
+which are deliberately never committed). A tenth finding in the same sequence was a *coverage* gap
+rather than a tower defect — a contract key with no fabricate case, and a field the crossed-field
+case guarded in only one direction — and is counted separately here because it is a different
+class and its repair was not another storey. **The recurring shape is not carelessness, it is
+structural:** every repair was written in the construct being verified, so each new checker was a
+fresh candidate for the same defect.
+
+`extends` is TypeScript's only relational primitive and it is neither equality, nor exactness, nor
+failure. Reach for it meaning one of those and it accepts something:
+
+| Written | Also accepts |
+|---|---|
+| `[A] extends [B]` meaning equality | any `B` *containing* `A` (subset, not equality) |
+| `AssertFalse<T extends false>` | `never`, which extends everything |
+| `[false] extends [T]` | `boolean`, `unknown`, `any` — every supertype of `false` |
+| a mutual tuple comparison | an `any` answer, assignable in both directions |
+| `AssertTrue<T extends true>` | anything, once one token widens it to `T extends boolean` |
+
+**Two tells say you are in the regress rather than one level of it.** First, the fix is written in
+the construct being verified. Second, the verifier needs a verifier — the moment you write
+"…and this helper is itself a guard, so it needs the treatment it exists to apply", the tower has
+another storey and the same argument applies to it. When both hold, stop hardening and change
+primitive.
+
+**The terminating move, filed rather than shipped.** It lives in `docs/backlogs/backlog.md` under
+*"P1 — Replace the type-level assertion tower with declaration assignability"*; the tower is what
+is on `main` today. Instead of computing a boolean and asserting the boolean, hand the compiler two
+values and let its own assignability check *be* the assertion:
+
+```ts
+const _derivedIsListed: UnbrandedException = null as unknown as UnbrandedInputFields;
+const _listedIsDerived: UnbrandedInputFields = null as unknown as UnbrandedException;
+const _noPairs: never = null as unknown as InterchangeableFieldPairs<RenderContractInput>;
+```
+
+Levels 1-8 stop existing outright, and the ninth with them, structurally rather than luckily: each was a way for a computed
+*answer* to degenerate. **A variable declaration has no answer to degenerate.** Measured against an
+isolated model of the real guard, the three declarations are green when healthy and red at the right
+*location*, with error text naming the offending member — `Type '"showDateIndicators"' is not
+assignable to type 'UnbrandedException'`, against the tower's `Type 'false' does not satisfy the
+constraint 'true'`. Same red, no information.
+
+Three caveats that are part of the guidance:
+
+1. **Every right-hand side must be a concrete expression, never a `declare const`.** TypeScript
+   erases the declaration and emits the initialized constant, so the declared form typechecks and
+   then throws `ReferenceError` on import. Verify this class of thing by reading emitted JavaScript,
+   because the typecheck is precisely the instrument that cannot see it.
+2. **`IsAny` survives the deletion.** Mutual assignability cannot reject `any` — if the derivation
+   degenerates to `any`, *both* declarations compile. The `never` declaration needs no help, since
+   `any` is assignable to everything except `never`, so the pairs guard is `any`-safe for free and
+   the coverage guard is not.
+3. **A non-emptiness check must name a witness, not restate the union.** `T = T` is a tautology, and
+   it is most convincing exactly when `T` has collapsed to `never`. Assert a member you know must be
+   there.
+
+**Rejected: a jest-plus-`tsc` mutation harness.** It is a second mechanism for what the
+`@ts-expect-error` fabricate cases already do (principle 4), and its mutation set would be a
+hand-kept list — rebuilding the regress-terminator out of the defect it terminates.
+
 ### Supporting type-level facts, each confirmed by compiling
 
 **`Omit<T, K>` and `Exclude<keyof T, K>` silently accept a `K` that is not a key of `T`.** A stale or misspelled key in an exclusion union produces no diagnostic whatever. Here that would be load-bearing: a mistyped name in `NamedContractKeys` would drop that field silently into the passthrough group and make it host-supplied instead of projected. The one-line assertion that closes it:
@@ -352,6 +418,50 @@ There is also a warning about the instruments. The author's brand-coverage sweep
 Then the same shape survived into this document's own review, twice, after six clean cross-model rounds had passed the draft. Rule 3 named the wrong mechanism outright: it credited the excess-property check for a rejection that is really comparability failing in both directions, which mispredicts a cast made through a variable and mispredicts the optional-phantom-property brand idiom completely. Its spread is worth stating exactly, because it is this section's own subject: the claim pre-existed at **three** sites, all production comments, and the branch writing *this document* propagated it into four more places — the glossary, the backlog, and the document's own rule and examples — before that branch's review caught it. The pattern below was not being described from memory; it was running while the description was written. Rule 4's guard was written as `[derived] extends [list]`, a one-directional check that reads like an equality assertion and is not: adding a name to the exception list that is no key of the input at all produced **zero diagnostics** against this repo's real guard. That is precisely the `Omit`/`Exclude` trap this document teaches, committed inside the guard written to close it. Both are fixed here, and the second was a genuine hole in shipped code rather than only in the prose describing it.
 
 The transferable lesson is narrower than "review harder". When a metric or a mechanism changes, the sentences needing re-derivation are not the ones carrying the old *number* — grep finds those — but the ones carrying the old *conclusion*. This document's own counter-example was argued from a reference count in the section that had just finished replacing reference counts with construction sites, and it reached the right verdict for a reason its evidence did not support. Nothing mechanical catches that: every number in the sentence was true.
+
+### Why "the typecheck is green" kept meaning nothing
+
+Because these assertions are **inert**. Nothing in the production function fails to compile if they
+stop asserting. Measured at the current tree: `src/bases/ganttRenderContract.ts` holds 12
+`AssertTrue<…>` sites, and each of the twelve `_`-prefixed aliases occurs exactly once across `src/`
+and `test/` — its own declaration. Not one is referenced by anything.
+
+```bash
+grep -c '= AssertTrue<' src/bases/ganttRenderContract.ts          # 12
+grep -roh '_OnlyTheseInputFieldsAreUnbranded' src/ test/ | wc -l  # 1, and 1 for each of the other 11
+```
+
+They are scaffolding the compiler is free to ignore once weakened, which is why every defective form
+across all ten levels compiled clean.
+
+**Making a guard load-bearing helps less than it looks.** Wiring an assertion alias into production
+code buys "cannot be silently DELETED" and never "cannot be silently WEAKENED", because weakenings
+move in the permissive direction and nothing that compiled before stops compiling when you become
+more permissive. Measured: deleting a wired alias is `TS2304`; weakening it to `[Keys] extends
+[unknown]` *while adding a key that is not a field of the shape* is exit 0 — invariant broken,
+guard present, wiring intact, no diagnostic anywhere.
+
+### Mutation testing: the location is the result, not the count
+
+The instruments failed about as often as the code, and each failure produced output shaped exactly
+like a real finding. **Differential measurement held up; absolute counts did not.**
+
+- **A count with no control.** A 76-diagnostic figure meant nothing until it was differenced against
+  an unbranded control of the same tree; the real figure was 36. An absolute count answers "how noisy
+  is this tree", not "what did my change cost".
+- **A scope error dressed as a global claim.** A per-file `grep -c` reported as a project-wide "zero
+  diagnostics". The number was true; the sentence was not.
+- **A sweep that split Windows paths on the drive-letter colon,** and so reported every subject
+  MISSED — total, uniform, confident failure, the shape most likely to be believed.
+- **A regex matching only single-line declarations.** Against this file, a pattern requiring the
+  declaration and its closing `;` on one line matches 3 of the 12 assertion sites and silently skips
+  the rest while reporting success.
+- **A single diagnostic from the wrong place.** Widening `AssertTrue` produces exactly one
+  diagnostic — `TS2578` at the *self-test*, while the broken guard itself emits nothing. Counting
+  would have called that "detected". It was detected by a different assertion covering for a dead one.
+
+So: read *which* assertion fired and confirm it is the one you mutated. A guard verified by counting
+diagnostics is a guard verified by the same reasoning that produced all ten levels.
 
 ## When to Apply
 
