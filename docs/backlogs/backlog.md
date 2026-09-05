@@ -1027,8 +1027,14 @@ block I had twice called complete — first `UnbrandedException`, then `keyof Ga
 evidence that an enumerated list is the wrong shape for this, exactly as
 `workflow-issues/state-the-rule-derive-the-list` says. The procedure, which is what actually binds:
 
-> For each declaration, take every type NAME appearing on either side, including a name inside a
-> `keyof` or a type argument. Each one needs its own sentinel declaration, unless that side's
+> For each declaration, take the EVALUATED type on each side — what that side actually resolves to,
+> not every name spelled inside it. `keyof GanttData` is one operand, a key union; so is
+> `InterchangeableFieldPairs<InterchangeabilityProbe>`, a tuple. The names within a type expression
+> are not separate operands, because the declaration asserts nothing about them individually; they
+> reach the assertion only through the type they evaluate to, and guarding a name whose evaluated
+> form is an object is what would break the healthy build. Choose each sentinel by the kind of that
+> evaluated type — `0 &` for a union of string literals, `null &` for a tuple. Each evaluated
+> operand needs its own sentinel declaration, unless that side's
 > expected type is `never`, which rejects the escape-hatch type unaided. That exemption is only from
 > the sentinel: an expected `never` is SILENT on an operand that has collapsed to `never`, since the
 > declaration then reads `never = never` — measured — so anything whose contract an always-empty
