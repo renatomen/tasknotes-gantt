@@ -1123,36 +1123,16 @@ Two things the rule does not excuse you from checking, both measured:
   literals and is WRONG for a tuple: `0 & ['wide','narrow']` does not reduce, so that guard fails on
   the healthy build. Use `null &` for the tuple operands here. Pick the sentinel by what the
   operand is, then confirm the guard is silent on the healthy type before trusting it to speak on a
-  degenerate one. **An object-valued operand takes a different recipe: two mutual pairs and NO
-  sentinel.** Measured, TS 5.9.2, against `Expected = { required: string; optional?: number }`, every
-  case carrying a planted canary to prove the build was being checked:
-
-  | mutation of the operand | object mutual pair | `keyof` mutual pair |
-  | --- | --- | --- |
-  | none (healthy) | silent | silent |
-  | `optional` dropped | **silent** | fires |
-  | `optional?: number` -> `optional?: string` | fires | **silent** |
-  | operand degenerates to the escape-hatch type | **silent** | fires |
-  | a PROPERTY's value type degenerates to the escape-hatch type | **silent** | **silent** |
-
-  The two pairs are complementary across the first four rows, so an object operand needs both:
-  mutual assignability alone misses a dropped optional member, because an optional property is
-  satisfiable by absence and makes dissimilar objects mutually assignable; the key-set pair alone
-  misses a changed property type, because the key set did not change. A witness adds nothing either
-  pair does not already give.
-
-  **The last row is a known gap, not a solved case.** Neither pair sees a property whose value type
-  has become the escape-hatch type: the key set is unchanged, and that type is assignable in both
-  directions, so both pairs stay silent while the property's contract is gone. This table is the
-  mutations that were measured, not an exhaustive threat model — treat it as a floor. Closing that
-  row needs a per-property check, which is a different mechanism from anything here and should be
-  designed against a real object operand rather than a synthetic one, because there is none in this
-  guard set to test it on.
-
-  The sentinel is not merely insufficient here, it is **wrong**: `0 & { ... }` does not reduce to the
-  empty type, so that declaration fails on the HEALTHY build. It is also unnecessary, because the
-  key-set pair already catches the escape-hatch case — `keyof` of that type is
-  `string | number | symbol`, which is not assignable to the expected key union.
+  degenerate one. **Object-valued operands are out of scope for this entry.** The guard set has
+  none, and three attempts to specify a recipe for one were each measured false-green by the next
+  review: a witness instead of the sentinel reopens the escape-hatch case; witness plus sentinel
+  misses a dropped optional member, since an optional property is satisfiable by absence; the
+  object and key-set assignability pairs together still miss a property whose value type
+  degenerates. Two facts are worth keeping for whoever meets a real one. The sentinel does not
+  apply: `0 & { ... }` does not reduce to the empty type, so that declaration fails on the HEALTHY
+  build — which is why the procedure above is written for operands that are unions or tuples.
+  And mutual assignability is the wrong primitive on objects for the reason just given. Design that
+  case against a real operand, and measure it, rather than extending this recipe to it.
 
 For a union of string-literal keys the intersection is `never` and the declaration holds; if the
 derivation degenerates to `any` the intersection is `any`, which is not assignable to `never`, and
@@ -1167,8 +1147,8 @@ exists to remove. Delete `AssertTrue`, `IsExactly`, `Exact`, the tuple AND `IsAn
 rather than reasoned about: a copy of the module with these declarations appended, mutated one axis
 at a time. On the healthy build all twelve declarations are silent — including `null &` on the tuple
 operand and `0 &` on the unions — while a planted `const _canary: number = "s"` errors, so the
-silence is the guards holding and not the compiler idling. Each mutation then fired its own
-declaration and no other: the derivation degenerated to the escape-hatch type fired
+silence is the guards holding and not the compiler idling. Each mutation then fired exactly the
+declarations naming the operand it degenerated, and no others: the derivation degenerated to the escape-hatch type fired
 `_derivationIsNotAny`; the exception union degenerated fired `_exceptionIsNotAny`; a removed brand
 fired `_derivedIsListed`; the pair derivation degenerated fired `_noPairs` and `_pairProbeIsNotAny`;
 the CONTAINER widened — `GanttData` itself, not its key union — fired `_contractKeysAreNotAny`, which
