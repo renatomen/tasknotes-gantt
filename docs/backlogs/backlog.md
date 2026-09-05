@@ -1022,9 +1022,21 @@ confident closing claim disproven by later work is the exact failure this entry 
 The measured alternative asserts with the compiler's own assignability check on DECLARED VALUES
 rather than by computing a boolean and asserting the boolean:
 
-This block is the complete set, not a sample: it instantiates the per-operand rule stated below
-rather than leaving it to prose. Compiled against the real module at TS 5.9.2 — silent on the healthy
-build, with a planted canary confirming the build was being checked.
+**Derive this set, do not copy it.** Two review rounds each found a different missing member of a
+block I had twice called complete — first `UnbrandedException`, then `keyof GanttData` — which is the
+evidence that an enumerated list is the wrong shape for this, exactly as
+`workflow-issues/state-the-rule-derive-the-list` says. The procedure, which is what actually binds:
+
+> For each declaration, take every type NAME appearing on either side, including a name inside a
+> `keyof` or a type argument. Each one needs its own sentinel declaration, unless that side's
+> expected type is `never`, which admits nothing and so rejects a degenerate operand unaided. A name
+> can resolve to something other than what you read; a literal written in place cannot, and is the
+> only exemption.
+
+The block below is that procedure applied to the operands present today, compiled against the real
+module at TS 5.9.2 — silent on the healthy build, with a planted canary confirming the build was
+being checked. If the implementation adds, renames, or re-sites an operand, re-run the procedure
+rather than pattern-matching against these names.
 
 ```ts
 // The coverage assertion, both directions. Neither direction alone is enough: one accepts a
@@ -1053,6 +1065,11 @@ const _pairProbeIsNotAny: never =
   null as unknown as (null & InterchangeableFieldPairs<InterchangeabilityProbe>);
 
 const _namedKeysAreContractFields: keyof GanttData = null as unknown as NamedContractKeys;
+// `GanttData` is a name too, and it is the container on the EXPECTED side. Without this, widening
+// it leaves the subset check, the witness and the key-union sentinel all green while the declared
+// contract has gone: `keyof` of a degenerate container is `string | number | symbol`, which admits
+// every key rather than none.
+const _contractKeysAreNotAny: never = null as unknown as (0 & keyof GanttData);
 // A witness, not a tautology: `NamedContractKeys = NamedContractKeys` compiles even when both
 // sides are `never`, so the check has to name a key it must contain.
 const _namedKeysAreNonEmpty: NamedContractKeys = null as unknown as 'links';
