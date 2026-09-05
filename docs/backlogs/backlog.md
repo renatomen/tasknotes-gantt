@@ -1029,7 +1029,10 @@ evidence that an enumerated list is the wrong shape for this, exactly as
 
 > For each declaration, take every type NAME appearing on either side, including a name inside a
 > `keyof` or a type argument. Each one needs its own sentinel declaration, unless that side's
-> expected type is `never`, which admits nothing and so rejects a degenerate operand unaided. A name
+> expected type is `never`, which rejects the escape-hatch type unaided. That exemption is only from
+> the sentinel: an expected `never` is SILENT on an operand that has collapsed to `never`, since the
+> declaration then reads `never = never` — measured — so anything whose contract an always-empty
+> implementation would violate still needs a positive probe naming something it must contain. A name
 > can resolve to something other than what you read; a literal written in place cannot, and is the
 > only exemption.
 
@@ -1155,12 +1158,14 @@ exists to remove. Delete `AssertTrue`, `IsExactly`, `Exact`, the tuple AND `IsAn
 
 **Measured, 2026-09-05, TS 5.9.2 under the project `tsconfig`.** The guard set above was compiled
 rather than reasoned about: a copy of the module with these declarations appended, mutated one axis
-at a time. On the healthy build all eleven declarations are silent — including `null &` on the tuple
+at a time. On the healthy build all twelve declarations are silent — including `null &` on the tuple
 operand and `0 &` on the unions — while a planted `const _canary: number = "s"` errors, so the
 silence is the guards holding and not the compiler idling. Each mutation then fired its own
 declaration and no other: the derivation degenerated to the escape-hatch type fired
 `_derivationIsNotAny`; the exception union degenerated fired `_exceptionIsNotAny`; a removed brand
-fired `_derivedIsListed`; the pair derivation degenerated fired `_noPairs` and `_pairProbeIsNotAny`.
+fired `_derivedIsListed`; the pair derivation degenerated fired `_noPairs` and `_pairProbeIsNotAny`;
+the CONTAINER widened — `GanttData` itself, not its key union — fired `_contractKeysAreNotAny`, which
+is the guard whose absence the review found and whose addition made the set twelve.
 The surviving tower fired on those same mutations, so the replacement gives up no coverage on them.
 
 Two limits on that result, both worth carrying into the implementation. The mutations exercised the
