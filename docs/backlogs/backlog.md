@@ -1008,7 +1008,7 @@ Nine successive reviews found the same defect in `src/bases/ganttRenderContract.
 the fix for the one before: a guard that used `extends` where it meant equality, then a self-test
 checking one direction, then helpers accepting `never`, then `boolean`/`unknown`/`any`, then an
 unobserved `IsExactly`, then a tuple accepting an `any` answer, then a one-token widening of
-`AssertTrue` that disabled all eight assertions, then `Exact` accepting `any` operands, and finally
+`AssertTrue` that disabled every assertion then in the file, then `Exact` accepting `any` operands, and finally
 an answer matrix that pinned every case but the empty type. Every level now self-detects under
 mutation.
 
@@ -1086,7 +1086,7 @@ const _namedKeysAreNonEmpty: NamedContractKeys = null as unknown as 'links';
 const _namedKeysAreNotAny: never = null as unknown as (0 & NamedContractKeys);
 ```
 
-`UnbrandedException` is the nine-name union, which is inlined in the guard today and would have to
+`UnbrandedException` is the exception union, which is inlined in the guard today and would have to
 be lifted to a named alias first.
 
 The escape-hatch rejections above replace `IsAny`, which comes out with the rest. Keeping it would
@@ -1151,14 +1151,14 @@ exists to remove. Delete `AssertTrue`, `IsExactly`, `Exact`, the tuple AND `IsAn
 
 **Measured, 2026-09-05, TS 5.9.2 under the project `tsconfig`.** The guard set above was compiled
 rather than reasoned about: a copy of the module with these declarations appended, mutated one axis
-at a time. On the healthy build all twelve declarations are silent — including `null &` on the tuple
+at a time. On the healthy build every declaration in the block is silent — including `null &` on the tuple
 operand and `0 &` on the unions — while a planted `const _canary: number = "s"` errors, so the
 silence is the guards holding and not the compiler idling. Each mutation then fired exactly the
 declarations naming the operand it degenerated, and no others: the derivation degenerated to the escape-hatch type fired
 `_derivationIsNotAny`; the exception union degenerated fired `_exceptionIsNotAny`; a removed brand
 fired `_derivedIsListed`; the pair derivation degenerated fired `_noPairs` and `_pairProbeIsNotAny`;
 the CONTAINER widened — `GanttData` itself, not its key union — fired `_contractKeysAreNotAny`, which
-is the guard whose absence the review found and whose addition made the set twelve.
+is the guard whose absence the review found.
 The surviving tower fired on all of those EXCEPT the container widening, where it is silent:
 `[NamedContractKeys] extends [keyof GanttData]` holds when the container is the escape-hatch type,
 because `keyof` of it admits every key, and the non-emptiness assertion is unaffected. So the
@@ -1182,7 +1182,7 @@ Measured RED for a removed brand, a stale exception name, an interchangeable pai
 degenerated to `never`, and one degenerated to all keys — and the `never` declaration rejects
 `any` for free. What it deletes is listed once, above; this paragraph does not restate it, because a
 second copy of that list is how the entry contradicted itself before. The reason it is safe to
-delete them: levels 1-8 stop existing, because
+delete them: every level of the tower stops existing, because
 those levels existed only to reject a degenerate ANSWER and a variable declaration has no answer to
 degenerate. It also produces actionable error text instead of "Type 'false' does not satisfy the
 constraint 'true'".
