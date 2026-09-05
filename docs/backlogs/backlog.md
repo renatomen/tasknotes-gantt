@@ -1088,7 +1088,14 @@ leave one computed checker standing with nothing observing it — weaken it to a
 is green while broken, which is the whole defect this entry exists to remove. The declaration form
 asserts instead that the operand intersected with a disjoint sentinel is empty.
 
-One of these per named operand, not one in total. Each declaration above has two sides, and a
+One of these per named operand, not one in total.
+
+Residual risk, stated rather than claimed away: a sentinel declaration is still a computed type
+expression, so it can be silently WEAKENED even though it can no longer be silently deleted —
+changing the sentinel `0` to `never` leaves the healthy build green, and then a degenerated operand
+satisfies `never & any` against a `never` target. That is the same deletion/weakening split the
+learning records: declarations buy observability, not immunity. The mutation coverage is what closes
+it, so re-run each sentinel's own mutation whenever one is edited. Each declaration above has two sides, and a
 guard on one says nothing about the other: measured, if `UnbrandedException` degenerates instead,
 both mutual assignments AND `_derivationIsNotAny` compile, and a removed brand goes undetected —
 the same false-green by a different door. The rule, rather than the list: **every operand that is a
@@ -1166,7 +1173,10 @@ declaration and no other: the derivation degenerated to the escape-hatch type fi
 fired `_derivedIsListed`; the pair derivation degenerated fired `_noPairs` and `_pairProbeIsNotAny`;
 the CONTAINER widened — `GanttData` itself, not its key union — fired `_contractKeysAreNotAny`, which
 is the guard whose absence the review found and whose addition made the set twelve.
-The surviving tower fired on those same mutations, so the replacement gives up no coverage on them.
+The surviving tower fired on all of those EXCEPT the container widening, where it is silent:
+`[NamedContractKeys] extends [keyof GanttData]` holds when the container is the escape-hatch type,
+because `keyof` of it admits every key, and the non-emptiness assertion is unaffected. So the
+replacement gives up no coverage and `_contractKeysAreNotAny` adds some — measured, not inferred.
 
 Two limits on that result, both worth carrying into the implementation. The mutations exercised the
 operands this guard set actually has, which are unions of string-literal keys and one tuple; the
