@@ -1167,7 +1167,7 @@ replacement gives up no coverage and `_contractKeysAreNotAny` adds some — meas
 Two limits on that result, both worth carrying into the implementation. The mutations exercised the
 operands this guard set actually has, which are unions of string-literal keys and one tuple; the
 object-operand case was measured separately, against a synthetic pair rather than a real operand,
-and is the reason that case carries its own two-pair recipe above. And a passing declaration set is not the same as a deleted tower: removing
+and is the reason that case is scoped OUT above rather than given a recipe. And a passing declaration set is not the same as a deleted tower: removing
 `AssertTrue`, `IsExactly`, `Exact` and `IsAny` is the change this entry asks for, and the measurement
 covers only that the declarations catch what the tower caught, not that nothing else read them.
 

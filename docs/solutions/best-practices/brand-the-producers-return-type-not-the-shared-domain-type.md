@@ -320,7 +320,7 @@ failure. Reach for it meaning one of those and it accepts something:
 | `AssertFalse<T extends false>` | `never`, which extends everything |
 | `[false] extends [T]` | `boolean`, `unknown`, `any` — every supertype of `false` |
 | a mutual tuple comparison | an `any` answer, assignable in both directions |
-| `AssertTrue<T extends true>` | every answer these checks can produce, once one token widens it to `T extends boolean` — including the degenerate ones |
+| `AssertTrue<T extends true>` | once one token widens it to `T extends boolean`: `false`, `boolean`, `never` and `any` — but NOT `unknown`, which still fails the constraint (measured) |
 
 **Two tells say you are in the regress rather than one level of it.** First, the fix is written in
 the construct being verified. Second, the verifier needs a verifier — the moment you write
@@ -500,8 +500,11 @@ diagnostics is a guard verified by the same reasoning that produced every level 
 And before believing a mutation's *silence*, prove the instrument can speak on that exact build:
 plant an error that must be reported — a canary — and confirm it is. Silence has two causes, a guard
 that holds and an instrument that is not looking, and nothing in the output distinguishes them. Every
-failure above except the last produced a wrong signal; the last produced no signal, which is worse,
-because a wrong signal invites a second look and an absent one reads as confirmation.
+failure above produced a wrong signal except the scratch-`tsconfig` one, which produced no signal at
+all — and that is the worse kind, because a wrong signal invites a second look while an absent one
+reads as confirmation. Name the case rather than saying "the last": this sentence pointed at the
+right case until a further failure was appended after it, which is the same stale-reference defect
+the rest of this document is about.
 
 ## When to Apply
 
