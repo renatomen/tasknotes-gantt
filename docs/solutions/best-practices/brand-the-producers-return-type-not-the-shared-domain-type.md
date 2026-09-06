@@ -339,8 +339,18 @@ const _listedIsDerived: UnbrandedInputFields = null as unknown as UnbrandedExcep
 const _noPairs: never = null as unknown as InterchangeableFieldPairs<RenderContractInput>;
 ```
 
-Levels 1-8 stop existing outright, and the ninth with them, structurally rather than luckily: each was a way for a computed
-*answer* to degenerate. **A variable declaration has no answer to degenerate.** Measured against an
+Every level of the tower stops existing, structurally rather than luckily: each was a way for a
+computed *answer* to degenerate, and **a variable declaration has no answer to degenerate.**
+
+Scope that claim precisely, because it is easy to overstate and I did. Changing primitive removes the
+degenerate-ANSWER class, and nothing more. The sentinel declarations that reject the escape-hatch type
+still compute an intersection, so they remain weakenable in place — swap the sentinel for one that is
+not disjoint and the healthy build stays green while the guard is dead. And making deletion visible
+needs a reference to each declaration, which is a list someone maintains by hand: add a guard without
+adding it to that list and nothing complains. Neither residue is closable inside the type system,
+because both are properties OF the source rather than of any type it can express. They need a
+mechanical check outside it — a lint rule over the file — which is a different mechanism, and saying
+so is more useful than a fourth claim that the regress has ended. Measured against an
 isolated model of the real guard, the three declarations are green when healthy and red at the right
 *location*, with error text naming the offending member — `Type '"showDateIndicators"' is not
 assignable to type 'UnbrandedException'`, against the tower's `Type 'false' does not satisfy the

@@ -1085,7 +1085,10 @@ const _namedKeysAreNonEmpty: NamedContractKeys = null as unknown as 'links';
 // The subset check and the witness both accept a degenerate operand, so this one is needed too.
 const _namedKeysAreNotAny: never = null as unknown as (0 & NamedContractKeys);
 
-// Referencing every declaration is what makes DELETING one an error. Measured: without this,
+// Referencing every declaration is what makes DELETING one an error. This array is itself a
+// hand-maintained list, so it catches deletion of what it names and CANNOT force a new guard to be
+// listed — closing that needs the lint rule filed separately, not another declaration.
+// Measured: without this,
 // removing a guard leaves typecheck and lint green, because the declarations are unreferenced,
 // `noUnusedLocals` is off and the lint config ignores `_`-prefixed names; with it, the same
 // deletion is `TS2304: Cannot find name`. The anchor is part of the guard, not decoration.
@@ -1109,7 +1112,11 @@ One of these per named operand, not one in total.
 
 Residual risk, stated rather than claimed away. Deletion is caught only because of the anchor: on
 its own a declaration is unreferenced, and removing it leaves the build green — measured, and the
-reason the anchor is in the block. Weakening is not caught at all, because a sentinel declaration is
+reason the anchor is in the block. The anchor is a hand-maintained list and so cannot force a NEW
+guard to be anchored: add one without listing it and the build stays green, and deleting it later
+stays green too. That is the same list-is-not-a-rule failure this entry is built to avoid, and it is
+not fixable with another declaration, because it is a property of the source rather than of any type.
+It is filed as its own unit below. Weakening is not caught at all, because a sentinel declaration is
 still a computed type expression —
 changing the sentinel `0` to `never` leaves the healthy build green, and then a degenerated operand
 satisfies `never & any` against a `never` target. That is the same deletion/weakening split the
@@ -1209,6 +1216,31 @@ Residual the replacement does NOT fix, and no further level would: the assertion
 Removing an assertion and then weakening what it guarded is two edits and leaves both typechecks
 green. That is diff-visible rather than silent, so it is review surface, not a hole. Only
 `NamedContractKeys` is load-bearing on production code today.
+
+
+### P2 — Enforce guard-anchor coverage with a lint rule, not a hand-kept array (2026-09-06)
+
+Filed out of the entry above, where it cannot be solved. That entry's guard block ends with an
+`_guardAnchor` array referencing every guard declaration, which is what makes DELETING a guard an
+error (`TS2304`) instead of a silent green build — measured both ways. But the array is a
+hand-maintained list of its own members, so it cannot force a NEW guard to be anchored: add a
+declaration and forget the array, and typecheck and lint both stay green, because `noUnusedLocals` is
+off and the lint config ignores `_`-prefixed names. The guard is then deletable in silence, which is
+the failure the anchor exists to prevent.
+
+This is not fixable with another type-level declaration, and three attempts to fix that class inside
+the type system each produced a new hand-kept list. The property being checked — "every guard
+declaration in this file appears in the anchor" — is a property of the SOURCE, not of any type the
+compiler can express, so it needs a mechanism that reads the source.
+
+The unit: a file-scoped ESLint rule over the guard module that fails when a `const` matching the
+guard shape is not referenced by the anchor array. Derive both sets from the AST rather than listing
+names, so a new guard is covered without editing the rule; a rule with its own member list would
+reproduce the defect one layer up. Verify by mutation, not by the rule passing: add an unanchored
+guard and confirm the rule fails, then anchor it and confirm the rule passes, and confirm the rule
+stays silent on the healthy file.
+
+Depends on the entry above being implemented, since there is no anchor to check until then.
 
 ### P1 — A nested boolean swap in the render-contract wiring compiles and passes (2026-09-05)
 Pre-existing on `main`; the fields arrived with PR #480 and this is not a regression from the
