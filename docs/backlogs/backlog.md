@@ -1220,10 +1220,10 @@ what the `@ts-expect-error` cases already do (principle 4), costs a compiler sub
 mutation, and its mutation set would be a hand-kept list — reintroducing "a list is not a rule"
 at the layer meant to end the regress.
 
-Residual the replacement does NOT fix, and no further level would: the assertions are deletable.
-Removing an assertion and then weakening what it guarded is two edits and leaves both typechecks
-green. That is diff-visible rather than silent, so it is review surface, not a hole. Only
-`NamedContractKeys` is load-bearing on production code today.
+What remains is stated once, above, with the anchor — this paragraph does not restate it, because a
+second copy of a claim that later changes is exactly how this entry contradicted itself twice. One
+fact belongs here and nowhere else: only `NamedContractKeys` is load-bearing on production code
+today, so every other guard protects the contract rather than the shipped output.
 
 
 ### P2 — Enforce guard-anchor coverage with a lint rule, not a hand-kept array (2026-09-06)
