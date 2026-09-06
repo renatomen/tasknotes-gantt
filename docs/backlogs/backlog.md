@@ -1084,6 +1084,17 @@ const _contractKeysAreNotAny: never = null as unknown as (0 & keyof GanttData);
 const _namedKeysAreNonEmpty: NamedContractKeys = null as unknown as 'links';
 // The subset check and the witness both accept a degenerate operand, so this one is needed too.
 const _namedKeysAreNotAny: never = null as unknown as (0 & NamedContractKeys);
+
+// Referencing every declaration is what makes DELETING one an error. Measured: without this,
+// removing a guard leaves typecheck and lint green, because the declarations are unreferenced,
+// `noUnusedLocals` is off and the lint config ignores `_`-prefixed names; with it, the same
+// deletion is `TS2304: Cannot find name`. The anchor is part of the guard, not decoration.
+export const _guardAnchor = [
+  _derivedIsListed, _listedIsDerived, _derivationIsNotAny, _exceptionIsNotAny,
+  _noPairs, _probeFindsThePair, _pairIsThatProbe, _pairProbeIsNotAny,
+  _namedKeysAreContractFields, _contractKeysAreNotAny, _namedKeysAreNonEmpty,
+  _namedKeysAreNotAny,
+];
 ```
 
 `UnbrandedException` is the exception union, which is inlined in the guard today and would have to
@@ -1096,8 +1107,10 @@ asserts instead that the operand intersected with a disjoint sentinel is empty.
 
 One of these per named operand, not one in total.
 
-Residual risk, stated rather than claimed away: a sentinel declaration is still a computed type
-expression, so it can be silently WEAKENED even though it can no longer be silently deleted —
+Residual risk, stated rather than claimed away. Deletion is caught only because of the anchor: on
+its own a declaration is unreferenced, and removing it leaves the build green — measured, and the
+reason the anchor is in the block. Weakening is not caught at all, because a sentinel declaration is
+still a computed type expression —
 changing the sentinel `0` to `never` leaves the healthy build green, and then a degenerated operand
 satisfies `never & any` against a `never` target. That is the same deletion/weakening split the
 learning records: declarations buy observability, not immunity. The mutation coverage is what closes
