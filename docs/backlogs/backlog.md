@@ -1004,20 +1004,66 @@ directives as part of the assertion — and should decide whether quoted source 
 pinning to their files at the same time.
 
 ### P1 — Replace the type-level assertion tower with declaration assignability (2026-09-05)
-Eight successive reviews found the same defect in `src/bases/ganttRenderContract.ts`, each inside
+Nine successive reviews found the same defect in `src/bases/ganttRenderContract.ts`, each inside
 the fix for the one before: a guard that used `extends` where it meant equality, then a self-test
 checking one direction, then helpers accepting `never`, then `boolean`/`unknown`/`any`, then an
 unobserved `IsExactly`, then a tuple accepting an `any` answer, then a one-token widening of
-`AssertTrue` that disabled all eight assertions, then `Exact` accepting `any` operands. Every level
-now self-detects under mutation, and the reviewer that found level 8 confirmed there is no level 9
-inside the tower — but also showed the tower is unnecessary.
+`AssertTrue` that disabled every assertion then in the file, then `Exact` accepting `any` operands, and finally
+an answer matrix that pinned every case but the empty type. Every level now self-detects under
+mutation.
+
+**Corrected 2026-09-05:** this entry previously said eight levels and repeated a reviewer's finding
+that there was no ninth inside the tower. A later round in the same session found one — the matrix
+gap above — so that closing claim was falsified and is withdrawn. The separate coverage finding of
+the same session (a contract key with no fabricate case) is not a tower level and is not counted
+here. The entry is left with its correction visible rather than silently renumbered, because a
+confident closing claim disproven by later work is the exact failure this entry exists to remove.
 
 The measured alternative asserts with the compiler's own assignability check on DECLARED VALUES
 rather than by computing a boolean and asserting the boolean:
 
+**Derive this set, do not copy it.** Two review rounds each found a different missing member of a
+block I had twice called complete — first `UnbrandedException`, then `keyof GanttData` — which is the
+evidence that an enumerated list is the wrong shape for this, exactly as
+`workflow-issues/state-the-rule-derive-the-list` says. The procedure, which is what actually binds:
+
+> For each declaration, take the EVALUATED type on each side — what that side actually resolves to,
+> not every name spelled inside it. `keyof GanttData` is one operand, a key union; so is
+> `InterchangeableFieldPairs<InterchangeabilityProbe>`, a tuple. The names within a type expression
+> are not separate operands, because the declaration asserts nothing about them individually; they
+> reach the assertion only through the type they evaluate to, and guarding a name whose evaluated
+> form is an object is what would break the healthy build. Choose each sentinel by the kind of that
+> evaluated type — `0 &` for a union of string literals, `null &` for a tuple. Each evaluated
+> operand needs its own sentinel declaration, unless that side's
+> expected type is `never`, which rejects the escape-hatch type unaided. That exemption is only from
+> the sentinel: an expected `never` is SILENT on an operand that has collapsed to `never`, since the
+> declaration then reads `never = never` — measured — so anything whose contract an always-empty
+> implementation would violate still needs a positive probe naming something it must contain. A name
+> can resolve to something other than what you read; a literal written in place cannot, and is the
+> only exemption.
+
+The block below is that procedure applied to the operands present today, compiled against the real
+module at TS 5.9.2 — silent on the healthy build, with a planted canary confirming the build was
+being checked. If the implementation adds, renames, or re-sites an operand, re-run the procedure
+rather than pattern-matching against these names.
+
 ```ts
+// The coverage assertion, both directions. Neither direction alone is enough: one accepts a
+// derived set that is a strict subset, the other accepts a listed name that is no key at all.
 const _derivedIsListed: UnbrandedException = null as unknown as UnbrandedInputFields;
 const _listedIsDerived: UnbrandedInputFields = null as unknown as UnbrandedException;
+// Both operands are type NAMES, so both carry a sentinel. Omitting either one leaves that side
+// free to degenerate with all the mutual assignments still compiling.
+const _derivationIsNotAny: never = null as unknown as (0 & UnbrandedInputFields);
+const _exceptionIsNotAny: never = null as unknown as (0 & UnbrandedException);
+// Neither the mutual pair nor either sentinel sees BOTH sets collapsing to the empty type: the
+// assignments read `never = never` and each `0 & never` is already empty. A positive witness is the
+// only thing that fires there — measured — and this pair is required to be non-empty, so the rule
+// stated above for the key union applies here too.
+const _exceptionIsNonEmpty: UnbrandedException = null as unknown as 'instances';
+
+// No sentinel here, and this is the one real exception: an expectation of the empty type admits
+// nothing, so it rejects a degenerate operand unaided.
 const _noPairs: never = null as unknown as InterchangeableFieldPairs<RenderContractInput>;
 
 // The pair derivation still needs a positive probe, and the key union still needs a
@@ -1027,20 +1073,140 @@ const _probeFindsThePair: ['wide', 'narrow'] =
   null as unknown as InterchangeableFieldPairs<InterchangeabilityProbe>;
 const _pairIsThatProbe: InterchangeableFieldPairs<InterchangeabilityProbe> =
   null as unknown as ['wide', 'narrow'];
+// `null &`, not `0 &`: the operand is a tuple, and `0 &` does not reduce for one, so that
+// sentinel would fail on the healthy build. Pick the sentinel by the operand's kind.
+const _pairProbeIsNotAny: never =
+  null as unknown as (null & InterchangeableFieldPairs<InterchangeabilityProbe>);
+
 const _namedKeysAreContractFields: keyof GanttData = null as unknown as NamedContractKeys;
+// `GanttData` is a name too, and it is the container on the EXPECTED side. Without this, widening
+// it leaves the subset check, the witness and the key-union sentinel all green while the declared
+// contract has gone: `keyof` of a degenerate container is `string | number | symbol`, which admits
+// every key rather than none.
+const _contractKeysAreNotAny: never = null as unknown as (0 & keyof GanttData);
 // A witness, not a tautology: `NamedContractKeys = NamedContractKeys` compiles even when both
 // sides are `never`, so the check has to name a key it must contain.
 const _namedKeysAreNonEmpty: NamedContractKeys = null as unknown as 'links';
+// The subset check and the witness both accept a degenerate operand, so this one is needed too.
+const _namedKeysAreNotAny: never = null as unknown as (0 & NamedContractKeys);
+
+// Referencing every declaration is what makes DELETING one an error. This array is itself a
+// hand-maintained list, so it catches deletion of what it names and CANNOT force a new guard to be
+// listed — that needs a check over the source, filed separately, not another declaration.
+// Measured: without this,
+// removing a guard leaves typecheck and lint green, because the declarations are unreferenced,
+// `noUnusedLocals` is off and the lint config ignores `_`-prefixed names; with it, the same
+// deletion is `TS2304: Cannot find name`. The anchor is part of the guard, not decoration.
+// NOT exported. Every element is `null` at runtime while its inferred type says otherwise, so an
+// exported anchor hands a consumer a lying type. Module-private is measured to work identically:
+// silent on the healthy build, `TS2304` when a guard is removed.
+const _guardAnchor = [
+  _derivedIsListed, _listedIsDerived, _derivationIsNotAny, _exceptionIsNotAny,
+  _exceptionIsNonEmpty,
+  _noPairs, _probeFindsThePair, _pairIsThatProbe, _pairProbeIsNotAny,
+  _namedKeysAreContractFields, _contractKeysAreNotAny, _namedKeysAreNonEmpty,
+  _namedKeysAreNotAny,
+];
 ```
 
-`UnbrandedException` is the nine-name union, which is inlined in the guard today and would have to
+`UnbrandedException` is the exception union, which is inlined in the guard today and would have to
 be lifted to a named alias first.
 
-It must also keep an explicit `any` rejection for the unbranded-field derivation. Mutual
-assignability does NOT supply one: if `UnbrandedInputFields` degenerates to `any`, both assignments
+The escape-hatch rejections above replace `IsAny`, which comes out with the rest. Keeping it would
+leave one computed checker standing with nothing observing it — weaken it to a constant and the guard
+is green while broken, which is the whole defect this entry exists to remove. The declaration form
+asserts instead that the operand intersected with a disjoint sentinel is empty.
+
+One of these per named operand, not one in total.
+
+Residual risk, stated rather than claimed away. Deletion is caught only because of the anchor: on
+its own a declaration is unreferenced, and removing it leaves the build green — measured, and the
+reason the anchor is in the block. The anchor is a hand-maintained list and so cannot force a NEW
+guard to be anchored: add one without listing it and the build stays green, and deleting it later
+stays green too. That is the same list-is-not-a-rule failure this entry is built to avoid, and it is
+not fixable with another declaration, because it is a property of the source rather than of any type.
+It is filed as its own unit below.
+
+Two further residues, named rather than patched, because each would add another hand-kept list. A
+whole-tuple sentinel does not reach INSIDE the tuple, so a probe whose element degenerates passes;
+per-element guards would be a list of elements. And the anchor changes the cost of removing a guard
+rather than preventing it: with the anchor in place, deleting one takes three edits (the guard, the
+anchor entry, and whatever the guard protected) instead of two, which is friction and not a barrier.
+Neither is closable by a declaration; both need a check over the source, and what any such check
+actually covers is for whoever builds it to measure rather than for this entry to promise. Weakening is not caught at all, because a sentinel declaration is
+still a computed type expression —
+changing the sentinel `0` to `never` leaves the healthy build green, and then a degenerated operand
+satisfies `never & any` against a `never` target. That is the same deletion/weakening split the
+learning records: declarations buy observability, not immunity. The mutation coverage is what closes
+it, so re-run each sentinel's own mutation whenever one is edited. Each declaration above has two sides, and a
+guard on one says nothing about the other: measured, if `UnbrandedException` degenerates instead,
+both mutual assignments AND `_derivationIsNotAny` compile, and a removed brand goes undetected —
+the same false-green by a different door. The rule, rather than the list: **every operand that is a
+TYPE NAME carries its own sentinel-disjointness guard**, because the intersection tests exactly the operand it
+names and nothing else.
+
+Called a sentinel-disjointness guard, because that is what it tests: whether the operand still
+intersects the sentinel to nothing. It rejects the escape-hatch type and the top type alike — with
+an operand of the top type the intersection reduces to the sentinel itself, which is not empty —
+and it does NOT detect emptiness, since an operand collapsed to the empty type intersects to empty
+and passes. Rejecting
+the escape-hatch type and proving a set still has members are two obligations, and this mechanism
+discharges only the first — so an operand that must contain something needs a witness declaration
+as well, naming a member it cannot lose. Name, not "computed" — the distinction that matters is whether the operand
+can resolve to something other than what you read, and a hand-written union like the exception set
+can, because someone can redefine it. Only a literal written in place is exempt, since there is
+nothing to resolve.
+
+Two things the rule does not excuse you from checking, both measured:
+
+- **Guard the computed side, not the literal one.** For the pair probe that is
+  `InterchangeableFieldPairs<InterchangeabilityProbe>`, never the expected tuple written beside it —
+  a literal cannot degenerate, and a guard on it is silent while the derivation is `any`.
+- **The sentinel must be disjoint from the operand's own kind.** `0 &` works for a union of string
+  literals and is WRONG for a tuple: `0 & ['wide','narrow']` does not reduce, so that guard fails on
+  the healthy build. Use `null &` for the tuple operands here. Pick the sentinel by what the
+  operand is, then confirm the guard is silent on the healthy type before trusting it to speak on a
+  degenerate one. **Object-valued operands are out of scope for this entry.** The guard set has
+  none, and three attempts to specify a recipe for one were each measured false-green by the next
+  review: a witness instead of the sentinel reopens the escape-hatch case; witness plus sentinel
+  misses a dropped optional member, since an optional property is satisfiable by absence; the
+  object and key-set assignability pairs together still miss a property whose value type
+  degenerates. Two facts are worth keeping for whoever meets a real one. The sentinel does not
+  apply: `0 & { ... }` does not reduce to the empty type, so that declaration fails on the HEALTHY
+  build — which is why the procedure above is written for operands that are unions or tuples.
+  And mutual assignability is the wrong primitive on objects for the reason just given. Design that
+  case against a real operand, and measure it, rather than extending this recipe to it.
+
+For a union of string-literal keys the intersection is `never` and the declaration holds; if the
+derivation degenerates to `any` the intersection is `any`, which is not assignable to `never`, and
+it fails. Measured. Mutual assignability alone does NOT supply this: if `UnbrandedInputFields` degenerates to `any`, both assignments
 compile, because `any` is assignable in both directions. The `never` declaration protects only the
-pairs derivation. So `IsAny` survives the deletion even though `AssertTrue`, `IsExactly`, `Exact`
-and the tuple do not.
+pairs derivation — which is why the `any` rejection above is needed, and why it is written as a
+declaration. With `_derivationIsNotAny` in place, `IsAny` goes with everything else: keeping it
+would leave one computed checker standing that nothing observes, which is the defect this entry
+exists to remove. Delete `AssertTrue`, `IsExactly`, `Exact`, the tuple AND `IsAny`.
+
+**Measured, 2026-09-05, TS 5.9.2 under the project `tsconfig`.** The guard set above was compiled
+rather than reasoned about: a copy of the module with these declarations appended, mutated one axis
+at a time. On the healthy build every declaration in the block is silent — including `null &` on the tuple
+operand and `0 &` on the unions — while a planted `const _canary: number = "s"` errors, so the
+silence is the guards holding and not the compiler idling. Each mutation then fired exactly the
+declarations naming the operand it degenerated, and no others: the derivation degenerated to the escape-hatch type fired
+`_derivationIsNotAny`; the exception union degenerated fired `_exceptionIsNotAny`; a removed brand
+fired `_derivedIsListed`; the pair derivation degenerated fired `_noPairs` and `_pairProbeIsNotAny`;
+the CONTAINER widened — `GanttData` itself, not its key union — fired `_contractKeysAreNotAny`, which
+is the guard whose absence the review found.
+The surviving tower fired on all of those EXCEPT the container widening, where it is silent:
+`[NamedContractKeys] extends [keyof GanttData]` holds when the container is the escape-hatch type,
+because `keyof` of it admits every key, and the non-emptiness assertion is unaffected. So the
+replacement gives up no coverage and `_contractKeysAreNotAny` adds some — measured, not inferred.
+
+Two limits on that result, both worth carrying into the implementation. The mutations exercised the
+operands this guard set actually has, which are unions of string-literal keys and one tuple; the
+object-operand case was measured separately, against a synthetic pair rather than a real operand,
+and is the reason that case is scoped OUT above rather than given a recipe. And a passing declaration set is not the same as a deleted tower: removing
+`AssertTrue`, `IsExactly`, `Exact` and `IsAny` is the change this entry asks for, and the measurement
+covers only that the declarations catch what the tower caught, not that nothing else read them.
 
 Every right-hand side must be a concrete expression, not a `declare const` binding. TypeScript erases
 the declaration but emits the initialized constant, so `declare const x: T;` followed by
@@ -1051,10 +1217,9 @@ typecheck-only `.d.ts` would also work, at the cost of splitting the guard from 
 
 Measured RED for a removed brand, a stale exception name, an interchangeable pair, a derivation
 degenerated to `never`, and one degenerated to all keys — and the `never` declaration rejects
-`any` for free. It deletes `AssertTrue` and its self-test, `IsExactly`, the eight-case tuple and
-both tuple assertions, and `Exact` with its mirrors — but NOT `IsAny`, which the paragraph
-above requires, and not the pair probe or the key-union assertions, which need the declaration forms
-shown above rather than deletion: levels 1-8 stop existing, because
+`any` for free. What it deletes is listed once, above; this paragraph does not restate it, because a
+second copy of that list is how the entry contradicted itself before. The reason it is safe to
+delete them: every level of the tower stops existing, because
 those levels existed only to reject a degenerate ANSWER and a variable declaration has no answer to
 degenerate. It also produces actionable error text instead of "Type 'false' does not satisfy the
 constraint 'true'".
@@ -1064,10 +1229,41 @@ what the `@ts-expect-error` cases already do (principle 4), costs a compiler sub
 mutation, and its mutation set would be a hand-kept list — reintroducing "a list is not a rule"
 at the layer meant to end the regress.
 
-Residual the replacement does NOT fix, and no further level would: the assertions are deletable.
-Removing an assertion and then weakening what it guarded is two edits and leaves both typechecks
-green. That is diff-visible rather than silent, so it is review surface, not a hole. Only
-`NamedContractKeys` is load-bearing on production code today.
+What remains is stated once, above, with the anchor — this paragraph does not restate it, because a
+second copy of a claim that later changes is exactly how this entry contradicted itself twice. One
+fact belongs here and nowhere else: only `NamedContractKeys` is load-bearing on production code
+today, so every other guard protects the contract rather than the shipped output.
+
+
+### P2 — Enforce guard-anchor coverage with a lint rule, not a hand-kept array (2026-09-06)
+
+Filed out of the entry above, where it cannot be solved. That entry's guard block ends with an
+`_guardAnchor` array referencing every guard declaration, which is what makes DELETING a guard an
+error (`TS2304`) instead of a silent green build — measured both ways. But the array is a
+hand-maintained list of its own members, so it cannot force a NEW guard to be anchored: add a
+declaration and forget the array, and typecheck and lint both stay green, because `noUnusedLocals` is
+off and the lint config ignores `_`-prefixed names. The guard is then deletable in silence, which is
+the failure the anchor exists to prevent.
+
+This is not fixable with another type-level declaration, and three attempts to fix that class inside
+the type system each produced a new hand-kept list. The property being checked — "every guard
+declaration in this file appears in the anchor" — is a property of the SOURCE, not of any type the
+compiler can express, so it needs a mechanism that reads the source.
+
+The unit: a file-scoped ESLint rule over the guard module that fails when a `const` matching the
+guard shape is not referenced by the anchor array. Derive both sets from the AST rather than listing
+names, so a new guard is covered without editing the rule; a rule with its own member list would
+reproduce the defect one layer up. Verify by mutation, not by the rule passing: add an unanchored
+guard and confirm the rule fails, then anchor it and confirm the rule passes, and confirm the rule
+stays silent on the healthy file.
+
+Scope, stated because the entry above previously overstated it: this unit closes anchor OMISSION and
+nothing else. It does not detect a guard deleted together with its anchor entry, a sentinel weakened
+in place (`0` to `never` stays green, and a later degenerated operand satisfies `never & any`), or a
+tuple whose element degenerates. Those need their own mechanisms and their own mutation cases; do not
+read this unit as covering them.
+
+Depends on the entry above being implemented, since there is no anchor to check until then.
 
 ### P1 — A nested boolean swap in the render-contract wiring compiles and passes (2026-09-05)
 Pre-existing on `main`; the fields arrived with PR #480 and this is not a regression from the

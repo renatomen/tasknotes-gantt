@@ -1,6 +1,7 @@
 ---
 title: Brand the producer's return type, not the shared domain type — and four ways a brand silently guards nothing
 date: 2026-09-04
+last_updated: 2026-09-06
 category: docs/solutions/best-practices
 module: typescript / nominal-branding
 problem_type: best_practice
@@ -245,8 +246,11 @@ guard: with the one-directional form, adding `'notAKeyAtAll'` to the exception l
 diagnostics**; with `Exact` it fails. PR #480 shipped the one-directional form; this document's
 review is what caught it.
 
-The `IsExactly` wrapper around it is load-bearing too, and it took three attempts to get right —
-which is the more useful half of the story. **Every loose way of asserting a type-level result
+The `IsExactly` wrapper around it is load-bearing too, and it took three attempts to get right, then
+a fourth to be adequately tested — which is the more useful half of the story. The fourth: its answer
+matrix pinned every case but the empty type, so a rewrite comparing distributively rather than
+exactly answered the empty type there, and because an assertion constrained to the true literal
+accepts the empty type, the guard built on it went silent. **Every loose way of asserting a type-level result
 accepts something.** `AssertTrue<T extends true>` is satisfied by `never`, because `never` extends
 everything. Replacing it with a one-directional `[false] extends [T]` fixes `never` and then accepts
 `boolean`, `unknown` and `any`, since each is a supertype of `false`. Only a *mutual* comparison,
@@ -294,6 +298,101 @@ role-parameterised brand instantiated at its constraint rather than at a role, p
 while still accepting any producer's value - the same weaken-versus-remove confusion described
 below. The derivation is also top-level only: a brand nested one level inside an input field can be
 deleted with no diagnostic. No such nested brand exists today.
+
+### 5. The tower that enforces rule 4 cannot verify itself — terminate the regress by changing primitive
+
+Rule 4's guard needed a self-test; the self-test needed one; the assertion helper under both needed
+one. **Nine** levels inside the tower, each found in the fix for the one before, several of them in
+the author's own repair of the level above (attribution rests on this project's review records,
+which are deliberately never committed). A tenth finding in the same sequence was a *coverage* gap
+rather than a tower defect — a contract key with no fabricate case, and a field the crossed-field
+case guarded in only one direction — and is counted separately here because it is a different
+class and its repair was not another storey. **The recurring shape is not carelessness, it is
+structural:** every repair was written in the construct being verified, so each new checker was a
+fresh candidate for the same defect.
+
+`extends` is TypeScript's only relational primitive and it is neither equality, nor exactness, nor
+failure. Reach for it meaning one of those and it accepts something:
+
+| Written | Also accepts |
+|---|---|
+| `[A] extends [B]` meaning equality | any `B` *containing* `A` (subset, not equality) |
+| `AssertFalse<T extends false>` | `never` and `any`, as EVERY direct constraint does — `never` extends everything and `any` satisfies any constraint (measured); `boolean` and `unknown` are rejected here |
+| `[false] extends [T]` | **every supertype of `false`** — an unbounded set, not a list. `boolean`, `unknown`, `any`, `{}` and `false \| string` all pass (measured); enumerating it is the same defect as any hand-kept list |
+| a mutual tuple comparison | an `any` answer, assignable in both directions |
+| `AssertTrue<T extends true>` | once one token widens it to `T extends boolean`: `false`, `boolean`, `never` and `any` — but NOT `unknown`, which still fails the constraint (measured) |
+
+**Two tells say you are in the regress rather than one level of it.** First, the fix is written in
+the construct being verified. Second, the verifier needs a verifier — the moment you write
+"…and this helper is itself a guard, so it needs the treatment it exists to apply", the tower has
+another storey and the same argument applies to it. When both hold, stop hardening and change
+primitive.
+
+**The terminating move, filed rather than shipped.** It lives in `docs/backlogs/backlog.md` under
+*"P1 — Replace the type-level assertion tower with declaration assignability"*; the tower is what
+is on `main` today. Instead of computing a boolean and asserting the boolean, hand the compiler two
+values and let its own assignability check *be* the assertion:
+
+```ts
+const _derivedIsListed: UnbrandedException = null as unknown as UnbrandedInputFields;
+const _listedIsDerived: UnbrandedInputFields = null as unknown as UnbrandedException;
+const _noPairs: never = null as unknown as InterchangeableFieldPairs<RenderContractInput>;
+```
+
+Every level of the tower stops existing, structurally rather than luckily: each was a way for a
+computed *answer* to degenerate, and **a variable declaration has no answer to degenerate.**
+
+Scope that claim precisely, because it is easy to overstate and I did. Changing primitive removes the
+degenerate-ANSWER class, and nothing more. The sentinel declarations that reject the escape-hatch type
+still compute an intersection, so they remain weakenable in place — swap the sentinel for one that is
+not disjoint and the healthy build stays green while the guard is dead. And making deletion visible
+needs a reference to each declaration, which is a list someone maintains by hand: add a guard without
+adding it to that list and nothing complains. Neither residue is closable inside the type system,
+because both are properties OF the source rather than of any type it can express. They need a
+mechanical check outside it, over the source rather than the types. What such a check would actually
+close is not something this document can assert, because no such check exists yet: every claim here
+about an unbuilt mechanism was found overstated by the next reader, which is the same defect as the
+rest of the sequence, one level further out. So the boundary is what gets recorded — these residues
+are not closable by any declaration — and what a real check covers gets measured when there is one to
+measure. Measured against an
+isolated model of the real guard, the three declarations are green when healthy and red at the right
+*location*, with error text naming the offending member — `Type '"showDateIndicators"' is not
+assignable to type 'UnbrandedException'`, against the tower's `Type 'false' does not satisfy the
+constraint 'true'`. Same red, and the declaration form is the one that says which member broke it.
+
+Three caveats that are part of the guidance:
+
+1. **Every right-hand side must be a concrete expression, never a `declare const`.** TypeScript
+   erases the declaration and emits the initialized constant, so the declared form typechecks and
+   then throws `ReferenceError` on import. Verify this class of thing by reading emitted JavaScript,
+   because the typecheck is precisely the instrument that cannot see it.
+2. **`any` needs its own declaration, not a surviving probe.** Mutual assignability cannot reject
+   `any` wherever the expected type admits it — if the derivation degenerates, *both* declarations
+   compile. Reach for a third declaration
+   rather than keeping a computed `any` predicate, which would leave one checker standing that
+   nothing observes: intersect the derivation with a disjoint literal and assert the result is
+   empty, since that intersection is empty for a union of literal keys and `any` for a degenerate
+   one. That is a sentinel-disjointness check, not an `any` discriminator: it rejects the
+   escape-hatch type and the top type alike, and does NOT detect emptiness — an operand collapsed to
+   the empty type intersects to empty and passes, so anything required to have members needs a
+   witness too. One such
+   declaration per operand that is a type *name*, not one in total — a name can
+   resolve to something other than what you read, including a hand-written union; only a literal
+   written in place is exempt: each assertion has two sides,
+   and guarding one says nothing about the other — measured, degenerating the *expected* set instead
+   of the derived one leaves every assertion green and a removed brand undetected. The pairs guard needs no `any`
+   rejection, because the empty type admits nothing — but it does need a positive probe, because a
+   derivation that has degenerated to the empty type satisfies it perfectly. Guarding against the
+   escape-hatch type and guarding against emptiness are separate obligations, and this one assertion
+   happens to need only the second. The filed entry carries the declarations; they are not repeated
+   here, because a recipe stated in two places is the pair this document warns about.
+3. **A non-emptiness check must name a witness, not restate the union.** `T = T` is a tautology, and
+   it is most convincing exactly when `T` has collapsed to `never`. Assert a member you know must be
+   there.
+
+**Rejected: a jest-plus-`tsc` mutation harness.** It is a second mechanism for what the
+`@ts-expect-error` fabricate cases already do (principle 4), and its mutation set would be a
+hand-kept list — rebuilding the regress-terminator out of the defect it terminates.
 
 ### Supporting type-level facts, each confirmed by compiling
 
@@ -352,6 +451,82 @@ There is also a warning about the instruments. The author's brand-coverage sweep
 Then the same shape survived into this document's own review, twice, after six clean cross-model rounds had passed the draft. Rule 3 named the wrong mechanism outright: it credited the excess-property check for a rejection that is really comparability failing in both directions, which mispredicts a cast made through a variable and mispredicts the optional-phantom-property brand idiom completely. Its spread is worth stating exactly, because it is this section's own subject: the claim pre-existed at **three** sites, all production comments, and the branch writing *this document* propagated it into four more places — the glossary, the backlog, and the document's own rule and examples — before that branch's review caught it. The pattern below was not being described from memory; it was running while the description was written. Rule 4's guard was written as `[derived] extends [list]`, a one-directional check that reads like an equality assertion and is not: adding a name to the exception list that is no key of the input at all produced **zero diagnostics** against this repo's real guard. That is precisely the `Omit`/`Exclude` trap this document teaches, committed inside the guard written to close it. Both are fixed here, and the second was a genuine hole in shipped code rather than only in the prose describing it.
 
 The transferable lesson is narrower than "review harder". When a metric or a mechanism changes, the sentences needing re-derivation are not the ones carrying the old *number* — grep finds those — but the ones carrying the old *conclusion*. This document's own counter-example was argued from a reference count in the section that had just finished replacing reference counts with construction sites, and it reached the right verdict for a reason its evidence did not support. Nothing mechanical catches that: every number in the sentence was true.
+
+### Why "the typecheck is green" kept meaning nothing
+
+Two separate things, and conflating them sends you to the wrong repair. **Weakening** is silent
+because a permissive constraint accepts the answer the check now returns — not because anything is
+unreferenced: an unreferenced `AssertTrue<false>` still errors, so an assertion that can fail does
+fail whether or not it is wired to anything. **Deletion** is silent because these assertions are
+**inert**: nothing in the production function fails to compile if they disappear. Measured at the current tree: `src/bases/ganttRenderContract.ts` holds 12
+`AssertTrue<…>` sites, and each of the twelve `_`-prefixed aliases occurs exactly once across `src/`
+and `test/` — its own declaration. Not one is referenced by anything.
+
+```bash
+grep -c '= AssertTrue<' src/bases/ganttRenderContract.ts          # 12
+grep -roh '_OnlyTheseInputFieldsAreUnbranded' src/ test/ | wc -l  # 1, and 1 for each of the other 11
+```
+
+So they can be removed without a trace. What made every defective form across the levels compile
+clean was the other mechanism: each weakened check still returned something its constraint accepted.
+
+**Making a guard load-bearing helps less than it looks.** Wiring an assertion alias into production
+code buys "cannot be silently DELETED" and never "cannot be silently WEAKENED", because weakenings
+move in the permissive direction and nothing that compiled before stops compiling when you become
+more permissive. Measured: deleting a wired alias is `TS2304`; weakening it to `[Keys] extends
+[unknown]` *while adding a key that is not a field of the shape* is exit 0 — invariant broken,
+guard present, wiring intact, no diagnostic anywhere.
+
+### Mutation testing: the location is the result, not the count
+
+The instruments failed about as often as the code, and each failure produced output shaped exactly
+like a real finding. **Differential measurement held up; absolute counts did not.**
+
+*(Which types a given form admits is itself form-dependent, measured: a direct `T extends true`
+constraint admits exactly `never` and `any`, a set that can be listed; the inverse
+`[false] extends [T]` admits every supertype of `false`, a set that cannot. `any` is admitted by
+both, so it needs an explicit rejection whichever form is used, while `never` slips past only the
+direct form. Reading one form's accept-set as the general threat model is how several levels of this
+sequence were introduced — and this sentence took two corrections of its own, first omitting `any`
+from the inverse form and then enumerating a set that has no enumeration.)*
+
+- **A count with no control.** A 76-diagnostic figure meant nothing until it was differenced against
+  an unbranded control of the same tree; the real figure was 36. An absolute count answers "how noisy
+  is this tree", not "what did my change cost".
+- **A scope error dressed as a global claim.** A per-file `grep -c` reported as a project-wide "zero
+  diagnostics". The number was true; the sentence was not.
+- **A sweep that split Windows paths on the drive-letter colon,** and so reported every subject
+  MISSED — total, uniform, confident failure, the shape most likely to be believed.
+- **A regex matching only single-line declarations.** Against this file, a pattern requiring the
+  declaration and its closing `;` on one line matches 3 of the 12 assertion sites and silently skips
+  the rest while reporting success.
+- **A single diagnostic from the wrong place.** Widening `AssertTrue` produces exactly one
+  diagnostic — `TS2578` at the *self-test*, while the broken guard itself emits nothing. Counting
+  would have called that "detected". It was detected by a different assertion covering for a dead one.
+
+- **A compiler that reported nothing at all.** A scratch `tsconfig` whose `typeRoots` override left
+  a declared type library unresolvable emits `TS2688` and then suppresses *every semantic
+  diagnostic*, while still reporting syntax errors and still listing the file in the program. Four
+  mutations in a row came back clean. The output was indistinguishable from "the guards are not
+  load-bearing", which is the conclusion it was about to support.
+
+- **A line-number collector that deduplicated its own results.** Piping labels like `L6` and `L7`
+  through `sort -un` parses both as numeric zero, so they compare equal and one is discarded. Two
+  mutation cases each reported a single firing site and looked like clean, specific results. The
+  canary is what exposed it: it is planted to fire in *every* case, so a case whose output omits it
+  is reporting on an instrument, not on the code.
+
+So: read *which* assertion fired and confirm it is the one you mutated. A guard verified by counting
+diagnostics is a guard verified by the same reasoning that produced every level of this sequence.
+
+And before believing a mutation's *silence*, prove the instrument can speak on that exact build:
+plant an error that must be reported — a canary — and confirm it is. Silence has two causes, a guard
+that holds and an instrument that is not looking, and nothing in the output distinguishes them. Every
+failure above produced a wrong signal except the scratch-`tsconfig` one, which produced no signal at
+all — and that is the worse kind, because a wrong signal invites a second look while an absent one
+reads as confirmation. Name the case rather than saying "the last": this sentence pointed at the
+right case until a further failure was appended after it, which is the same stale-reference defect
+the rest of this document is about.
 
 ## When to Apply
 
