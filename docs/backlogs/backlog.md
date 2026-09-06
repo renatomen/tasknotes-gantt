@@ -1087,7 +1087,7 @@ const _namedKeysAreNotAny: never = null as unknown as (0 & NamedContractKeys);
 
 // Referencing every declaration is what makes DELETING one an error. This array is itself a
 // hand-maintained list, so it catches deletion of what it names and CANNOT force a new guard to be
-// listed — closing that needs the lint rule filed separately, not another declaration.
+// listed — that needs a check over the source, filed separately, not another declaration.
 // Measured: without this,
 // removing a guard leaves typecheck and lint green, because the declarations are unreferenced,
 // `noUnusedLocals` is off and the lint config ignores `_`-prefixed names; with it, the same
@@ -1123,7 +1123,8 @@ whole-tuple sentinel does not reach INSIDE the tuple, so a probe whose element d
 per-element guards would be a list of elements. And the anchor changes the cost of removing a guard
 rather than preventing it: with the anchor in place, deleting one takes three edits (the guard, the
 anchor entry, and whatever the guard protected) instead of two, which is friction and not a barrier.
-Both belong to the lint rule below, which reads source and can derive what no declaration can. Weakening is not caught at all, because a sentinel declaration is
+Neither is closable by a declaration; both need a check over the source, and what any such check
+actually covers is for whoever builds it to measure rather than for this entry to promise. Weakening is not caught at all, because a sentinel declaration is
 still a computed type expression —
 changing the sentinel `0` to `never` leaves the healthy build green, and then a degenerated operand
 satisfies `never & any` against a `never` target. That is the same deletion/weakening split the
@@ -1246,6 +1247,12 @@ names, so a new guard is covered without editing the rule; a rule with its own m
 reproduce the defect one layer up. Verify by mutation, not by the rule passing: add an unanchored
 guard and confirm the rule fails, then anchor it and confirm the rule passes, and confirm the rule
 stays silent on the healthy file.
+
+Scope, stated because the entry above previously overstated it: this unit closes anchor OMISSION and
+nothing else. It does not detect a guard deleted together with its anchor entry, a sentinel weakened
+in place (`0` to `never` stays green, and a later degenerated operand satisfies `never & any`), or a
+tuple whose element degenerates. Those need their own mechanisms and their own mutation cases; do not
+read this unit as covering them.
 
 Depends on the entry above being implemented, since there is no anchor to check until then.
 

@@ -349,8 +349,12 @@ not disjoint and the healthy build stays green while the guard is dead. And maki
 needs a reference to each declaration, which is a list someone maintains by hand: add a guard without
 adding it to that list and nothing complains. Neither residue is closable inside the type system,
 because both are properties OF the source rather than of any type it can express. They need a
-mechanical check outside it — a lint rule over the file — which is a different mechanism, and saying
-so is more useful than a fourth claim that the regress has ended. Measured against an
+mechanical check outside it, over the source rather than the types. What such a check would actually
+close is not something this document can assert, because no such check exists yet: every claim here
+about an unbuilt mechanism was found overstated by the next reader, which is the same defect as the
+rest of the sequence, one level further out. So the boundary is what gets recorded — these residues
+are not closable by any declaration — and what a real check covers gets measured when there is one to
+measure. Measured against an
 isolated model of the real guard, the three declarations are green when healthy and red at the right
 *location*, with error text naming the offending member — `Type '"showDateIndicators"' is not
 assignable to type 'UnbrandedException'`, against the tower's `Type 'false' does not satisfy the
