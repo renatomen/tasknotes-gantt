@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node scripts/session-start-context.mjs"
+            "command": "node \"${CLAUDE_PROJECT_DIR}/scripts/session-start-context.mjs\""
           }
         ]
       }
