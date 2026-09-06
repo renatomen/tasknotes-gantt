@@ -1,7 +1,7 @@
 ---
 title: Brand the producer's return type, not the shared domain type — and four ways a brand silently guards nothing
 date: 2026-09-04
-last_updated: 2026-09-05
+last_updated: 2026-09-06
 category: docs/solutions/best-practices
 module: typescript / nominal-branding
 problem_type: best_practice

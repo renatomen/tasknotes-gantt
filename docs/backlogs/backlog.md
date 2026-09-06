@@ -1092,7 +1092,10 @@ const _namedKeysAreNotAny: never = null as unknown as (0 & NamedContractKeys);
 // removing a guard leaves typecheck and lint green, because the declarations are unreferenced,
 // `noUnusedLocals` is off and the lint config ignores `_`-prefixed names; with it, the same
 // deletion is `TS2304: Cannot find name`. The anchor is part of the guard, not decoration.
-export const _guardAnchor = [
+// NOT exported. Every element is `null` at runtime while its inferred type says otherwise, so an
+// exported anchor hands a consumer a lying type. Module-private is measured to work identically:
+// silent on the healthy build, `TS2304` when a guard is removed.
+const _guardAnchor = [
   _derivedIsListed, _listedIsDerived, _derivationIsNotAny, _exceptionIsNotAny,
   _noPairs, _probeFindsThePair, _pairIsThatProbe, _pairProbeIsNotAny,
   _namedKeysAreContractFields, _contractKeysAreNotAny, _namedKeysAreNonEmpty,
