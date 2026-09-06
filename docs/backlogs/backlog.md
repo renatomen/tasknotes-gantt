@@ -1116,7 +1116,14 @@ reason the anchor is in the block. The anchor is a hand-maintained list and so c
 guard to be anchored: add one without listing it and the build stays green, and deleting it later
 stays green too. That is the same list-is-not-a-rule failure this entry is built to avoid, and it is
 not fixable with another declaration, because it is a property of the source rather than of any type.
-It is filed as its own unit below. Weakening is not caught at all, because a sentinel declaration is
+It is filed as its own unit below.
+
+Two further residues, named rather than patched, because each would add another hand-kept list. A
+whole-tuple sentinel does not reach INSIDE the tuple, so a probe whose element degenerates passes;
+per-element guards would be a list of elements. And the anchor changes the cost of removing a guard
+rather than preventing it: with the anchor in place, deleting one takes three edits (the guard, the
+anchor entry, and whatever the guard protected) instead of two, which is friction and not a barrier.
+Both belong to the lint rule below, which reads source and can derive what no declaration can. Weakening is not caught at all, because a sentinel declaration is
 still a computed type expression —
 changing the sentinel `0` to `never` leaves the healthy build green, and then a degenerated operand
 satisfies `never & any` against a `never` target. That is the same deletion/weakening split the

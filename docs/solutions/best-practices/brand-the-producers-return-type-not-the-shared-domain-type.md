@@ -478,6 +478,11 @@ guard present, wiring intact, no diagnostic anywhere.
 The instruments failed about as often as the code, and each failure produced output shaped exactly
 like a real finding. **Differential measurement held up; absolute counts did not.**
 
+*(Which degenerate types a given form admits is itself form-dependent, measured: a direct
+`T extends true` constraint admits `never` and `any` and rejects `boolean` and `unknown`, while the
+inverse `[false] extends [T]` admits `boolean` and `unknown`. Reading one form's accept-set as the
+general threat model is how several levels of this sequence were introduced.)*
+
 - **A count with no control.** A 76-diagnostic figure meant nothing until it was differenced against
   an unbranded control of the same tree; the real figure was 36. An absolute count answers "how noisy
   is this tree", not "what did my change cost".
