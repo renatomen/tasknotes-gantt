@@ -479,9 +479,11 @@ The instruments failed about as often as the code, and each failure produced out
 like a real finding. **Differential measurement held up; absolute counts did not.**
 
 *(Which degenerate types a given form admits is itself form-dependent, measured: a direct
-`T extends true` constraint admits `never` and `any` and rejects `boolean` and `unknown`, while the
-inverse `[false] extends [T]` admits `boolean` and `unknown`. Reading one form's accept-set as the
-general threat model is how several levels of this sequence were introduced.)*
+`T extends true` constraint admits `never` and `any`; the inverse `[false] extends [T]` admits
+`boolean`, `unknown` and `any`. Only `any` is admitted by both, which is why it needs an explicit
+rejection whichever form is used, and `never` slips past only the direct form. Reading one form's
+accept-set as the general threat model is how several levels of this sequence were introduced — and
+the first draft of this very sentence omitted `any` from the inverse form's set.)*
 
 - **A count with no control.** A 76-diagnostic figure meant nothing until it was differenced against
   an unbranded control of the same tree; the real figure was 36. An absolute count answers "how noisy
