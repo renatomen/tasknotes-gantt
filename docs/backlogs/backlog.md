@@ -1056,6 +1056,11 @@ const _listedIsDerived: UnbrandedInputFields = null as unknown as UnbrandedExcep
 // free to degenerate with all the mutual assignments still compiling.
 const _derivationIsNotAny: never = null as unknown as (0 & UnbrandedInputFields);
 const _exceptionIsNotAny: never = null as unknown as (0 & UnbrandedException);
+// Neither the mutual pair nor either sentinel sees BOTH sets collapsing to the empty type: the
+// assignments read `never = never` and each `0 & never` is already empty. A positive witness is the
+// only thing that fires there — measured — and this pair is required to be non-empty, so the rule
+// stated above for the key union applies here too.
+const _exceptionIsNonEmpty: UnbrandedException = null as unknown as 'instances';
 
 // No sentinel here, and this is the one real exception: an expectation of the empty type admits
 // nothing, so it rejects a degenerate operand unaided.
@@ -1097,6 +1102,7 @@ const _namedKeysAreNotAny: never = null as unknown as (0 & NamedContractKeys);
 // silent on the healthy build, `TS2304` when a guard is removed.
 const _guardAnchor = [
   _derivedIsListed, _listedIsDerived, _derivationIsNotAny, _exceptionIsNotAny,
+  _exceptionIsNonEmpty,
   _noPairs, _probeFindsThePair, _pairIsThatProbe, _pairProbeIsNotAny,
   _namedKeysAreContractFields, _contractKeysAreNotAny, _namedKeysAreNonEmpty,
   _namedKeysAreNotAny,
