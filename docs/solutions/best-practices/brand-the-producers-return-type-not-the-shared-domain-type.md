@@ -317,7 +317,7 @@ failure. Reach for it meaning one of those and it accepts something:
 | Written | Also accepts |
 |---|---|
 | `[A] extends [B]` meaning equality | any `B` *containing* `A` (subset, not equality) |
-| `AssertFalse<T extends false>` | `never`, which extends everything |
+| `AssertFalse<T extends false>` | `never` and `any`, as EVERY direct constraint does — `never` extends everything and `any` satisfies any constraint (measured); `boolean` and `unknown` are rejected here |
 | `[false] extends [T]` | **every supertype of `false`** — an unbounded set, not a list. `boolean`, `unknown`, `any`, `{}` and `false \| string` all pass (measured); enumerating it is the same defect as any hand-kept list |
 | a mutual tuple comparison | an `any` answer, assignable in both directions |
 | `AssertTrue<T extends true>` | once one token widens it to `T extends boolean`: `false`, `boolean`, `never` and `any` — but NOT `unknown`, which still fails the constraint (measured) |
