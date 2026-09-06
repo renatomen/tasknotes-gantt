@@ -1,7 +1,8 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { RECEIPT_CHECK_COMMAND } from '../../scripts/session-start-context.mjs';
+import { projectRoot, receiptCheckCommand } from '../../scripts/session-start-context.mjs';
 
 /**
  * The SessionStart hook is the mechanism that puts the heartbeat contract in
@@ -14,11 +15,12 @@ import { RECEIPT_CHECK_COMMAND } from '../../scripts/session-start-context.mjs';
  * directory fails with MODULE_NOT_FOUND, and a SessionStart failure is
  * non-blocking, so the session simply continues without the contract. The
  * heartbeat the contract asks for fires later still, from wherever the
- * session's shell is by then, and that shell does not carry the hook's
- * CLAUDE_PROJECT_DIR.
+ * session's shell is by then — possibly no repository at all — and that shell
+ * does not carry the hook's CLAUDE_PROJECT_DIR.
  */
 const ROOT = resolve('.');
 const SUBDIRECTORY = join(ROOT, 'src');
+const OUTSIDE_ANY_REPOSITORY = tmpdir();
 
 // Spawning bash on a loaded machine can alone exceed jest's 5s default.
 jest.setTimeout(30_000);
@@ -70,22 +72,30 @@ describe('SessionStart heartbeat hook', () => {
     expect(list).toBeLessThan(create);
   });
 
-  it('embeds the receipt check command it is tested with, verbatim', () => {
-    const output = runHookFrom(ROOT);
+  it('binds the receipt check to the root the session started in, verbatim as tested below', () => {
+    const output = runHookFrom(SUBDIRECTORY);
 
-    expect(output).toContain(RECEIPT_CHECK_COMMAND);
+    expect(output).toContain(receiptCheckCommand(projectRoot({ CLAUDE_PROJECT_DIR: ROOT })));
   });
 
-  it('reaches the receipt gate from a subdirectory, without the hook environment', () => {
+  it('reaches the receipt gate from outside any repository, without the hook environment', () => {
     const { CLAUDE_PROJECT_DIR: _dropped, ...shellEnv } = process.env;
-    const result = spawnSync('bash', ['-c', RECEIPT_CHECK_COMMAND], {
-      cwd: SUBDIRECTORY,
+    const command = receiptCheckCommand(projectRoot({ CLAUDE_PROJECT_DIR: ROOT }));
+
+    const result = spawnSync('bash', ['-c', command], {
+      cwd: OUTSIDE_ANY_REPOSITORY,
       encoding: 'utf8',
       env: shellEnv,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
-    expect(result.stderr).not.toMatch(/Cannot find module|MODULE_NOT_FOUND/);
-    expect(`${result.stdout}${result.stderr}`).toMatch(/receipt/);
+    // The developer's own receipt store decides which branch of the gate's
+    // protocol answers; either is a real answer, and nothing else is.
+    expect([0, 1]).toContain(result.status);
+    const protocol =
+      result.status === 0
+        ? /^review receipts OK for [0-9a-f]{7}/m
+        : /^pre-push: missing clean review receipts for [0-9a-f]{7}/m;
+    expect(`${result.stdout}${result.stderr}`).toMatch(protocol);
   });
 });

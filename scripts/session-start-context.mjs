@@ -7,37 +7,48 @@
  * repo lost roughly a working day to a peer-review wrapper that hung after
  * printing its verdict while the agent waited on it.
  */
+import { execFileSync } from 'node:child_process';
 
 /**
- * Resolved through git rather than the working directory: the heartbeat runs
- * from wherever the session's shell is by the time it fires, and that shell
- * does not carry the hook's CLAUDE_PROJECT_DIR.
+ * Resolved ONCE, here, and embedded into every command the contract names: the
+ * heartbeat fires from wherever the session's shell is by then — a
+ * subdirectory, another repository, a directory that is no repository at all —
+ * and that shell does not carry the hook's CLAUDE_PROJECT_DIR.
  */
-export const RECEIPT_CHECK_COMMAND =
-  'node "$(git rev-parse --show-toplevel)/scripts/check-review-receipts.mjs" check';
+export function projectRoot(env = process.env) {
+  const fromHook = env.CLAUDE_PROJECT_DIR;
+  const root = fromHook ?? execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
+  return root.split('\\').join('/');
+}
 
-export function heartbeatContract() {
+export function receiptCheckCommand(root) {
+  return `cd "${root}" && node scripts/check-review-receipts.mjs check`;
+}
+
+export function heartbeatContract(root) {
   return [
     'HEARTBEAT CONTRACT (session-start hook, non-negotiable):',
     '',
-    'Before doing anything else in this session, run CronList. If a heartbeat job is already',
-    'armed, keep it and create nothing: this hook also fires on resume, compaction, clear and',
-    'fork, and a second heartbeat doubles every push and merge check. Otherwise arm a',
-    'recurring heartbeat with CronCreate, roughly every 5-8 minutes, whose prompt re-checks',
-    'any in-flight work and ACTS on it rather than reporting it. Arm it even if no background',
-    'work exists yet: the moment you start any, the heartbeat must already be running. Do',
-    'this before answering the first prompt, and never treat "I will check later" as a',
-    'substitute.',
+    'Before doing anything else in this session, run CronList. This hook also fires on resume,',
+    'compaction, clear and fork, so a heartbeat may already be armed, possibly under an older',
+    'contract: delete every job whose prompt starts with HEARTBEAT, then arm exactly one fresh',
+    'recurring heartbeat with CronCreate, roughly every 5-8 minutes, whose prompt starts with',
+    'HEARTBEAT and re-checks any in-flight work and ACTS on it rather than reporting it. Two',
+    'heartbeats double every push and merge check. Arm it even if no background work exists',
+    'yet: the moment you start any, the heartbeat must already be running. Do this before',
+    'answering the first prompt, and never treat "I will check later" as a substitute.',
     '',
-    'The heartbeat prompt must, at minimum:',
-    '  1. git status -sb and git log --oneline -1',
-    `  2. ${RECEIPT_CHECK_COMMAND}`,
+    `Every heartbeat command runs from the project root this session started in, ${root},`,
+    'because the shell may be anywhere by the time the heartbeat fires. At minimum:',
+    `  1. cd "${root}" && git status -sb && git log --oneline -1`,
+    `  2. ${receiptCheckCommand(root)}`,
     '     (exit 0 means BOTH receipts are stamped for HEAD; otherwise its "missing" line',
     '     names the layers still unstamped)',
-    '  3. gh pr view <n> --json headRefOid,mergeStateStatus,statusCheckRollup',
+    '  3. from that root, gh pr view <n> --json headRefOid,mergeStateStatus,statusCheckRollup',
     '  4. count UNRESOLVED review threads via the reviewThreads GraphQL query',
-    'and then: push if local is ahead with receipts green; merge if CI is terminal-green with',
-    'zero unresolved threads; otherwise say so in ONE line and stop.',
+    'and then: push if local is ahead with receipts green; merge only if headRefOid equals the',
+    'local HEAD, CI is terminal-green, and zero threads are unresolved; otherwise say so in',
+    'ONE line and stop.',
     '',
     'KNOWN FAILURE MODE, do not rediscover it:',
     '  scripts/cross-model-peer-review.sh HANGS AFTER printing its VERDICT and recording the',
@@ -56,4 +67,4 @@ export function heartbeatContract() {
 }
 
 const isDirectRun = process.argv[1]?.endsWith('session-start-context.mjs');
-if (isDirectRun) process.stdout.write(heartbeatContract());
+if (isDirectRun) process.stdout.write(heartbeatContract(projectRoot()));
