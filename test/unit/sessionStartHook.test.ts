@@ -173,7 +173,7 @@ describe('SessionStart heartbeat hook', () => {
     const contract = heartbeatContract(ROOT_FROM_HOOK);
 
     const hung = positionOf(contract, 'is still running');
-    const refused = positionOf(contract, 'nor a wrapper');
+    const refused = positionOf(contract, "nor a wrapper bash whose arguments name this round's report file");
     expect(hung).toBeLessThan(refused);
   });
 
