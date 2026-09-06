@@ -318,7 +318,7 @@ failure. Reach for it meaning one of those and it accepts something:
 |---|---|
 | `[A] extends [B]` meaning equality | any `B` *containing* `A` (subset, not equality) |
 | `AssertFalse<T extends false>` | `never`, which extends everything |
-| `[false] extends [T]` | `boolean`, `unknown`, `any` — every supertype of `false` |
+| `[false] extends [T]` | **every supertype of `false`** — an unbounded set, not a list. `boolean`, `unknown`, `any`, `{}` and `false \| string` all pass (measured); enumerating it is the same defect as any hand-kept list |
 | a mutual tuple comparison | an `any` answer, assignable in both directions |
 | `AssertTrue<T extends true>` | once one token widens it to `T extends boolean`: `false`, `boolean`, `never` and `any` — but NOT `unknown`, which still fails the constraint (measured) |
 
@@ -482,12 +482,13 @@ guard present, wiring intact, no diagnostic anywhere.
 The instruments failed about as often as the code, and each failure produced output shaped exactly
 like a real finding. **Differential measurement held up; absolute counts did not.**
 
-*(Which degenerate types a given form admits is itself form-dependent, measured: a direct
-`T extends true` constraint admits `never` and `any`; the inverse `[false] extends [T]` admits
-`boolean`, `unknown` and `any`. Only `any` is admitted by both, which is why it needs an explicit
-rejection whichever form is used, and `never` slips past only the direct form. Reading one form's
-accept-set as the general threat model is how several levels of this sequence were introduced — and
-the first draft of this very sentence omitted `any` from the inverse form's set.)*
+*(Which types a given form admits is itself form-dependent, measured: a direct `T extends true`
+constraint admits exactly `never` and `any`, a set that can be listed; the inverse
+`[false] extends [T]` admits every supertype of `false`, a set that cannot. `any` is admitted by
+both, so it needs an explicit rejection whichever form is used, while `never` slips past only the
+direct form. Reading one form's accept-set as the general threat model is how several levels of this
+sequence were introduced — and this sentence took two corrections of its own, first omitting `any`
+from the inverse form and then enumerating a set that has no enumeration.)*
 
 - **A count with no control.** A 76-diagnostic figure meant nothing until it was differenced against
   an unbranded control of the same tree; the real figure was 36. An absolute count answers "how noisy
