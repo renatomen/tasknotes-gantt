@@ -8,6 +8,7 @@
  * verdict while the agent waited on it.
  */
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
 /**
  * Resolved ONCE, here, and embedded into every command the contract names: the
@@ -21,12 +22,38 @@ export function projectRoot(env = process.env) {
   return root.replaceAll('\\', '/');
 }
 
+/**
+ * Claude Code hands every hook a JSON event on stdin whose `source` says how the
+ * session started (startup, resume, clear, compact, fork). A terminal stdin is
+ * never read, so a hand run does not wait for input.
+ */
+export function sessionSource(stdin = process.stdin) {
+  if (stdin.isTTY) return undefined;
+  try {
+    const raw = readFileSync(0, 'utf8').trim();
+    return raw ? JSON.parse(raw).source : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 export function receiptCheckCommand(root) {
   return `cd "${root}" && node scripts/check-review-receipts.mjs check`;
 }
 
-export function heartbeatContract(root) {
+const COMPACTION_CHECKPOINT = [
+  'CONTEXT WAS COMPACTED. The engineering charter ends a session at the nearest green',
+  'checkpoint on compaction and hands over by mechanism (git, the plan on main, the backlog),',
+  'never by pushing a degraded context onward: from here, do not push or merge. Finish the',
+  'current green checkpoint, record where things stand, and stop. The contract below still',
+  'applies for arming and checking; its steps 5 and 6 are forbidden in this session.',
+  '',
+];
+
+export function heartbeatContract(root, source) {
+  const preface = source === 'compact' ? COMPACTION_CHECKPOINT : [];
   return [
+    ...preface,
     'HEARTBEAT CONTRACT (session-start hook, non-negotiable):',
     '',
     'Before doing anything else in this session, run CronList. This hook also fires on resume,',
@@ -49,13 +76,14 @@ export function heartbeatContract(root) {
     '     and count the threads with isResolved false, reading each body, not just the count',
     `  5. cd "${root}" && git push -u origin HEAD`,
     '     only when local is ahead of origin and step 2 exited 0',
-    `  6. cd "${root}" && gh pr merge <n> --squash --delete-branch`,
-    '     only when headRefOid equals the local HEAD, CI is terminal-green, and zero threads',
-    '     are unresolved; never with an unresolved final-gate thread',
-    `  7. cd "${root}" && node scripts/check-review-receipts.mjs record ce-code-review`,
-    '     only after a clean layer-one review of HEAD',
-    `  8. cd "${root}" && bash scripts/cross-model-peer-review.sh <base> <report> --record --acknowledge`,
-    '     started in the background, never awaited in the foreground',
+    `  6. cd "${root}" && gh pr merge <n> --squash --delete-branch --match-head-commit <headRefOid-from-step-3>`,
+    '     only when that headRefOid equals the local HEAD, CI is terminal-green, and zero',
+    '     threads are unresolved; never with an unresolved final-gate thread',
+    `  7. cd "${root}" && node scripts/check-review-receipts.mjs record ce-code-review <reviewed-sha>`,
+    '     only after a clean layer-one review of exactly that commit, never a moving HEAD',
+    `  8. cd "${root}" && bash scripts/cross-model-peer-review.sh <base> <report> --record`,
+    '     started in the background, never awaited in the foreground; add --acknowledge',
+    '     only after reading the findings and recording their acceptance in the PR body',
     'and then: push (5) or merge (6) when their conditions hold; otherwise say so in ONE line',
     'and stop.',
     '',
@@ -68,17 +96,18 @@ export function heartbeatContract(root) {
     '  receipt is the signal that the gate accepted it. Wait on those in the background and',
     '  never in the foreground: cron prompts fire only while the REPL is idle, so a foreground',
     '  wait that outlasts one heartbeat period silences the very check that catches a hung round.',
-    '  Start a round, end the turn, and let the heartbeat decide:',
+    '  Start a round, end the turn, and let the heartbeat decide; never start a second round',
+    '  while a wrapper for this HEAD is alive:',
     '  - receipt landed (the "missing" line the check prints for HEAD no longer names',
     '    cross-model-peer): run and record ce-code-review, push.',
     "  - VERDICT line present, receipt still missing, and that round's codex.exe (matched by its",
     '    prompt sentinel) is still running with the report mtime older than ~15 min: hung. Kill',
     '    that codex.exe and its pwsh child by PID only, never blanket; archive the report; re-run',
     '    the wrapper as the next round.',
-    '  - VERDICT line present, receipt still missing, and no codex process carries the sentinel:',
-    '    the wrapper already exited nonzero (FINDINGS without --acknowledge, dirty tree, HEAD',
-    '    moved, no sentinel): refused, no receipt is coming. Read its stderr and the report, fix,',
-    '    re-run.',
+    '  - VERDICT line present, receipt still missing, and neither a codex process nor a wrapper',
+    '    bash carries the sentinel: the wrapper already exited nonzero (FINDINGS without',
+    '    --acknowledge, dirty tree, HEAD moved, no sentinel): refused, no receipt is coming. Read',
+    '    its stderr and the report, fix, re-run.',
     '',
     'General rule this instantiates: any background worker, workflow, or e2e run gets a',
     'heartbeat armed at the same time it is started, and every wait is on an OBSERVABLE',
@@ -88,4 +117,4 @@ export function heartbeatContract(root) {
 }
 
 const isDirectRun = process.argv[1]?.endsWith('session-start-context.mjs');
-if (isDirectRun) process.stdout.write(heartbeatContract(projectRoot()));
+if (isDirectRun) process.stdout.write(heartbeatContract(projectRoot(), sessionSource()));

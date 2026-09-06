@@ -75,10 +75,25 @@ function runHookFrom(cwd: string, env: ShellEnvironment = { ...process.env, CLAU
   });
 }
 
+/** Claude Code hands every hook a JSON event on stdin; `source` says how the session started. */
+function runHookWithEvent(event: Record<string, string>): string {
+  return execFileSync('bash', ['-c', sessionStartCommand()], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, CLAUDE_PROJECT_DIR: ROOT },
+    input: JSON.stringify(event),
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+}
+
 function positionOf(text: string, marker: string): number {
   const position = text.indexOf(marker);
   expect(position).toBeGreaterThan(-1);
   return position;
+}
+
+function numberedSteps(text: string): string[] {
+  return text.split('\n').filter((line) => /^\s+\d+\. /.test(line));
 }
 
 describe('SessionStart heartbeat hook', () => {
@@ -113,7 +128,7 @@ describe('SessionStart heartbeat hook', () => {
   it('binds every numbered heartbeat step, reads and writes alike, to the root the session started in', () => {
     const output = runHookFrom(SUBDIRECTORY);
 
-    const steps = output.split('\n').filter((line) => /^\s+\d+\. /.test(line));
+    const steps = numberedSteps(output);
     expect(steps.length).toBeGreaterThanOrEqual(8);
     for (const step of steps) {
       expect(step).toMatch(new RegExp(`^\\s+\\d+\\. cd "${ROOT_FROM_HOOK}" && `));
@@ -122,6 +137,21 @@ describe('SessionStart heartbeat hook', () => {
     for (const write of ['git push', 'gh pr merge', 'record ce-code-review', 'cross-model-peer-review.sh']) {
       expect(steps.some((step) => step.includes(write))).toBe(true);
     }
+  });
+
+  it('merges only the head it observed and records layer one against the reviewed commit', () => {
+    const steps = numberedSteps(heartbeatContract(ROOT_FROM_HOOK));
+
+    expect(steps.find((step) => step.includes('gh pr merge'))).toContain('--match-head-commit');
+    expect(steps.find((step) => step.includes('record ce-code-review'))).toContain('<reviewed-sha>');
+  });
+
+  it('launches the peer wrapper without acknowledging, a tripwire that findings are read before accepted', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    const launch = numberedSteps(contract).find((step) => step.includes('cross-model-peer-review.sh'));
+    expect(launch).not.toContain('--acknowledge');
+    expect(contract).toContain('only after reading the findings');
   });
 
   it('pins the two completion-signal sentences: the VERDICT line ends the review, the receipt closes the gate', () => {
@@ -139,12 +169,21 @@ describe('SessionStart heartbeat hook', () => {
     expect(contract).toContain('fire only while the REPL is idle');
   });
 
-  it('gates the hung-round branch on a live codex process, a tripwire on its condition', () => {
+  it('treats a round as refused only when neither codex nor the wrapper is alive, a tripwire on the condition', () => {
     const contract = heartbeatContract(ROOT_FROM_HOOK);
 
     const hung = positionOf(contract, 'is still running');
-    const refused = positionOf(contract, 'no codex process carries');
+    const refused = positionOf(contract, 'nor a wrapper');
     expect(hung).toBeLessThan(refused);
+  });
+
+  it('forbids push and merge after compaction, the charter checkpoint rule, keyed on the event source', () => {
+    const compacted = runHookWithEvent({ source: 'compact' });
+    const started = runHookWithEvent({ source: 'startup' });
+
+    expect(compacted).toContain('CONTEXT WAS COMPACTED');
+    expect(compacted).toContain('do not push or merge');
+    expect(started).not.toContain('CONTEXT WAS COMPACTED');
   });
 
   it('reaches the receipt gate from outside any repository, without the hook environment', () => {
