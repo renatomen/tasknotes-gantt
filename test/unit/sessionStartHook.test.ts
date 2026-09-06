@@ -2,7 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
-import { projectRoot, receiptCheckCommand } from '../../scripts/session-start-context.mjs';
+import { heartbeatContract, projectRoot, receiptCheckCommand } from '../../scripts/session-start-context.mjs';
 
 /**
  * The SessionStart hook is the mechanism that puts the heartbeat contract in
@@ -21,6 +21,9 @@ import { projectRoot, receiptCheckCommand } from '../../scripts/session-start-co
 const ROOT = resolve('.');
 const SUBDIRECTORY = join(ROOT, 'src');
 const OUTSIDE_ANY_REPOSITORY = tmpdir();
+const ROOT_FROM_HOOK = projectRoot({ CLAUDE_PROJECT_DIR: ROOT });
+
+type ShellEnvironment = Record<string, string | undefined>;
 
 // Spawning bash on a loaded machine can alone exceed jest's 5s default.
 jest.setTimeout(30_000);
@@ -31,6 +34,7 @@ interface CommandHook {
 }
 
 interface HookGroup {
+  matcher?: string;
   hooks: CommandHook[];
 }
 
@@ -38,20 +42,30 @@ interface Settings {
   hooks: { SessionStart: HookGroup[] };
 }
 
-function sessionStartCommand(): string {
+function sessionStartGroups(): HookGroup[] {
   const settings = JSON.parse(readFileSync(join(ROOT, '.claude', 'settings.json'), 'utf8')) as Settings;
-  const commands = settings.hooks.SessionStart.flatMap((group) => group.hooks)
+  return settings.hooks.SessionStart;
+}
+
+function sessionStartCommand(): string {
+  const commands = sessionStartGroups()
+    .flatMap((group) => group.hooks)
     .filter((hook) => hook.type === 'command')
     .map((hook) => hook.command);
   expect(commands).toHaveLength(1);
   return commands[0];
 }
 
-function runHookFrom(cwd: string): string {
+function withoutHookEnvironment(): ShellEnvironment {
+  const { CLAUDE_PROJECT_DIR: _dropped, ...shellEnv } = process.env;
+  return shellEnv;
+}
+
+function runHookFrom(cwd: string, env: ShellEnvironment = { ...process.env, CLAUDE_PROJECT_DIR: ROOT }): string {
   return execFileSync('bash', ['-c', sessionStartCommand()], {
     cwd,
     encoding: 'utf8',
-    env: { ...process.env, CLAUDE_PROJECT_DIR: ROOT },
+    env,
     stdio: ['ignore', 'pipe', 'pipe'],
   });
 }
@@ -63,6 +77,18 @@ describe('SessionStart heartbeat hook', () => {
     expect(output).toContain('HEARTBEAT CONTRACT');
   });
 
+  it('emits the heartbeat contract without the hook environment, from inside the repository', () => {
+    const output = runHookFrom(SUBDIRECTORY, withoutHookEnvironment());
+
+    expect(output).toContain(receiptCheckCommand(ROOT_FROM_HOOK));
+  });
+
+  it('fires on every SessionStart source, so no matcher narrows re-arming', () => {
+    for (const group of sessionStartGroups()) {
+      expect(group.matcher).toBeUndefined();
+    }
+  });
+
   it('names CronList before CronCreate, a tripwire that the existence check precedes the arm', () => {
     const output = runHookFrom(ROOT);
 
@@ -72,20 +98,34 @@ describe('SessionStart heartbeat hook', () => {
     expect(list).toBeLessThan(create);
   });
 
-  it('binds the receipt check to the root the session started in, verbatim as tested below', () => {
+  it('binds every numbered heartbeat step to the root the session started in', () => {
     const output = runHookFrom(SUBDIRECTORY);
 
-    expect(output).toContain(receiptCheckCommand(projectRoot({ CLAUDE_PROJECT_DIR: ROOT })));
+    const steps = output.split('\n').filter((line) => /^\s+\d+\. /.test(line));
+    expect(steps.length).toBeGreaterThanOrEqual(4);
+    for (const step of steps) {
+      expect(step).toMatch(new RegExp(`^\\s+\\d+\\. cd "${ROOT_FROM_HOOK}" && `));
+    }
+    expect(output).toContain(receiptCheckCommand(ROOT_FROM_HOOK));
+  });
+
+  it('names the report VERDICT line, not the receipt, as the signal that the review finished', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    const verdict = contract.indexOf('VERDICT: CLEAN|FINDINGS');
+    const receipt = contract.indexOf('receipt');
+    expect(verdict).toBeGreaterThan(-1);
+    expect(contract).not.toMatch(/recording the receipt/);
+    expect(receipt).toBeGreaterThan(-1);
   });
 
   it('reaches the receipt gate from outside any repository, without the hook environment', () => {
-    const { CLAUDE_PROJECT_DIR: _dropped, ...shellEnv } = process.env;
-    const command = receiptCheckCommand(projectRoot({ CLAUDE_PROJECT_DIR: ROOT }));
+    const command = receiptCheckCommand(ROOT_FROM_HOOK);
 
     const result = spawnSync('bash', ['-c', command], {
       cwd: OUTSIDE_ANY_REPOSITORY,
       encoding: 'utf8',
-      env: shellEnv,
+      env: withoutHookEnvironment(),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
 
@@ -97,5 +137,19 @@ describe('SessionStart heartbeat hook', () => {
         ? /^review receipts OK for [0-9a-f]{7}/m
         : /^pre-push: missing clean review receipts for [0-9a-f]{7}/m;
     expect(`${result.stdout}${result.stderr}`).toMatch(protocol);
+  });
+});
+
+describe('projectRoot', () => {
+  it('falls back to the repository top level when the hook environment is absent', () => {
+    expect(projectRoot({})).toBe(ROOT_FROM_HOOK);
+  });
+
+  it('treats an empty hook value as absent', () => {
+    expect(projectRoot({ CLAUDE_PROJECT_DIR: '' })).toBe(projectRoot({}));
+  });
+
+  it('normalizes a backslash path to forward slashes', () => {
+    expect(projectRoot({ CLAUDE_PROJECT_DIR: 'C:\\work\\repo' })).toBe('C:/work/repo');
   });
 });

@@ -2,10 +2,10 @@
 /**
  * SessionStart hook: emitted into every session's context before the first prompt.
  *
- * Exists because the heartbeat is an invariant, and AGENTS.md rules that an
- * invariant kept only by remembering it will eventually lose to momentum. This
- * repo lost roughly a working day to a peer-review wrapper that hung after
- * printing its verdict while the agent waited on it.
+ * Exists because an invariant kept only by remembering it eventually loses to
+ * momentum, and writing it down was not enough on its own: this repo lost
+ * roughly a working day to a peer-review wrapper that hung after printing its
+ * verdict while the agent waited on it.
  */
 import { execFileSync } from 'node:child_process';
 
@@ -17,8 +17,8 @@ import { execFileSync } from 'node:child_process';
  */
 export function projectRoot(env = process.env) {
   const fromHook = env.CLAUDE_PROJECT_DIR;
-  const root = fromHook ?? execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
-  return root.split('\\').join('/');
+  const root = fromHook || execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
+  return root.replaceAll('\\', '/');
 }
 
 export function receiptCheckCommand(root) {
@@ -31,10 +31,10 @@ export function heartbeatContract(root) {
     '',
     'Before doing anything else in this session, run CronList. This hook also fires on resume,',
     'compaction, clear and fork, so a heartbeat may already be armed, possibly under an older',
-    'contract: delete every job whose prompt starts with HEARTBEAT, then arm exactly one fresh',
-    'recurring heartbeat with CronCreate, roughly every 5-8 minutes, whose prompt starts with',
-    'HEARTBEAT and re-checks any in-flight work and ACTS on it rather than reporting it. Two',
-    'heartbeats double every push and merge check. Arm it even if no background work exists',
+    'contract: CronDelete every job whose prompt starts with HEARTBEAT, then arm exactly one',
+    'fresh recurring heartbeat with CronCreate, roughly every 5-8 minutes, whose prompt starts',
+    'with HEARTBEAT and re-checks any in-flight work and ACTS on it rather than reporting it.',
+    'Two heartbeats double every push and merge check. Arm it even if no background work exists',
     'yet: the moment you start any, the heartbeat must already be running. Do this before',
     'answering the first prompt, and never treat "I will check later" as a substitute.',
     '',
@@ -44,20 +44,28 @@ export function heartbeatContract(root) {
     `  2. ${receiptCheckCommand(root)}`,
     '     (exit 0 means BOTH receipts are stamped for HEAD; otherwise its "missing" line',
     '     names the layers still unstamped)',
-    '  3. from that root, gh pr view <n> --json headRefOid,mergeStateStatus,statusCheckRollup',
-    '  4. count UNRESOLVED review threads via the reviewThreads GraphQL query',
+    `  3. cd "${root}" && gh pr view <n> --json headRefOid,mergeStateStatus,statusCheckRollup`,
+    `  4. cd "${root}" && gh api graphql -f query='{ repository(owner:"<owner>",name:"<repo>") { pullRequest(number:<n>) { reviewThreads(first:100) { nodes { isResolved comments(first:1) { nodes { body } } } } } } }'`,
+    '     and count the threads with isResolved false, reading each body, not just the count',
     'and then: push if local is ahead with receipts green; merge only if headRefOid equals the',
     'local HEAD, CI is terminal-green, and zero threads are unresolved; otherwise say so in',
     'ONE line and stop.',
     '',
     'KNOWN FAILURE MODE, do not rediscover it:',
-    '  scripts/cross-model-peer-review.sh HANGS AFTER printing its VERDICT and recording the',
-    '  receipt. A finished review is indistinguishable from a running one by looking at the job.',
-    '  The RECEIPT is the completion signal, never the wrapper returning. The wrapper stamps',
-    '  only the cross-model-peer receipt, so the check stays nonzero until layer one is also',
-    '  recorded: the peer is DONE when the "missing" line the check prints for HEAD no longer',
-    '  names cross-model-peer. Then kill the stale job, run and record ce-code-review, and',
-    '  push. Never block on the wrapper.',
+    '  scripts/cross-model-peer-review.sh runs codex exec synchronously and stamps the',
+    '  cross-model-peer receipt only after codex returns. codex can write its final line,',
+    "  VERDICT: CLEAN|FINDINGS, into the report file (the wrapper's second argument) and never",
+    '  exit: the wrapper then never records, so no receipt ever appears and the job looks like',
+    "  a running review. The report's VERDICT line is the signal that the review finished; the",
+    '  receipt is the signal that the gate accepted it. Wait on those, never on the wrapper',
+    '  returning. Then:',
+    '  - receipt landed (the "missing" line the check prints for HEAD no longer names',
+    '    cross-model-peer): run and record ce-code-review, push.',
+    '  - VERDICT line present, report mtime older than ~15 min, receipt still missing: the round',
+    "    is hung. Kill that round's codex.exe (matched by its prompt token) and its pwsh child by",
+    '    PID only, never blanket; archive the report; re-run the wrapper as the next round.',
+    '  - wrapper exited nonzero (FINDINGS without --acknowledge, dirty tree, HEAD moved, no',
+    '    sentinel): refused, no receipt is coming. Read its stderr and the report, fix, re-run.',
     '',
     'General rule this instantiates: any background worker, workflow, or e2e run gets a',
     'heartbeat armed at the same time it is started, and every wait is on an OBSERVABLE',
