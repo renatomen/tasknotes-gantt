@@ -9,14 +9,19 @@ import { heartbeatContract, projectRoot, receiptCheckCommand } from '../../scrip
  * front of every session, so the ways it can silently do nothing are
  * exercised through the real settings file and the real commands.
  *
- * Hooks run in the session's CURRENT directory, and SessionStart fires again
- * on compaction, resume, clear and fork — by which time a session may have
- * changed directory. A command that resolves a script relative to that
+ * Claude Code reads the project settings from the directory the session
+ * started in, so the hook serves sessions started at the repository root.
+ * Hooks then run in the session's CURRENT directory, and SessionStart fires
+ * again on compaction, resume, clear and fork — by which time a session may
+ * have changed directory. A command that resolves a script relative to that
  * directory fails with MODULE_NOT_FOUND, and a SessionStart failure is
  * non-blocking, so the session simply continues without the contract. The
  * heartbeat the contract asks for fires later still, from wherever the
  * session's shell is by then — possibly no repository at all — and that shell
  * does not carry the hook's CLAUDE_PROJECT_DIR.
+ *
+ * The contract itself is prose an agent follows; the pins on it are tripwires
+ * on the markers and sentences that carry each rule, named as such.
  */
 const ROOT = resolve('.');
 const SUBDIRECTORY = join(ROOT, 'src');
@@ -70,8 +75,14 @@ function runHookFrom(cwd: string, env: ShellEnvironment = { ...process.env, CLAU
   });
 }
 
+function positionOf(text: string, marker: string): number {
+  const position = text.indexOf(marker);
+  expect(position).toBeGreaterThan(-1);
+  return position;
+}
+
 describe('SessionStart heartbeat hook', () => {
-  it('emits the heartbeat contract when the session is not in the project root', () => {
+  it('emits the heartbeat contract after a root-started session changed directory', () => {
     const output = runHookFrom(SUBDIRECTORY);
 
     expect(output).toContain('HEARTBEAT CONTRACT');
@@ -89,34 +100,51 @@ describe('SessionStart heartbeat hook', () => {
     }
   });
 
-  it('names CronList before CronCreate, a tripwire that the existence check precedes the arm', () => {
+  it('orders CronList, CronDelete, CronCreate, a tripwire that the check and the sweep precede the arm', () => {
     const output = runHookFrom(ROOT);
 
-    const list = output.indexOf('CronList');
-    const create = output.indexOf('CronCreate');
-    expect(list).toBeGreaterThan(-1);
-    expect(list).toBeLessThan(create);
+    const list = positionOf(output, 'CronList');
+    const sweep = positionOf(output, 'CronDelete');
+    const create = positionOf(output, 'CronCreate');
+    expect(list).toBeLessThan(sweep);
+    expect(sweep).toBeLessThan(create);
   });
 
-  it('binds every numbered heartbeat step to the root the session started in', () => {
+  it('binds every numbered heartbeat step, reads and writes alike, to the root the session started in', () => {
     const output = runHookFrom(SUBDIRECTORY);
 
     const steps = output.split('\n').filter((line) => /^\s+\d+\. /.test(line));
-    expect(steps.length).toBeGreaterThanOrEqual(4);
+    expect(steps.length).toBeGreaterThanOrEqual(8);
     for (const step of steps) {
       expect(step).toMatch(new RegExp(`^\\s+\\d+\\. cd "${ROOT_FROM_HOOK}" && `));
     }
     expect(output).toContain(receiptCheckCommand(ROOT_FROM_HOOK));
+    for (const write of ['git push', 'gh pr merge', 'record ce-code-review', 'cross-model-peer-review.sh']) {
+      expect(steps.some((step) => step.includes(write))).toBe(true);
+    }
   });
 
-  it('names the report VERDICT line, not the receipt, as the signal that the review finished', () => {
+  it('pins the two completion-signal sentences: the VERDICT line ends the review, the receipt closes the gate', () => {
     const contract = heartbeatContract(ROOT_FROM_HOOK);
 
-    const verdict = contract.indexOf('VERDICT: CLEAN|FINDINGS');
-    const receipt = contract.indexOf('receipt');
-    expect(verdict).toBeGreaterThan(-1);
+    expect(contract).toContain('VERDICT line is the signal that the review finished');
+    expect(contract).toContain('receipt is the signal that the gate accepted it');
     expect(contract).not.toMatch(/recording the receipt/);
-    expect(receipt).toBeGreaterThan(-1);
+  });
+
+  it('forbids the foreground wait, a tripwire on the sentence that keeps the heartbeat able to fire', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    expect(contract).toContain('never in the foreground');
+    expect(contract).toContain('fire only while the REPL is idle');
+  });
+
+  it('gates the hung-round branch on a live codex process, a tripwire on its condition', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    const hung = positionOf(contract, 'is still running');
+    const refused = positionOf(contract, 'no codex process carries');
+    expect(hung).toBeLessThan(refused);
   });
 
   it('reaches the receipt gate from outside any repository, without the hook environment', () => {
