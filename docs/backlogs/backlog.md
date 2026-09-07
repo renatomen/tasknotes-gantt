@@ -1335,3 +1335,20 @@ session can judge it against fresh evidence instead of rediscovering it.
 - **A fresh clone can merge a reviewed head without local receipts.** Receipts gate the push and every
   pushed head passed both layers, so this is by design; it is recorded because the merge step's
   conditions read as if receipts were among them.
+
+### P1 — `--acknowledge` re-runs the review and accepts whatever the new run finds (2026-09-07)
+
+`scripts/cross-model-peer-review.sh --acknowledge` does not acknowledge the report you just read: it
+runs Codex again and records the digest of *that* run. A finding that appears only in the second run
+is stamped as accepted before anyone has read it, and the receipt gate then permits the push. Found
+by the cross-model peer on PR #484 and true of every acknowledged round on that branch, including the
+round that found it.
+
+The receipt is still honest about one thing — a review demonstrably happened — but its acceptance
+half is a claim nobody made. Two failure directions matter: a new finding rides in unread, and the
+digest in the receipt does not identify the text a human actually accepted.
+
+Candidate: split the flag. `--record` keeps its current meaning; acknowledgement becomes a separate
+invocation that takes an existing report path, verifies its sentinel and its commit, and records that
+report's digest without re-running the review. That also gives the disposition entry above something
+concrete to point at.

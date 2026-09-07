@@ -140,8 +140,11 @@ function deliverySteps(root) {
     `  7. cd ${shellQuoted(root)} && node scripts/check-review-receipts.mjs record ce-code-review <reviewed-sha>`,
     '     only after a clean layer-one review of exactly that commit, never a moving HEAD',
     `  8. cd ${shellQuoted(root)} && bash scripts/cross-model-peer-review.sh <base> <report> --record`,
-    '     started in the background, never awaited in the foreground; add --acknowledge',
-    '     only after reading the findings and recording their acceptance in the PR body',
+    '     started in the background, never awaited in the foreground. --acknowledge re-runs the',
+    '     review and stamps the digest of THAT run, so it accepts whatever the new run finds,',
+    '     including a finding no one has read yet. Read the report it wrote before you treat its',
+    '     receipt as acceptance, and record what you accepted where a later session will look:',
+    '     the backlog for a deferred finding, a commit for a fixed one.',
   ];
 }
 

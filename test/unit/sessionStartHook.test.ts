@@ -219,12 +219,13 @@ describe('SessionStart heartbeat hook', () => {
     expect(steps.find((step) => step.includes('gh api graphql'))).toContain('pageInfo { hasNextPage endCursor }');
   });
 
-  it('launches the peer wrapper without acknowledging, a tripwire that findings are read before accepted', () => {
+  it('launches the peer wrapper without acknowledging, and says what acknowledging really accepts', () => {
     const contract = heartbeatContract(ROOT_FROM_HOOK);
 
     const launch = numberedSteps(contract).find((step) => step.includes('cross-model-peer-review.sh'));
     expect(launch).not.toContain('--acknowledge');
-    expect(contract).toContain('only after reading the findings');
+    expect(contract).toContain('including a finding no one has read yet');
+    expect(contract).toContain('the backlog for a deferred finding, a commit for a fixed one');
   });
 
   it('pins the two completion-signal sentences: the VERDICT line ends the review, the receipt closes the gate', () => {
