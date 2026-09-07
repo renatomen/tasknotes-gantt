@@ -43,6 +43,7 @@ interface TranscriptEntry {
   content?: string;
   message?: { role: string; content: string };
   isCompactSummary?: boolean;
+  toolUseResult?: { isCompactSummary?: boolean; subtype?: string };
 }
 
 // Spawning bash on a loaded machine can alone exceed jest's 5s default.
@@ -123,6 +124,12 @@ const COMPACT_SUMMARY: TranscriptEntry = { type: 'user', isCompactSummary: true,
 const TURN_QUOTING_THE_MARKER: TranscriptEntry = {
   type: 'user',
   message: { role: 'user', content: JSON.stringify(COMPACTION) },
+};
+/** A tool result carrying transcript-shaped data: the marker words are real JSON, but not the entry's own fields. */
+const TURN_WITH_NESTED_MARKER: TranscriptEntry = {
+  type: 'user',
+  toolUseResult: { isCompactSummary: true, subtype: 'compact_boundary' },
+  message: { role: 'user', content: 'a tool returned a transcript entry' },
 };
 
 const MARKER_LITERAL = '"subtype":"compact_boundary"';
@@ -245,14 +252,25 @@ describe('SessionStart heartbeat hook', () => {
     expect(stalled).toBeLessThan(refused);
   });
 
-  it('stops every delivery step after compaction, the charter checkpoint rule, keyed on the event source', () => {
+  it('emits no delivery command at all after compaction, the charter checkpoint rule', () => {
     const compacted = runHookWithEvent({ source: 'compact' });
     const started = runHookWithEvent({ source: 'startup' });
 
     expect(compacted).toContain('CONTEXT WAS COMPACTED');
     expect(compacted).toContain('no implementation, no review, no receipt recording, no');
-    expect(compacted).toContain('steps 5 to 8 are forbidden in this session');
+    for (const delivery of ['git push', 'gh pr merge', 'record ce-code-review', 'cross-model-peer-review.sh']) {
+      expect(compacted).not.toContain(delivery);
+      expect(started).toContain(delivery);
+    }
+    expect(numberedSteps(compacted).map((step) => step.trim().slice(0, 2))).toEqual(['1.', '2.', '3.', '4.']);
     expect(started).not.toContain('CONTEXT WAS COMPACTED');
+  });
+
+  it('sweeps a heartbeat armed before the compaction and arms nothing in its place', () => {
+    const compacted = runHookWithEvent({ source: 'compact' });
+
+    expect(compacted).toContain('CronDelete every job whose prompt starts with HEARTBEAT, then arm nothing');
+    expect(compacted).not.toContain('CronCreate');
   });
 
   it('states why the checkpoint appears and that a fresh-feeling context does not lift it', () => {
@@ -312,6 +330,12 @@ describe('transcriptCarriesCompaction', () => {
 
   it('is not fooled by a turn that quotes the marker, since a transcript escapes those quotes', () => {
     const path = transcriptWith([ORDINARY_TURN, TURN_QUOTING_THE_MARKER]);
+
+    expect(transcriptCarriesCompaction(path)).toBe(false);
+  });
+
+  it('is not fooled by a tool result that carries the marker as structured data', () => {
+    const path = transcriptWith([ORDINARY_TURN, TURN_WITH_NESTED_MARKER]);
 
     expect(transcriptCarriesCompaction(path)).toBe(false);
   });
