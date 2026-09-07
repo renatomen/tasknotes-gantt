@@ -230,7 +230,8 @@ describe('SessionStart heartbeat hook', () => {
       'nor recorded',
       'Never with an unresolved final-gate thread',
       'Zero threads also describes a',
-      'review that has not started',
+      'review that has not started, so require the hosted reviewer to have answered for this',
+      'exact head — a review, an approving reaction, or a summary naming this commit',
       'never merge while one is still in flight',
     ]) {
       expect(condition).toContain(clause);
