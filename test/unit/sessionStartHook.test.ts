@@ -144,6 +144,7 @@ describe('SessionStart heartbeat hook', () => {
 
     expect(steps.find((step) => step.includes('gh pr merge'))).toContain('--match-head-commit');
     expect(steps.find((step) => step.includes('record ce-code-review'))).toContain('<reviewed-sha>');
+    expect(steps.find((step) => step.includes('gh api graphql'))).toContain('pageInfo { hasNextPage endCursor }');
   });
 
   it('launches the peer wrapper without acknowledging, a tripwire that findings are read before accepted', () => {
@@ -173,8 +174,11 @@ describe('SessionStart heartbeat hook', () => {
     const contract = heartbeatContract(ROOT_FROM_HOOK);
 
     const hung = positionOf(contract, 'is still running');
+    const stalled = positionOf(contract, 'stalled in its own git fetch');
     const refused = positionOf(contract, "nor a wrapper bash whose arguments name this round's report file");
-    expect(hung).toBeLessThan(refused);
+    expect(contract).toContain('the child of');
+    expect(hung).toBeLessThan(stalled);
+    expect(stalled).toBeLessThan(refused);
   });
 
   it('forbids push and merge after compaction, the charter checkpoint rule, keyed on the event source', () => {
