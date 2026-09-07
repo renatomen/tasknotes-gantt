@@ -60,7 +60,11 @@ function entryIsCompaction(line) {
     const entry = JSON.parse(line);
     return entry.subtype === 'compact_boundary' || entry.isCompactSummary === true;
   } catch {
-    return false;
+    // A line carrying the marker that will not parse is a half-written entry,
+    // and the entry a transcript is most likely caught mid-write is the
+    // compaction itself. Unknown counts as degraded, as it does for a
+    // transcript that will not open at all.
+    return true;
   }
 }
 
@@ -127,6 +131,9 @@ function readSteps(root) {
     `  4. cd ${shellQuoted(root)} && gh api graphql -f query='{ repository(owner:"<owner>",name:"<repo>") { pullRequest(number:<n>) { reviewThreads(first:100) { pageInfo { hasNextPage endCursor } nodes { isResolved comments(first:1) { nodes { body } } } } } } }'`,
     '     page on with endCursor while hasNextPage is true, then count the threads with',
     '     isResolved false across every page, reading each body, not just the count',
+    `     and cd ${shellQuoted(root)} && gh pr view <n> --json reviews,comments, because a`,
+    '     blocking finding often arrives as a review body or a top-level comment that never',
+    '     becomes an inline thread, and a thread count alone reports zero for it',
   ];
 }
 

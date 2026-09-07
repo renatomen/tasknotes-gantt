@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { appendFileSync, closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
@@ -216,8 +216,23 @@ describe('SessionStart heartbeat hook', () => {
 
     const mergeStep = positionOf(contract, 'gh pr merge');
     const condition = contract.slice(mergeStep, contract.indexOf('  7. ', mergeStep));
-    expect(condition).toContain('only when step 2 exited 0');
-    expect(condition).toContain('headRefOid equals the local HEAD');
+    for (const clause of [
+      'only when step 2 exited 0',
+      'headRefOid equals the local HEAD',
+      'CI is terminal-green',
+      'zero',
+      'threads are unresolved',
+      'never with an unresolved final-gate thread',
+    ]) {
+      expect(condition).toContain(clause);
+    }
+  });
+
+  it('reads review bodies and top-level comments, not only inline threads', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    expect(contract).toContain('gh pr view <n> --json reviews,comments');
+    expect(contract).toContain('becomes an inline thread');
   });
 
   it('names the round that produced no review at all, not only the ones that produced a verdict', () => {
@@ -266,6 +281,7 @@ describe('SessionStart heartbeat hook', () => {
     const stalled = positionOf(contract, 'stalled in its own git fetch');
     const refused = positionOf(contract, "nor a wrapper bash whose arguments name this round's report file");
     expect(contract).toContain('the child of');
+    expect(contract.slice(0, refused)).toContain('neither a codex child');
     expect(hung).toBeLessThan(stalled);
     expect(stalled).toBeLessThan(refused);
   });
@@ -374,6 +390,15 @@ describe('transcriptCompactionState', () => {
     const path = transcriptWith([ORDINARY_TURN, TURN_WITH_NESTED_MARKER]);
 
     expect(transcriptCompactionState(path)).toBe('clean');
+  });
+
+  it('treats a half-written marker line as compacted, since that is the entry caught mid-write', () => {
+    const halfWritten = JSON.stringify(COMPACTION).slice(0, -5);
+    expect(halfWritten).toContain(MARKER_LITERAL);
+    const path = transcriptWith([ORDINARY_TURN]);
+    appendFileSync(path, halfWritten);
+
+    expect(transcriptCompactionState(path)).toBe('compacted');
   });
 
   it('reports no compaction when no transcript path was given', () => {
