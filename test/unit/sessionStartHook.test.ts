@@ -419,6 +419,22 @@ describe('transcriptCompactionState', () => {
     expect(transcriptCompactionState(path)).toBe('compacted');
   });
 
+  it('cannot answer for a line cut before the marker was written, so it says so', () => {
+    const cutBeforeTheMarker = JSON.stringify(COMPACTION).slice(0, 30);
+    expect(cutBeforeTheMarker).not.toContain(MARKER_LITERAL);
+    const path = transcriptWith([ORDINARY_TURN]);
+    appendFileSync(path, cutBeforeTheMarker);
+
+    expect(transcriptCompactionState(path)).toBe('unreadable');
+  });
+
+  it('reads a complete transcript that ends without a trailing newline as clean', () => {
+    const path = transcriptWith([ORDINARY_TURN]);
+    appendFileSync(path, JSON.stringify(ORDINARY_TURN));
+
+    expect(transcriptCompactionState(path)).toBe('clean');
+  });
+
   it('reports no compaction when no transcript path was given', () => {
     expect(transcriptCompactionState(undefined)).toBe('none');
   });

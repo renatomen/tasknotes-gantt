@@ -76,6 +76,23 @@ function entryIsCompaction(line) {
  * named but we could not read cannot prove the session is undegraded, and the
  * safe direction for a checkpoint is to assume it is.
  */
+/**
+ * A complete transcript ends with a newline, so anything left over is an entry
+ * caught mid-write. If it will not parse we cannot say what it was going to be,
+ * and the cut can fall before the marker is written at all, so the answer is
+ * unknown rather than clean.
+ */
+function trailingLineState(line) {
+  if (!line) return 'clean';
+  if (entryIsCompaction(line)) return 'compacted';
+  try {
+    JSON.parse(line);
+    return 'clean';
+  } catch {
+    return 'unreadable';
+  }
+}
+
 export function transcriptCompactionState(transcriptPath) {
   if (!transcriptPath) return 'none';
   let descriptor;
@@ -89,7 +106,7 @@ export function transcriptCompactionState(transcriptPath) {
     let partialLine = '';
     for (;;) {
       const read = readSync(descriptor, buffer, 0, SCAN_CHUNK_BYTES, null);
-      if (read === 0) return entryIsCompaction(partialLine) ? 'compacted' : 'clean';
+      if (read === 0) return trailingLineState(partialLine);
       const lines = (partialLine + buffer.toString('utf8', 0, read)).split('\n');
       partialLine = lines.pop() ?? '';
       if (lines.some(entryIsCompaction)) return 'compacted';
