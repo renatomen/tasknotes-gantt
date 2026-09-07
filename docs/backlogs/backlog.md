@@ -1286,3 +1286,52 @@ Whoever takes it should do both halves: give the leaves distinguishing values in
 (`true`/`false`), and add a register-level wiring assertion, since the projection's own test builds
 its input directly and structurally cannot catch a miswire in the caller that assembles it. Branding
 the leaf values, or having the reader mint the bundle, is the design fix behind both.
+
+### P2 — An acknowledged review receipt does not say where its findings went (2026-09-07)
+
+`scripts/cross-model-peer-review.sh --acknowledge` records a digest of the review text, which proves
+a review happened and was accepted. Nothing ties that acceptance to a fix, a backlog entry or an
+issue, so a deferred finding survives only in whatever prose the author wrote at the time — and the
+next round rediscovers it. Measured on PR #484: the same shell-quoting finding was raised and
+acknowledged three times across sixteen rounds before it was fixed, at a cost of five lines.
+
+Candidate: have `--acknowledge` take a disposition naming this file or an issue, and refuse a bare
+acknowledgement. The cheap half is a convention; the mechanism half is the refusal.
+
+### P2 — The heartbeat contract is prose an agent follows, not a mechanism (2026-09-07)
+
+Every guard the SessionStart hook injects — arm exactly one heartbeat, wait in the background, never
+merge a stale head, stop delivery after a compaction — is enforced only by the agent reading it. The
+unit pins assert the text says the right thing; nothing asserts an agent did it. That is a deliberate
+boundary for now (the hook cannot observe session identity, the same reason the charter's session
+cadence is unmechanized), but it is the ceiling on what this hook can promise.
+
+Candidate: a session-scoped check that fails when two HEARTBEAT jobs exist, or when a push lands with
+a receipt older than HEAD.
+
+### P3 — Deferred findings from the session-heartbeat hook (PR #484, 2026-09-07)
+
+Acknowledged on both review layers' receipts and parked rather than fixed. Each names why, so a later
+session can judge it against fresh evidence instead of rediscovering it.
+
+- **The hook command is bash syntax.** On a Windows install without Git Bash, Claude Code runs hooks
+  under PowerShell, where `${VAR:-$(...)}` does not expand and the session silently gets no contract.
+  The same prerequisite every gate script here already carries, so it is consistent rather than new.
+- **Two sessions on one checkout cannot see each other's heartbeat.** Cron jobs are per session and in
+  memory, so "exactly one heartbeat" is per session, and two sessions can both push.
+- **The heartbeat stays bound to the checkout the session started in.** After entering a worktree the
+  root stays pinned to the original checkout. Following the worktree would reopen the
+  resolve-at-fire-time defect this PR closed, and worktrees sit outside the one-session-one-PR cadence.
+- **The refused branch does not name a round that died before writing a verdict.** The peer wrapper has
+  thirteen exit paths that fire before its report exists, plus one that leaves it without a verdict;
+  all present as "no verdict, nothing alive, no receipt", which no branch of the contract names.
+- **The kill recipe should say the innermost wrapper bash.** The Bash tool wraps a launch in two shells
+  that also carry the report path, so a naive match finds an outer shell first. The wrapper writing its
+  own PID beside the report would remove the ambiguity entirely.
+- **Step 1 prints an abbreviated sha where step 7 needs the full object name.** The record command
+  refuses a short sha with a clear message, so this costs a round trip rather than correctness.
+- **Zero unresolved threads cannot distinguish "reviewed clean" from "never reviewed".** Measured on
+  this repo, three of fifteen CI-green heads had no hosted review at all.
+- **A fresh clone can merge a reviewed head without local receipts.** Receipts gate the push and every
+  pushed head passed both layers, so this is by design; it is recorded because the merge step's
+  conditions read as if receipts were among them.
