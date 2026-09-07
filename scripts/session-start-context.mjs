@@ -8,7 +8,7 @@
  * verdict while the agent waited on it.
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { closeSync, openSync, readFileSync, readSync } from 'node:fs';
 
 /**
  * Resolved ONCE, here, and embedded into every command the contract names: the
@@ -23,18 +23,60 @@ export function projectRoot(env = process.env) {
 }
 
 /**
- * Claude Code hands every hook a JSON event on stdin whose `source` says how the
- * session started (startup, resume, clear, compact, fork). A terminal stdin is
- * never read, so a hand run does not wait for input.
+ * Claude Code hands every hook a JSON event on stdin: `source` says how the
+ * session started (startup, resume, clear, compact, fork) and `transcript_path`
+ * where its transcript lives. A terminal stdin is never read, so a hand run does
+ * not wait for input.
  */
-export function sessionSource(stdin = process.stdin) {
-  if (stdin.isTTY) return undefined;
+export function sessionEvent(stdin = process.stdin) {
+  if (stdin.isTTY) return {};
   try {
     const raw = readFileSync(0, 'utf8').trim();
-    return raw ? JSON.parse(raw).source : undefined;
+    if (!raw) return {};
+    const event = JSON.parse(raw);
+    return { source: event.source, transcriptPath: event.transcript_path };
   } catch {
-    return undefined;
+    return {};
   }
+}
+
+/**
+ * A compaction leaves a system entry in the transcript, so a session resumed or
+ * forked after compacting still carries the charter's checkpoint even though
+ * its event source is no longer `compact`. Scanned in chunks with an early
+ * exit because a long session's transcript runs to tens of megabytes.
+ */
+const COMPACTION_MARKER = /"subtype":\s*"compact_boundary"|"isCompactSummary":\s*true/;
+const SCAN_CHUNK_BYTES = 64 * 1024;
+const MARKER_OVERLAP_BYTES = 64;
+
+export function transcriptCarriesCompaction(transcriptPath) {
+  if (!transcriptPath) return false;
+  let descriptor;
+  try {
+    descriptor = openSync(transcriptPath, 'r');
+  } catch {
+    return false;
+  }
+  try {
+    const buffer = Buffer.alloc(SCAN_CHUNK_BYTES);
+    let tail = '';
+    for (;;) {
+      const read = readSync(descriptor, buffer, 0, SCAN_CHUNK_BYTES, null);
+      if (read === 0) return false;
+      const window = tail + buffer.toString('utf8', 0, read);
+      if (COMPACTION_MARKER.test(window)) return true;
+      tail = window.slice(-MARKER_OVERLAP_BYTES);
+    }
+  } catch {
+    return false;
+  } finally {
+    closeSync(descriptor);
+  }
+}
+
+export function sessionCompacted(event) {
+  return event.source === 'compact' || transcriptCarriesCompaction(event.transcriptPath);
 }
 
 export function receiptCheckCommand(root) {
@@ -50,8 +92,8 @@ const COMPACTION_CHECKPOINT = [
   '',
 ];
 
-export function heartbeatContract(root, source) {
-  const preface = source === 'compact' ? COMPACTION_CHECKPOINT : [];
+export function heartbeatContract(root, compacted = false) {
+  const preface = compacted ? COMPACTION_CHECKPOINT : [];
   return [
     ...preface,
     'HEARTBEAT CONTRACT (session-start hook, non-negotiable):',
@@ -122,4 +164,4 @@ export function heartbeatContract(root, source) {
 }
 
 const isDirectRun = process.argv[1]?.endsWith('session-start-context.mjs');
-if (isDirectRun) process.stdout.write(heartbeatContract(projectRoot(), sessionSource()));
+if (isDirectRun) process.stdout.write(heartbeatContract(projectRoot(), sessionCompacted(sessionEvent())));

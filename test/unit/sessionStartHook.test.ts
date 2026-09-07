@@ -1,5 +1,5 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { heartbeatContract, projectRoot, receiptCheckCommand } from '../../scripts/session-start-context.mjs';
@@ -75,7 +75,7 @@ function runHookFrom(cwd: string, env: ShellEnvironment = { ...process.env, CLAU
   });
 }
 
-/** Claude Code hands every hook a JSON event on stdin; `source` says how the session started. */
+/** Claude Code hands every hook a JSON event on stdin: `source` says how the session started, `transcript_path` where its transcript lives. */
 function runHookWithEvent(event: Record<string, string>): string {
   return execFileSync('bash', ['-c', sessionStartCommand()], {
     cwd: ROOT,
@@ -85,6 +85,16 @@ function runHookWithEvent(event: Record<string, string>): string {
     stdio: ['pipe', 'pipe', 'pipe'],
   });
 }
+
+/** A transcript is JSON lines; a compaction leaves a system entry with this subtype, measured on real transcripts. */
+function transcriptWith(lines: object[]): string {
+  const path = join(mkdtempSync(join(tmpdir(), 'heartbeat-transcript-')), 'transcript.jsonl');
+  writeFileSync(path, lines.map((line) => JSON.stringify(line)).join('\n') + '\n');
+  return path;
+}
+
+const ORDINARY_TURN = { type: 'user', message: { role: 'user', content: 'hello' } };
+const COMPACTION = { type: 'system', subtype: 'compact_boundary', content: 'Conversation compacted' };
 
 function positionOf(text: string, marker: string): number {
   const position = text.indexOf(marker);
@@ -188,6 +198,28 @@ describe('SessionStart heartbeat hook', () => {
     expect(compacted).toContain('CONTEXT WAS COMPACTED');
     expect(compacted).toContain('do not push or merge');
     expect(started).not.toContain('CONTEXT WAS COMPACTED');
+  });
+
+  it('keeps the compaction checkpoint when a compacted session is resumed, read from the transcript', () => {
+    const resumedAfterCompaction = runHookWithEvent({
+      source: 'resume',
+      transcript_path: transcriptWith([ORDINARY_TURN, COMPACTION, ORDINARY_TURN]),
+    });
+    const resumedClean = runHookWithEvent({
+      source: 'resume',
+      transcript_path: transcriptWith([ORDINARY_TURN, ORDINARY_TURN]),
+    });
+
+    expect(resumedAfterCompaction).toContain('CONTEXT WAS COMPACTED');
+    expect(resumedAfterCompaction).toContain('do not push or merge');
+    expect(resumedClean).not.toContain('CONTEXT WAS COMPACTED');
+  });
+
+  it('treats an unreadable transcript as not compacted, so a hand run never fails on it', () => {
+    const output = runHookWithEvent({ source: 'resume', transcript_path: join(tmpdir(), 'no-such-transcript.jsonl') });
+
+    expect(output).toContain('HEARTBEAT CONTRACT');
+    expect(output).not.toContain('CONTEXT WAS COMPACTED');
   });
 
   it('reaches the receipt gate from outside any repository, without the hook environment', () => {
