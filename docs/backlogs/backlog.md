@@ -1352,3 +1352,26 @@ Candidate: split the flag. `--record` keeps its current meaning; acknowledgement
 invocation that takes an existing report path, verifies its sentinel and its commit, and records that
 report's digest without re-running the review. That also gives the disposition entry above something
 concrete to point at.
+
+### P1 — The heartbeat contract is prose where it should be a mechanism (2026-09-07)
+
+Landed with PR #484 and recorded here as the design finding behind that PR's review history, not as one
+more defect in it. Twenty-one cross-model rounds produced findings at a flat rate — 1, 2, 2, 1, 1, 3,
+5, 1 across the last eight — and a flat rate is evidence about the design rather than the instances.
+
+Almost every one of those findings was a sentence in the injected contract that was wrong, ambiguous
+or contradicted another sentence. That is what the artifact is: a large block of prose whose
+guarantees nothing enforces, since an agent chooses whether to follow it. Its tests can only assert
+that particular strings appear, which is why several of them could not fail until a reviewer said so.
+The cost of change is the giveaway — a one-line wording fix costs a full peer round plus a full suite.
+
+The executable half converged and is sound: the hook fires, the project root is resolved once and
+shell-quoted into every command, compaction is decided by parsing the transcript entry, and the
+unreadable transcript, half-written marker line and unparseable event all fail closed, each
+mutation-proven and measured against the real transcripts on this machine.
+
+Candidate, as its own unit: move the guards that matter from sentences to checks. A pre-push refusal
+when two HEARTBEAT jobs are armed or when a receipt predates HEAD; a merge refusal that reads the
+receipt store rather than asking the agent to; a wrapper that records its own PID beside its report.
+Each is testable in a way a paragraph is not, and each removes the sentence that currently stands in
+for it. Do not extend the prose further first: that is the loop this entry exists to stop.
