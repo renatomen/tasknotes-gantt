@@ -27,6 +27,8 @@ export function projectRoot(env = process.env) {
  * session started (startup, resume, clear, compact, fork) and `transcript_path`
  * where its transcript lives. A terminal stdin is never read, so a hand run does
  * not wait for input.
+ *
+ * @param {{ isTTY?: boolean }} [stdin]
  */
 export function sessionEvent(stdin = process.stdin) {
   if (stdin.isTTY) return {};
@@ -84,11 +86,15 @@ export function receiptCheckCommand(root) {
 }
 
 const COMPACTION_CHECKPOINT = [
-  'CONTEXT WAS COMPACTED. The engineering charter ends a session at the nearest green',
-  'checkpoint on compaction and hands over by mechanism (git, the plan on main, the backlog),',
-  'never by pushing a degraded context onward: from here, do not push or merge. Finish the',
-  'current green checkpoint, record where things stand, and stop. The contract below still',
-  'applies for arming and checking; its steps 5 and 6 are forbidden in this session.',
+  "CONTEXT WAS COMPACTED. This session's transcript carries a compaction, which is why this",
+  'appears even on a resume or a fork rather than only on the compaction itself. The',
+  'engineering charter ends a session at the nearest green checkpoint on compaction and hands',
+  'over by mechanism (git, the plan on main, the backlog), never by pushing a degraded context',
+  'onward: from here, do not push or merge. Finish the current green checkpoint, record where',
+  'things stand, and stop. That holds however complete your context feels and whether or not',
+  'you already handed over earlier in this transcript; only a new session clears it. The',
+  'contract below still applies for arming and checking, and its local review and receipt',
+  'steps reach that checkpoint; its steps 5 and 6 are forbidden in this session.',
   '',
 ];
 

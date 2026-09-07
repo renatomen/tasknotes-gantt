@@ -1,8 +1,14 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
-import { heartbeatContract, projectRoot, receiptCheckCommand } from '../../scripts/session-start-context.mjs';
+import { dirname, join, resolve } from 'node:path';
+import {
+  heartbeatContract,
+  projectRoot,
+  receiptCheckCommand,
+  sessionEvent,
+  transcriptCarriesCompaction,
+} from '../../scripts/session-start-context.mjs';
 
 /**
  * The SessionStart hook is the mechanism that puts the heartbeat contract in
@@ -29,6 +35,14 @@ const OUTSIDE_ANY_REPOSITORY = tmpdir();
 const ROOT_FROM_HOOK = projectRoot({ CLAUDE_PROJECT_DIR: ROOT });
 
 type ShellEnvironment = Record<string, string | undefined>;
+
+interface TranscriptEntry {
+  type: string;
+  subtype?: string;
+  content?: string;
+  message?: { role: string; content: string };
+  isCompactSummary?: boolean;
+}
 
 // Spawning bash on a loaded machine can alone exceed jest's 5s default.
 jest.setTimeout(30_000);
@@ -86,15 +100,44 @@ function runHookWithEvent(event: Record<string, string>): string {
   });
 }
 
+const writtenTranscripts: string[] = [];
+
+afterEach(() => {
+  for (const path of writtenTranscripts) rmSync(dirname(path), { recursive: true, force: true });
+  writtenTranscripts.length = 0;
+});
+
 /** A transcript is JSON lines; a compaction leaves a system entry with this subtype, measured on real transcripts. */
-function transcriptWith(lines: object[]): string {
+function transcriptWith(lines: TranscriptEntry[]): string {
   const path = join(mkdtempSync(join(tmpdir(), 'heartbeat-transcript-')), 'transcript.jsonl');
   writeFileSync(path, lines.map((line) => JSON.stringify(line)).join('\n') + '\n');
+  writtenTranscripts.push(path);
   return path;
 }
 
-const ORDINARY_TURN = { type: 'user', message: { role: 'user', content: 'hello' } };
-const COMPACTION = { type: 'system', subtype: 'compact_boundary', content: 'Conversation compacted' };
+const ORDINARY_TURN: TranscriptEntry = { type: 'user', message: { role: 'user', content: 'hello' } };
+const COMPACTION: TranscriptEntry = { type: 'system', subtype: 'compact_boundary', content: 'Conversation compacted' };
+const COMPACT_SUMMARY: TranscriptEntry = { type: 'user', isCompactSummary: true, message: { role: 'user', content: 'summary' } };
+/** A tool result that quotes this very script: the transcript escapes the inner quotes, so the marker must not match. */
+const TURN_QUOTING_THE_MARKER: TranscriptEntry = {
+  type: 'user',
+  message: { role: 'user', content: JSON.stringify(COMPACTION) },
+};
+
+/** A real transcript runs to tens of megabytes, so the scan is chunked; these place a marker relative to that chunk. */
+const SCAN_CHUNK_BYTES = 64 * 1024;
+
+function turnOfExactly(serializedBytes: number): TranscriptEntry {
+  const shell: TranscriptEntry = { type: 'user', message: { role: 'user', content: '' } };
+  return { type: 'user', message: { role: 'user', content: 'x'.repeat(serializedBytes - JSON.stringify(shell).length) } };
+}
+
+/** Pads so the compaction entry's `"subtype"` field spans the chunk boundary the scan reads across. */
+function turnEndingJustBeforeChunkBoundary(): TranscriptEntry {
+  const markerOffsetInEntry = JSON.stringify(COMPACTION).indexOf('"subtype"');
+  const firstLineBytes = SCAN_CHUNK_BYTES - markerOffsetInEntry - 13;
+  return turnOfExactly(firstLineBytes - 1);
+}
 
 function positionOf(text: string, marker: string): number {
   const position = text.indexOf(marker);
@@ -200,6 +243,13 @@ describe('SessionStart heartbeat hook', () => {
     expect(started).not.toContain('CONTEXT WAS COMPACTED');
   });
 
+  it('states why the checkpoint appears and that a fresh-feeling context does not lift it', () => {
+    const compacted = runHookWithEvent({ source: 'compact' });
+
+    expect(compacted).toContain("session's transcript carries a compaction");
+    expect(compacted).toContain('however complete your context feels');
+  });
+
   it('keeps the compaction checkpoint when a compacted session is resumed, read from the transcript', () => {
     const resumedAfterCompaction = runHookWithEvent({
       source: 'resume',
@@ -221,8 +271,52 @@ describe('SessionStart heartbeat hook', () => {
     expect(output).toContain('HEARTBEAT CONTRACT');
     expect(output).not.toContain('CONTEXT WAS COMPACTED');
   });
+});
 
-  it('reaches the receipt gate from outside any repository, without the hook environment', () => {
+describe('transcriptCarriesCompaction', () => {
+  it('finds a marker past the first chunk, where a real transcript carries it', () => {
+    const path = transcriptWith([turnOfExactly(3 * SCAN_CHUNK_BYTES), COMPACTION, ORDINARY_TURN]);
+
+    expect(transcriptCarriesCompaction(path)).toBe(true);
+  });
+
+  it('finds a marker that spans the boundary between two chunks', () => {
+    const path = transcriptWith([turnEndingJustBeforeChunkBoundary(), COMPACTION, ORDINARY_TURN]);
+
+    expect(transcriptCarriesCompaction(path)).toBe(true);
+  });
+
+  it('reads a multi-chunk transcript to the end before reporting no compaction', () => {
+    const path = transcriptWith([turnOfExactly(2 * SCAN_CHUNK_BYTES), turnOfExactly(2 * SCAN_CHUNK_BYTES)]);
+
+    expect(transcriptCarriesCompaction(path)).toBe(false);
+  });
+
+  it('finds the summary marker form as well as the boundary form', () => {
+    const path = transcriptWith([ORDINARY_TURN, COMPACT_SUMMARY]);
+
+    expect(transcriptCarriesCompaction(path)).toBe(true);
+  });
+
+  it('is not fooled by a turn that quotes the marker, since a transcript escapes those quotes', () => {
+    const path = transcriptWith([ORDINARY_TURN, TURN_QUOTING_THE_MARKER]);
+
+    expect(transcriptCarriesCompaction(path)).toBe(false);
+  });
+
+  it('reports no compaction when no transcript path was given', () => {
+    expect(transcriptCarriesCompaction(undefined)).toBe(false);
+  });
+});
+
+describe('sessionEvent', () => {
+  it('never reads a terminal stdin, so a hand run does not wait for input', () => {
+    expect(sessionEvent({ isTTY: true })).toEqual({});
+  });
+});
+
+describe('receipt gate', () => {
+  it('is reachable from outside any repository, without the hook environment', () => {
     const command = receiptCheckCommand(ROOT_FROM_HOOK);
 
     const result = spawnSync('bash', ['-c', command], {
