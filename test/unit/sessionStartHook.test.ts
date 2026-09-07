@@ -211,6 +211,22 @@ describe('SessionStart heartbeat hook', () => {
     }
   });
 
+  it('gates merge on the receipt check as well as the head, CI and threads', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    const mergeStep = positionOf(contract, 'gh pr merge');
+    const condition = contract.slice(mergeStep, contract.indexOf('  7. ', mergeStep));
+    expect(condition).toContain('only when step 2 exited 0');
+    expect(condition).toContain('headRefOid equals the local HEAD');
+  });
+
+  it('names the round that produced no review at all, not only the ones that produced a verdict', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    expect(contract).toContain('no VERDICT line, no receipt, and nothing alive');
+    expect(contract).toContain('never produced a review at all');
+  });
+
   it('merges only the head it observed and records layer one against the reviewed commit', () => {
     const steps = numberedSteps(heartbeatContract(ROOT_FROM_HOOK));
 
