@@ -1353,6 +1353,23 @@ invocation that takes an existing report path, verifies its sentinel and its com
 report's digest without re-running the review. That also gives the disposition entry above something
 concrete to point at.
 
+### P2 — "A recorded maintainer acceptance" names no way to recognise one (2026-09-08)
+
+Raised by layer one against `2ec7fd06`, which closed the hole where an agent could defer a blocking
+finding to this file and merge over it on its own authority. The merge condition now demands a
+recorded maintainer acceptance — but unlike the hosted-reviewer clause a few lines below it, which
+pins `commit.oid` and says outright that your own review answers for nobody, it gives no criterion
+for telling the maintainer's acceptance from an agent's account of one.
+
+The reason it is hard is worth writing down: agents in this repo commit and comment under the
+maintainer's own git identity, so authorship does not separate them. A later session working from a
+ruling relayed in chat could post a PR comment paraphrasing it, and a session after that could read
+the comment's presence as the acceptance. Nothing in the contract tells it not to.
+
+Not blocking, and deliberately not answered with more prose: the same entry below applies, and the
+mechanism candidate is the same one — a merge refusal that reads a store, where an acceptance is a
+recorded artefact with a shape rather than a sentence someone can write.
+
 ### P1 — The heartbeat contract is prose where it should be a mechanism (2026-09-07)
 
 Landed with PR #484 and recorded here as the design finding behind that PR's review history, not as one

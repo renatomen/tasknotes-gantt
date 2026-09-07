@@ -226,9 +226,10 @@ describe('SessionStart heartbeat hook', () => {
       'CI is terminal-green',
       'step 4 found nothing outstanding in any channel it read',
       'zero unresolved threads',
-      'no review body or top-level comment carrying a finding you have neither addressed',
-      'nor recorded',
-      'Never with an unresolved final-gate thread',
+      'no review body or top-level comment carrying a finding you have not addressed, or',
+      'deferred with a recorded maintainer acceptance',
+      'Never with an unresolved',
+      'final-gate thread',
       'Zero threads also describes a',
       'review that has not started, so require the hosted reviewer to have answered for the',
       'exact headRefOid step 3 observed',
@@ -283,6 +284,25 @@ describe('SessionStart heartbeat hook', () => {
     ]) {
       expect(contract).toContain(clause);
     }
+  });
+
+  it('will not let the agent grant itself the deferral that settles a finding', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    const mergeStep = positionOf(contract, 'gh pr merge');
+    const condition = contract.slice(mergeStep, contract.indexOf('  7. ', mergeStep));
+    for (const clause of [
+      'Recording a finding yourself is not',
+      'accepting it: the backlog entry is the record, the maintainer is the acceptance',
+      'deferral you granted yourself leaves the finding outstanding',
+    ]) {
+      expect(condition).toContain(clause);
+    }
+    // AGENTS.md settles a finding only on a maintainer-acknowledged acceptance,
+    // so a bare "recorded" let the agent defer a blocking finding to the backlog
+    // and merge over it — which is the disposition it would reach for first.
+    expect(condition).not.toContain('neither addressed');
+    expect(condition).not.toContain('nor recorded');
   });
 
   it('reads the merge outcome from the PR rather than from the exit code', () => {
