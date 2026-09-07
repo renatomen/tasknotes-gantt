@@ -309,6 +309,17 @@ describe('SessionStart heartbeat hook', () => {
     expect(output).toContain('HEARTBEAT CONTRACT');
     expect(output).not.toContain('CONTEXT WAS COMPACTED');
   });
+
+  it('does not read an unreadable transcript as compaction for a session that starts its own', () => {
+    const missing = join(tmpdir(), 'no-such-transcript.jsonl');
+
+    for (const source of ['startup', 'clear']) {
+      const output = runHookWithEvent({ source, transcript_path: missing });
+
+      expect(output).toContain('HEARTBEAT CONTRACT');
+      expect(output).not.toContain('CONTEXT WAS COMPACTED');
+    }
+  });
 });
 
 describe('transcriptCompactionState', () => {

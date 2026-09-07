@@ -95,10 +95,14 @@ export function transcriptCompactionState(transcriptPath) {
   }
 }
 
+/** Only these carry a prior session's transcript forward; the others start a fresh one. */
+const SOURCES_INHERITING_A_TRANSCRIPT = new Set(['resume', 'fork']);
+
 export function sessionCompacted(event) {
   if (event.source === 'compact') return true;
   const state = transcriptCompactionState(event.transcriptPath);
-  return state === 'compacted' || state === 'unreadable';
+  if (state === 'compacted') return true;
+  return state === 'unreadable' && SOURCES_INHERITING_A_TRANSCRIPT.has(event.source);
 }
 
 /**
