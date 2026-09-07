@@ -224,9 +224,9 @@ describe('SessionStart heartbeat hook', () => {
       'only when step 2 exited 0',
       'headRefOid equals the local HEAD',
       'CI is terminal-green',
-      'zero',
-      'threads are unresolved',
-      'never with an unresolved final-gate thread',
+      'zero unresolved threads',
+      'no review body or top-level comment carrying a finding you have neither addressed',
+      'Never with an unresolved final-gate thread',
     ]) {
       expect(condition).toContain(clause);
     }
