@@ -229,6 +229,9 @@ describe('SessionStart heartbeat hook', () => {
       'no review body or top-level comment carrying a finding you have neither addressed',
       'nor recorded',
       'Never with an unresolved final-gate thread',
+      'Zero threads also describes a',
+      'review that has not started',
+      'never merge while one is still in flight',
     ]) {
       expect(condition).toContain(clause);
     }
