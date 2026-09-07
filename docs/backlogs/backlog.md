@@ -1286,3 +1286,130 @@ Whoever takes it should do both halves: give the leaves distinguishing values in
 (`true`/`false`), and add a register-level wiring assertion, since the projection's own test builds
 its input directly and structurally cannot catch a miswire in the caller that assembles it. Branding
 the leaf values, or having the reader mint the bundle, is the design fix behind both.
+
+### P2 — An acknowledged review receipt does not say where its findings went (2026-09-07)
+
+`scripts/cross-model-peer-review.sh --acknowledge` records a digest of the review text, which proves
+a review happened and was accepted. Nothing ties that acceptance to a fix, a backlog entry or an
+issue, so a deferred finding survives only in whatever prose the author wrote at the time — and the
+next round rediscovers it. Measured on PR #484: the same shell-quoting finding was raised and
+acknowledged three times across sixteen rounds before it was fixed, at a cost of five lines.
+
+Candidate: have `--acknowledge` take a disposition naming this file or an issue, and refuse a bare
+acknowledgement. The cheap half is a convention; the mechanism half is the refusal.
+
+### P2 — The heartbeat contract is prose an agent follows, not a mechanism (2026-09-07)
+
+Every guard the SessionStart hook injects — arm exactly one heartbeat, wait in the background, never
+merge a stale head, stop delivery after a compaction — is enforced only by the agent reading it. The
+unit pins assert the text says the right thing; nothing asserts an agent did it. That is a deliberate
+boundary for now (the hook cannot observe session identity, the same reason the charter's session
+cadence is unmechanized), but it is the ceiling on what this hook can promise.
+
+Candidate: a session-scoped check that fails when two HEARTBEAT jobs exist, or when a push lands with
+a receipt older than HEAD.
+
+### P3 — Deferred findings from the session-heartbeat hook (PR #484, 2026-09-07)
+
+Acknowledged on both review layers' receipts and parked rather than fixed. Each names why, so a later
+session can judge it against fresh evidence instead of rediscovering it.
+
+- **The hook command is bash syntax.** On a Windows install without Git Bash, Claude Code runs hooks
+  under PowerShell, where `${VAR:-$(...)}` does not expand and the session silently gets no contract.
+  The same prerequisite every gate script here already carries, so it is consistent rather than new.
+- **Two sessions on one checkout cannot see each other's heartbeat.** Cron jobs are per session and in
+  memory, so "exactly one heartbeat" is per session, and two sessions can both push.
+- **The heartbeat stays bound to the checkout the session started in.** After entering a worktree the
+  root stays pinned to the original checkout. Following the worktree would reopen the
+  resolve-at-fire-time defect this PR closed, and worktrees sit outside the one-session-one-PR cadence.
+- **The refused branch does not name a round that died before writing a verdict.** The peer wrapper has
+  thirteen exit paths that fire before its report exists, plus one that leaves it without a verdict;
+  all present as "no verdict, nothing alive, no receipt", which no branch of the contract names.
+- **The kill recipe should say the innermost wrapper bash.** The Bash tool wraps a launch in two shells
+  that also carry the report path, so a naive match finds an outer shell first. The wrapper writing its
+  own PID beside the report would remove the ambiguity entirely.
+- **Step 1 prints an abbreviated sha where step 7 needs the full object name.** The record command
+  refuses a short sha with a clear message, so this costs a round trip rather than correctness.
+- **Zero unresolved threads cannot distinguish "reviewed clean" from "never reviewed".** Measured on
+  this repo, three of fifteen CI-green heads had no hosted review at all.
+- **A fresh clone can merge a reviewed head without local receipts.** Receipts gate the push and every
+  pushed head passed both layers, so this is by design; it is recorded because the merge step's
+  conditions read as if receipts were among them.
+
+### P1 — `--acknowledge` re-runs the review and accepts whatever the new run finds (2026-09-07)
+
+`scripts/cross-model-peer-review.sh --acknowledge` does not acknowledge the report you just read: it
+runs Codex again and records the digest of *that* run. A finding that appears only in the second run
+is stamped as accepted before anyone has read it, and the receipt gate then permits the push. Found
+by the cross-model peer on PR #484 and true of every acknowledged round on that branch, including the
+round that found it.
+
+The receipt is still honest about one thing — a review demonstrably happened — but its acceptance
+half is a claim nobody made. Two failure directions matter: a new finding rides in unread, and the
+digest in the receipt does not identify the text a human actually accepted.
+
+Candidate: split the flag. `--record` keeps its current meaning; acknowledgement becomes a separate
+invocation that takes an existing report path, verifies its sentinel and its commit, and records that
+report's digest without re-running the review. That also gives the disposition entry above something
+concrete to point at.
+
+### P2 — "A recorded maintainer acceptance" names no way to recognise one (2026-09-08)
+
+Raised by layer one against `2ec7fd06`, which closed the hole where an agent could defer a blocking
+finding to this file and merge over it on its own authority. The merge condition now demands a
+recorded maintainer acceptance — but unlike the hosted-reviewer clause a few lines below it, which
+pins `commit.oid` and says outright that your own review answers for nobody, it gives no criterion
+for telling the maintainer's acceptance from an agent's account of one.
+
+The reason it is hard is worth writing down: agents in this repo commit and comment under the
+maintainer's own git identity, so authorship does not separate them. A later session working from a
+ruling relayed in chat could post a PR comment paraphrasing it, and a session after that could read
+the comment's presence as the acceptance. Nothing in the contract tells it not to.
+
+Not blocking, and deliberately not answered with more prose: the same entry below applies, and the
+mechanism candidate is the same one — a merge refusal that reads a store, where an acceptance is a
+recorded artefact with a shape rather than a sentence someone can write.
+
+### P1 — The heartbeat contract is prose where it should be a mechanism (2026-09-07)
+
+Landed with PR #484 and recorded here as the design finding behind that PR's review history, not as one
+more defect in it. Twenty-one cross-model rounds produced findings at a flat rate — 1, 2, 2, 1, 1, 3,
+5, 1 across the last eight — and a flat rate is evidence about the design rather than the instances.
+
+Almost every one of those findings was a sentence in the injected contract that was wrong, ambiguous
+or contradicted another sentence. That is what the artifact is: a large block of prose whose
+guarantees nothing enforces, since an agent chooses whether to follow it. Its tests can only assert
+that particular strings appear, which is why several of them could not fail until a reviewer said so.
+The cost of change is the giveaway — a one-line wording fix costs a full peer round plus a full suite.
+
+The executable half converged and is sound: the hook fires, the project root is resolved once and
+shell-quoted into every command, compaction is decided by parsing the transcript entry, and the
+unreadable transcript, half-written marker line and unparseable event all fail closed, each
+mutation-proven and measured against the real transcripts on this machine.
+
+Candidate, as its own unit: move the guards that matter from sentences to checks. A pre-push refusal
+when two HEARTBEAT jobs are armed or when a receipt predates HEAD; a merge refusal that reads the
+receipt store rather than asking the agent to; a wrapper that records its own PID beside its report.
+Each is testable in a way a paragraph is not, and each removes the sentence that currently stands in
+for it. Do not extend the prose further first: that is the loop this entry exists to stop.
+
+Evidence added by the layer-one review of `554f7184`, and accepted here rather than fixed, because
+fixing each instance is the loop above. A reviewer asked to break the three string-pinned guards did
+so three times by the same move: leave every asserted substring in place and add a sentence that
+contradicts it. `ends the session on a successful merge` survives a clause re-arming the heartbeat
+for queued work; `accepts only hosted-review evidence` survives a trailing clause accepting a bare
+reaction; the `not.toContain` guard pins one literal phrasing and not the invariant behind it, so any
+paraphrase carrying the same defect passes. The ordering assertion is the one guard that is
+structural — it fails when the closeout moves back inside the `otherwise` branch — and it is
+correspondingly the only one that does not depend on the wording surviving. That asymmetry is the
+argument for the redesign above: the guard that checks a relationship held; the guards that check
+strings did not.
+
+The cross-model peer then reached the same conclusion independently on the next round, without
+having seen layer one's report, and named the same remedy — replace the prose pins with executable
+evidence and terminal-state predicates, then test the wrong-reviewer, prior-head, reaction-only,
+re-arm and continuation cases. Two reviewers on different model families converging on one design
+verdict, from different diffs, is the strongest evidence this entry has; it is no longer one
+reviewer's opinion about wording. Accepted and deferred here rather than answered with more
+assertions, which is the loop. The five cases the peer enumerated are the acceptance criteria for
+the unit when it is picked up.

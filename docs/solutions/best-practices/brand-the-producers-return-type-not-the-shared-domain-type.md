@@ -483,7 +483,8 @@ The instruments failed about as often as the code, and each failure produced out
 like a real finding. **Differential measurement held up; absolute counts did not.**
 
 *(Which types a given form admits is itself form-dependent, measured: a direct `T extends true`
-constraint admits exactly `never` and `any`, a set that can be listed; the inverse
+constraint admits `never`, `any`, and any subtype of the literal — of which only the first two are
+degenerate, a set that can be listed; the inverse
 `[false] extends [T]` admits every supertype of `false`, a set that cannot. `any` is admitted by
 both, so it needs an explicit rejection whichever form is used, while `never` slips past only the
 direct form. Reading one form's accept-set as the general threat model is how several levels of this

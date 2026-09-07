@@ -1,0 +1,624 @@
+import { execFileSync, spawnSync } from 'node:child_process';
+import { appendFileSync, closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
+import {
+  SCAN_CHUNK_BYTES,
+  heartbeatContract,
+  projectRoot,
+  receiptCheckCommand,
+  sessionEvent,
+  shellQuoted,
+  transcriptCompactionState,
+} from '../../scripts/session-start-context.mjs';
+
+/**
+ * The SessionStart hook is the mechanism that puts the heartbeat contract in
+ * front of every session, so the ways it can silently do nothing are
+ * exercised through the real settings file and the real commands.
+ *
+ * Claude Code reads the project settings from the directory the session
+ * started in, so the hook serves sessions started at the repository root.
+ * Hooks then run in the session's CURRENT directory, and SessionStart fires
+ * again on compaction, resume, clear and fork — by which time a session may
+ * have changed directory. A command that resolves a script relative to that
+ * directory fails with MODULE_NOT_FOUND, and a SessionStart failure is
+ * non-blocking, so the session simply continues without the contract. The
+ * heartbeat the contract asks for fires later still, from wherever the
+ * session's shell is by then — possibly no repository at all — and that shell
+ * does not carry the hook's CLAUDE_PROJECT_DIR.
+ *
+ * The contract itself is prose an agent follows; the pins on it are tripwires
+ * on the markers and sentences that carry each rule, named as such.
+ */
+const ROOT = resolve('.');
+const SUBDIRECTORY = join(ROOT, 'src');
+const OUTSIDE_ANY_REPOSITORY = tmpdir();
+const ROOT_FROM_HOOK = projectRoot({ CLAUDE_PROJECT_DIR: ROOT });
+
+type ShellEnvironment = Record<string, string | undefined>;
+
+interface TranscriptEntry {
+  type: string;
+  subtype?: string;
+  content?: string;
+  message?: { role: string; content: string };
+  isCompactSummary?: boolean;
+  toolUseResult?: { isCompactSummary?: boolean; subtype?: string };
+}
+
+// Spawning bash on a loaded machine can alone exceed jest's 5s default.
+jest.setTimeout(30_000);
+
+interface CommandHook {
+  type: string;
+  command: string;
+}
+
+interface HookGroup {
+  matcher?: string;
+  hooks: CommandHook[];
+}
+
+interface Settings {
+  hooks: { SessionStart: HookGroup[] };
+}
+
+function sessionStartGroups(): HookGroup[] {
+  const settings = JSON.parse(readFileSync(join(ROOT, '.claude', 'settings.json'), 'utf8')) as Settings;
+  return settings.hooks.SessionStart;
+}
+
+function sessionStartCommand(): string {
+  const commands = sessionStartGroups()
+    .flatMap((group) => group.hooks)
+    .filter((hook) => hook.type === 'command')
+    .map((hook) => hook.command);
+  expect(commands).toHaveLength(1);
+  return commands[0];
+}
+
+function withoutHookEnvironment(): ShellEnvironment {
+  const { CLAUDE_PROJECT_DIR: _dropped, ...shellEnv } = process.env;
+  return shellEnv;
+}
+
+function runHookFrom(cwd: string, env: ShellEnvironment = { ...process.env, CLAUDE_PROJECT_DIR: ROOT }): string {
+  return execFileSync('bash', ['-c', sessionStartCommand()], {
+    cwd,
+    encoding: 'utf8',
+    env,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
+}
+
+function runHookWithInput(input: string): string {
+  return execFileSync('bash', ['-c', sessionStartCommand()], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    env: { ...process.env, CLAUDE_PROJECT_DIR: ROOT },
+    input,
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+}
+
+/** Claude Code hands every hook a JSON event on stdin: `source` says how the session started, `transcript_path` where its transcript lives. */
+function runHookWithEvent(event: Record<string, string>): string {
+  return runHookWithInput(JSON.stringify(event));
+}
+
+const writtenTranscripts: string[] = [];
+
+afterEach(() => {
+  for (const path of writtenTranscripts) rmSync(dirname(path), { recursive: true, force: true });
+  writtenTranscripts.length = 0;
+});
+
+/** A transcript is JSON lines; a compaction leaves a system entry with this subtype, measured on real transcripts. */
+function transcriptWith(lines: TranscriptEntry[]): string {
+  const path = join(mkdtempSync(join(tmpdir(), 'heartbeat-transcript-')), 'transcript.jsonl');
+  writeFileSync(path, lines.map((line) => JSON.stringify(line)).join('\n') + '\n');
+  writtenTranscripts.push(path);
+  return path;
+}
+
+const ORDINARY_TURN: TranscriptEntry = { type: 'user', message: { role: 'user', content: 'hello' } };
+const COMPACTION: TranscriptEntry = { type: 'system', subtype: 'compact_boundary', content: 'Conversation compacted' };
+const COMPACT_SUMMARY: TranscriptEntry = { type: 'user', isCompactSummary: true, message: { role: 'user', content: 'summary' } };
+/** A tool result that quotes this very script: the transcript escapes the inner quotes, so the marker must not match. */
+const TURN_QUOTING_THE_MARKER: TranscriptEntry = {
+  type: 'user',
+  message: { role: 'user', content: JSON.stringify(COMPACTION) },
+};
+/** A tool result carrying transcript-shaped data: the marker words are real JSON, but not the entry's own fields. */
+const TURN_WITH_NESTED_MARKER: TranscriptEntry = {
+  type: 'user',
+  toolUseResult: { isCompactSummary: true, subtype: 'compact_boundary' },
+  message: { role: 'user', content: 'a tool returned a transcript entry' },
+};
+
+const MARKER_LITERAL = '"subtype":"compact_boundary"';
+
+function turnOfExactly(serializedBytes: number): TranscriptEntry {
+  const shell: TranscriptEntry = { type: 'user', message: { role: 'user', content: '' } };
+  return { type: 'user', message: { role: 'user', content: 'x'.repeat(serializedBytes - JSON.stringify(shell).length) } };
+}
+
+/**
+ * Pads so all but the marker's last byte falls in the first chunk: the widest
+ * split the scan's overlap has to span, which any overlap shorter than the
+ * marker fails.
+ */
+function turnEndingJustBeforeChunkBoundary(): TranscriptEntry {
+  const markerOffsetInEntry = JSON.stringify(COMPACTION).indexOf(MARKER_LITERAL);
+  expect(markerOffsetInEntry).toBeGreaterThan(-1);
+  return turnOfExactly(SCAN_CHUNK_BYTES - markerOffsetInEntry - MARKER_LITERAL.length);
+}
+
+function eventFile(event: Record<string, string>): string {
+  const path = join(mkdtempSync(join(tmpdir(), 'heartbeat-event-')), 'event.json');
+  writeFileSync(path, JSON.stringify(event));
+  writtenTranscripts.push(path);
+  return path;
+}
+
+function positionOf(text: string, marker: string): number {
+  const position = text.indexOf(marker);
+  expect(position).toBeGreaterThan(-1);
+  return position;
+}
+
+function numberedSteps(text: string): string[] {
+  return text.split('\n').filter((line) => /^\s+\d+\. /.test(line));
+}
+
+describe('SessionStart heartbeat hook', () => {
+  it('emits the heartbeat contract after a root-started session changed directory', () => {
+    const output = runHookFrom(SUBDIRECTORY);
+
+    expect(output).toContain('HEARTBEAT CONTRACT');
+  });
+
+  it('emits the heartbeat contract without the hook environment, from inside the repository', () => {
+    const output = runHookFrom(SUBDIRECTORY, withoutHookEnvironment());
+
+    expect(output).toContain(receiptCheckCommand(ROOT_FROM_HOOK));
+  });
+
+  it('fires on every SessionStart source, so no matcher narrows re-arming', () => {
+    for (const group of sessionStartGroups()) {
+      expect(group.matcher).toBeUndefined();
+    }
+  });
+
+  it('orders CronList, CronDelete, CronCreate, a tripwire that the check and the sweep precede the arm', () => {
+    const output = runHookFrom(ROOT);
+
+    const list = positionOf(output, 'CronList');
+    const sweep = positionOf(output, 'CronDelete');
+    const create = positionOf(output, 'CronCreate');
+    expect(list).toBeLessThan(sweep);
+    expect(sweep).toBeLessThan(create);
+  });
+
+  it('binds every numbered heartbeat step, reads and writes alike, to the root the session started in', () => {
+    const output = runHookFrom(SUBDIRECTORY);
+
+    const steps = numberedSteps(output);
+    expect(steps.length).toBeGreaterThanOrEqual(8);
+    for (const step of steps) {
+      expect(step.trim()).toContain(`cd ${shellQuoted(ROOT_FROM_HOOK)} && `);
+    }
+    expect(output).toContain(receiptCheckCommand(ROOT_FROM_HOOK));
+    for (const write of ['git push', 'gh pr merge', 'record ce-code-review', 'cross-model-peer-review.sh']) {
+      expect(steps.some((step) => step.includes(write))).toBe(true);
+    }
+  });
+
+  it('gates merge on the receipt check as well as the head, CI and threads', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    const mergeStep = positionOf(contract, 'gh pr merge');
+    const condition = contract.slice(mergeStep, contract.indexOf('  7. ', mergeStep));
+    for (const clause of [
+      'only when step 2 exited 0',
+      'headRefOid equals the local HEAD',
+      'CI is terminal-green',
+      'step 4 found nothing outstanding in any channel it read',
+      'zero unresolved threads',
+      'no review body or top-level comment carrying a finding you have not addressed, or',
+      'deferred with a recorded maintainer acceptance',
+      'Never with an unresolved',
+      'final-gate thread',
+      'Zero threads also describes a',
+      'review that has not started, so require the hosted reviewer to have answered for the',
+      'exact headRefOid step 3 observed',
+      'Never merge while a review for this head is still in flight',
+    ]) {
+      expect(condition).toContain(clause);
+    }
+  });
+
+  it('accepts only hosted-review evidence that carries the head step 3 observed', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    const mergeStep = positionOf(contract, 'gh pr merge');
+    const condition = contract.slice(mergeStep, contract.indexOf('  7. ', mergeStep));
+    for (const clause of [
+      'a review BY THAT REVIEWER whose commit.oid equals it',
+      'or their summary naming that commit',
+      'confirm unique to that head, since a short prefix can name two heads',
+      'Your own review carries commit.oid too and answers for nobody',
+      'an approving reaction',
+      'carries no SHA at all',
+      'a review of an earlier head is not evidence for this one',
+    ]) {
+      expect(condition).toContain(clause);
+    }
+    // A reaction is the alternative that cannot name a commit, so offering it
+    // unqualified lets one left for an earlier head answer for this one.
+    expect(condition).not.toContain('an approving reaction, or a summary naming this commit');
+  });
+
+  it('names the field that binds a review to the head it reviewed', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    expect(contract).toContain('Every review it');
+    expect(contract).toContain('returns carries commit.oid');
+    expect(contract).toContain('not the review order, is what binds a review to');
+  });
+
+  it('ends the session on a successful merge instead of leaving the heartbeat armed', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    // The one-line stop belongs to the "otherwise" branch, so a closeout sitting
+    // before it would only ever be read on the runs where no merge happened.
+    const otherwiseBranch = positionOf(contract, 'otherwise say so in ONE line');
+    const closeout = positionOf(contract, 'A merge in step 6 ENDS this session');
+    expect(closeout).toBeGreaterThan(otherwiseBranch);
+
+    for (const clause of [
+      'delete every HEARTBEAT cron',
+      'a closed PR against a branch that is gone',
+      'Do not begin another work product in this session',
+    ]) {
+      expect(contract).toContain(clause);
+    }
+  });
+
+  it('will not let the agent grant itself the deferral that settles a finding', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    const mergeStep = positionOf(contract, 'gh pr merge');
+    const condition = contract.slice(mergeStep, contract.indexOf('  7. ', mergeStep));
+    for (const clause of [
+      'Recording a finding yourself is not',
+      'accepting it: the backlog entry is the record, the maintainer is the acceptance',
+      'deferral you granted yourself leaves the finding outstanding',
+    ]) {
+      expect(condition).toContain(clause);
+    }
+    // AGENTS.md settles a finding only on a maintainer-acknowledged acceptance,
+    // so a bare "recorded" let the agent defer a blocking finding to the backlog
+    // and merge over it — which is the disposition it would reach for first.
+    expect(condition).not.toContain('neither addressed');
+    expect(condition).not.toContain('nor recorded');
+  });
+
+  it('reads the merge outcome from the PR rather than from the exit code', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    // --delete-branch runs after the merge, so a failed deletion fails a command
+    // whose PR is already merged. An agent reading the exit code alone concludes
+    // no merge happened and skips the closeout the previous test pins.
+    for (const clause of [
+      'Read that from',
+      'the PR and not from the exit code',
+      'Re-read state and mergedAt after',
+      'every merge attempt, and treat a merged PR as merged however the command exited',
+    ]) {
+      expect(contract).toContain(clause);
+    }
+  });
+
+  it('reads review bodies and top-level comments, not only inline threads', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    expect(contract).toContain('gh pr view <n> --json reviews,comments');
+    expect(contract).toContain('becomes an inline thread');
+  });
+
+  it('names the round that produced no review at all, not only the ones that produced a verdict', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    expect(contract).toContain('no VERDICT line, no receipt, and nothing alive');
+    expect(contract).toContain('never produced a review at all');
+  });
+
+  it('merges only the head it observed and records layer one against the reviewed commit', () => {
+    const steps = numberedSteps(heartbeatContract(ROOT_FROM_HOOK));
+
+    expect(steps.find((step) => step.includes('gh pr merge'))).toContain('--match-head-commit');
+    expect(steps.find((step) => step.includes('record ce-code-review'))).toContain('<reviewed-sha>');
+    expect(steps.find((step) => step.includes('gh api graphql'))).toContain('pageInfo { hasNextPage endCursor }');
+  });
+
+  it('launches the peer wrapper without acknowledging, and says what acknowledging really accepts', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    const launch = numberedSteps(contract).find((step) => step.includes('cross-model-peer-review.sh'));
+    expect(launch).not.toContain('--acknowledge');
+    expect(contract).toContain('including a finding no one has read yet');
+    expect(contract).toContain('the backlog for a deferred finding, a commit for a fixed one');
+  });
+
+  it('pins the two completion-signal sentences: the VERDICT line ends the review, the receipt closes the gate', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    expect(contract).toContain('VERDICT line is the signal that the review finished');
+    expect(contract).toContain('receipt is the signal that the gate accepted it');
+    expect(contract).not.toMatch(/recording the receipt/);
+  });
+
+  it('forbids the foreground wait, a tripwire on the sentence that keeps the heartbeat able to fire', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    expect(contract).toContain('never in the foreground');
+    expect(contract).toContain('fire only while the REPL is idle');
+  });
+
+  it('treats a round as refused only when neither codex nor the wrapper is alive, a tripwire on the condition', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    const hung = positionOf(contract, 'is still running');
+    const stalled = positionOf(contract, 'stalled in its own git fetch');
+    const refused = positionOf(contract, "nor a wrapper bash whose arguments name this round's report file");
+    expect(contract).toContain('the child of');
+    expect(contract.slice(0, refused)).toContain('neither a codex child');
+    expect(hung).toBeLessThan(stalled);
+    expect(stalled).toBeLessThan(refused);
+  });
+
+  it('emits no delivery command at all after compaction, the charter checkpoint rule', () => {
+    const compacted = runHookWithEvent({ source: 'compact' });
+    const started = runHookWithEvent({ source: 'startup' });
+
+    expect(compacted).toContain('CONTEXT WAS COMPACTED');
+    expect(compacted).toContain('no implementation, no review, no receipt recording, no');
+    for (const delivery of ['git push', 'gh pr merge', 'record ce-code-review', 'cross-model-peer-review.sh']) {
+      expect(compacted).not.toContain(delivery);
+      expect(started).toContain(delivery);
+    }
+    expect(numberedSteps(compacted).map((step) => step.trim().slice(0, 2))).toEqual(['1.', '2.', '3.', '4.']);
+    expect(started).not.toContain('CONTEXT WAS COMPACTED');
+  });
+
+  it('sweeps a heartbeat armed before the compaction and arms nothing in its place', () => {
+    const compacted = runHookWithEvent({ source: 'compact' });
+
+    expect(compacted).toContain('CronDelete every job whose prompt starts with HEARTBEAT, then arm nothing');
+    expect(compacted).not.toContain('CronCreate');
+  });
+
+  it('states why the checkpoint appears and that a fresh-feeling context does not lift it', () => {
+    const compacted = runHookWithEvent({ source: 'compact' });
+
+    expect(compacted).toContain("session's transcript carries a compaction");
+    expect(compacted).toContain('complete your context feels');
+  });
+
+  it('keeps the compaction checkpoint when a compacted session is resumed, read from the transcript', () => {
+    const resumedAfterCompaction = runHookWithEvent({
+      source: 'resume',
+      transcript_path: transcriptWith([ORDINARY_TURN, COMPACTION, ORDINARY_TURN]),
+    });
+    const resumedClean = runHookWithEvent({
+      source: 'resume',
+      transcript_path: transcriptWith([ORDINARY_TURN, ORDINARY_TURN]),
+    });
+
+    expect(resumedAfterCompaction).toContain('CONTEXT WAS COMPACTED');
+    expect(resumedAfterCompaction).toContain('Delivery work stops here');
+    expect(resumedClean).not.toContain('CONTEXT WAS COMPACTED');
+  });
+
+  it('keeps the checkpoint when the transcript it was handed cannot be read, since that proves nothing', () => {
+    const output = runHookWithEvent({ source: 'resume', transcript_path: join(tmpdir(), 'no-such-transcript.jsonl') });
+
+    expect(output).toContain('CONTEXT WAS COMPACTED');
+    expect(output).not.toContain('git push');
+  });
+
+  it('emits the delivery contract for a hand run that names no transcript', () => {
+    const output = runHookFrom(ROOT);
+
+    expect(output).toContain('HEARTBEAT CONTRACT');
+    expect(output).not.toContain('CONTEXT WAS COMPACTED');
+  });
+
+  it('keeps the checkpoint when the hook event itself will not parse', () => {
+    const output = runHookWithInput('{"source":"compact"');
+
+    expect(output).toContain('CONTEXT WAS COMPACTED');
+    expect(output).not.toContain('git push');
+  });
+
+  it('emits the delivery contract when no event is written at all', () => {
+    const output = runHookWithInput('');
+
+    expect(output).toContain('HEARTBEAT CONTRACT');
+    expect(output).not.toContain('CONTEXT WAS COMPACTED');
+  });
+
+  it('does not read an unreadable transcript as compaction for a session that starts its own', () => {
+    const missing = join(tmpdir(), 'no-such-transcript.jsonl');
+
+    for (const source of ['startup', 'clear']) {
+      const output = runHookWithEvent({ source, transcript_path: missing });
+
+      expect(output).toContain('HEARTBEAT CONTRACT');
+      expect(output).not.toContain('CONTEXT WAS COMPACTED');
+    }
+  });
+});
+
+describe('transcriptCompactionState', () => {
+  it('finds a marker past the first chunk, where a real transcript carries it', () => {
+    const path = transcriptWith([turnOfExactly(3 * SCAN_CHUNK_BYTES), COMPACTION, ORDINARY_TURN]);
+
+    expect(transcriptCompactionState(path)).toBe('compacted');
+  });
+
+  it('finds a marker that spans the boundary between two chunks', () => {
+    const path = transcriptWith([turnEndingJustBeforeChunkBoundary(), COMPACTION, ORDINARY_TURN]);
+
+    expect(transcriptCompactionState(path)).toBe('compacted');
+  });
+
+  it('reads a multi-chunk transcript to the end before reporting no compaction', () => {
+    const path = transcriptWith([turnOfExactly(2 * SCAN_CHUNK_BYTES), turnOfExactly(2 * SCAN_CHUNK_BYTES)]);
+
+    expect(transcriptCompactionState(path)).toBe('clean');
+  });
+
+  it('finds the summary marker form as well as the boundary form', () => {
+    const path = transcriptWith([ORDINARY_TURN, COMPACT_SUMMARY]);
+
+    expect(transcriptCompactionState(path)).toBe('compacted');
+  });
+
+  it('is not fooled by a turn that quotes the marker, since a transcript escapes those quotes', () => {
+    const path = transcriptWith([ORDINARY_TURN, TURN_QUOTING_THE_MARKER]);
+
+    expect(transcriptCompactionState(path)).toBe('clean');
+  });
+
+  it('is not fooled by a tool result that carries the marker as structured data', () => {
+    const path = transcriptWith([ORDINARY_TURN, TURN_WITH_NESTED_MARKER]);
+
+    expect(transcriptCompactionState(path)).toBe('clean');
+  });
+
+  it('treats a half-written marker line as compacted, since that is the entry caught mid-write', () => {
+    const halfWritten = JSON.stringify(COMPACTION).slice(0, -5);
+    expect(halfWritten).toContain(MARKER_LITERAL);
+    const path = transcriptWith([ORDINARY_TURN]);
+    appendFileSync(path, halfWritten);
+
+    expect(transcriptCompactionState(path)).toBe('compacted');
+  });
+
+  it('cannot answer for a line cut before the marker was written, so it says so', () => {
+    const cutBeforeTheMarker = JSON.stringify(COMPACTION).slice(0, 30);
+    expect(cutBeforeTheMarker).not.toContain(MARKER_LITERAL);
+    const path = transcriptWith([ORDINARY_TURN]);
+    appendFileSync(path, cutBeforeTheMarker);
+
+    expect(transcriptCompactionState(path)).toBe('unreadable');
+  });
+
+  it('cannot answer for that cut line once a later append completes it either', () => {
+    // The same damage as above, but no longer the last thing in the file: a
+    // later record and its newline turn it into an ordinary completed line. A
+    // scan that validated only the trailing line called this clean, and the
+    // compaction it could no longer see had been cut away before its marker.
+    const cutBeforeTheMarker = JSON.stringify(COMPACTION).slice(0, 30);
+    expect(cutBeforeTheMarker).not.toContain(MARKER_LITERAL);
+    const path = transcriptWith([ORDINARY_TURN]);
+    appendFileSync(path, cutBeforeTheMarker + JSON.stringify(ORDINARY_TURN) + '\n');
+
+    expect(transcriptCompactionState(path)).toBe('unreadable');
+  });
+
+  it('reads a transcript whose multi-byte character is split across two reads as clean', () => {
+    // Placed by byte offset, so the character really does straddle: padding to a
+    // character count leaves the boundary somewhere in the padding instead. The
+    // split decodes to a replacement character, which is still a legal character
+    // inside a JSON string — so the line parses and the rule above does not fire
+    // on it. Pinned because that is what makes the byte-level read safe here.
+    const prefix = '{"type":"user","message":{"role":"user","content":"';
+    const line = `${prefix}${'x'.repeat(SCAN_CHUNK_BYTES - 1 - prefix.length)}é"}}`;
+    expect(Buffer.byteLength(line.slice(0, line.indexOf('é')))).toBe(SCAN_CHUNK_BYTES - 1);
+    const path = join(mkdtempSync(join(tmpdir(), 'heartbeat-transcript-')), 'transcript.jsonl');
+    writeFileSync(path, `${line}\n`);
+    writtenTranscripts.push(path);
+
+    expect(transcriptCompactionState(path)).toBe('clean');
+  });
+
+  it('reads a complete transcript that ends without a trailing newline as clean', () => {
+    const path = transcriptWith([ORDINARY_TURN]);
+    appendFileSync(path, JSON.stringify(ORDINARY_TURN));
+
+    expect(transcriptCompactionState(path)).toBe('clean');
+  });
+
+  it('does not degrade a session over trailing whitespace, which carries no entry', () => {
+    const path = transcriptWith([ORDINARY_TURN]);
+    appendFileSync(path, '\r');
+
+    expect(transcriptCompactionState(path)).toBe('clean');
+  });
+
+  it('reports no compaction when no transcript path was given', () => {
+    expect(transcriptCompactionState(undefined)).toBe('none');
+  });
+});
+
+describe('sessionEvent', () => {
+  it('reads the hook event from the descriptor it is handed', () => {
+    const fd = openSync(eventFile({ source: 'resume', transcript_path: 'somewhere.jsonl' }), 'r');
+
+    try {
+      expect(sessionEvent({ isTTY: false, fd })).toEqual({ source: 'resume', transcriptPath: 'somewhere.jsonl' });
+    } finally {
+      closeSync(fd);
+    }
+  });
+
+  it('never reads a terminal stdin, so a hand run does not wait for input', () => {
+    const fd = openSync(eventFile({ source: 'compact' }), 'r');
+
+    try {
+      expect(sessionEvent({ isTTY: true, fd })).toEqual({});
+    } finally {
+      closeSync(fd);
+    }
+  });
+});
+
+describe('receipt gate', () => {
+  it('is reachable from outside any repository, without the hook environment', () => {
+    const command = receiptCheckCommand(ROOT_FROM_HOOK);
+
+    const result = spawnSync('bash', ['-c', command], {
+      cwd: OUTSIDE_ANY_REPOSITORY,
+      encoding: 'utf8',
+      env: withoutHookEnvironment(),
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+
+    // The developer's own receipt store decides which branch of the gate's
+    // protocol answers; either is a real answer, and nothing else is.
+    expect([0, 1]).toContain(result.status);
+    const protocol =
+      result.status === 0
+        ? /^review receipts OK for [0-9a-f]{7}/m
+        : /^pre-push: missing clean review receipts for [0-9a-f]{7}/m;
+    expect(`${result.stdout}${result.stderr}`).toMatch(protocol);
+  });
+});
+
+describe('projectRoot', () => {
+  it('falls back to the repository top level when the hook environment is absent', () => {
+    expect(projectRoot({})).toBe(ROOT_FROM_HOOK);
+  });
+
+  it('treats an empty hook value as absent', () => {
+    expect(projectRoot({ CLAUDE_PROJECT_DIR: '' })).toBe(projectRoot({}));
+  });
+
+  it('normalizes a backslash path to forward slashes', () => {
+    expect(projectRoot({ CLAUDE_PROJECT_DIR: 'C:\\work\\repo' })).toBe('C:/work/repo');
+  });
+});
