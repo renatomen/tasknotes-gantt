@@ -83,7 +83,7 @@ function entryIsCompaction(line) {
  * unknown rather than clean.
  */
 function trailingLineState(line) {
-  if (!line) return 'clean';
+  if (!line.trim()) return 'clean';
   if (entryIsCompaction(line)) return 'compacted';
   try {
     JSON.parse(line);

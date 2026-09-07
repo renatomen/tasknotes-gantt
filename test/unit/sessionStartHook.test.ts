@@ -224,8 +224,10 @@ describe('SessionStart heartbeat hook', () => {
       'only when step 2 exited 0',
       'headRefOid equals the local HEAD',
       'CI is terminal-green',
+      'step 4 found nothing outstanding in any channel it read',
       'zero unresolved threads',
       'no review body or top-level comment carrying a finding you have neither addressed',
+      'nor recorded',
       'Never with an unresolved final-gate thread',
     ]) {
       expect(condition).toContain(clause);
@@ -431,6 +433,13 @@ describe('transcriptCompactionState', () => {
   it('reads a complete transcript that ends without a trailing newline as clean', () => {
     const path = transcriptWith([ORDINARY_TURN]);
     appendFileSync(path, JSON.stringify(ORDINARY_TURN));
+
+    expect(transcriptCompactionState(path)).toBe('clean');
+  });
+
+  it('does not degrade a session over trailing whitespace, which carries no entry', () => {
+    const path = transcriptWith([ORDINARY_TURN]);
+    appendFileSync(path, '\r');
 
     expect(transcriptCompactionState(path)).toBe('clean');
   });
