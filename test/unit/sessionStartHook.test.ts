@@ -497,6 +497,35 @@ describe('transcriptCompactionState', () => {
     expect(transcriptCompactionState(path)).toBe('unreadable');
   });
 
+  it('cannot answer for that cut line once a later append completes it either', () => {
+    // The same damage as above, but no longer the last thing in the file: a
+    // later record and its newline turn it into an ordinary completed line. A
+    // scan that validated only the trailing line called this clean, and the
+    // compaction it could no longer see had been cut away before its marker.
+    const cutBeforeTheMarker = JSON.stringify(COMPACTION).slice(0, 30);
+    expect(cutBeforeTheMarker).not.toContain(MARKER_LITERAL);
+    const path = transcriptWith([ORDINARY_TURN]);
+    appendFileSync(path, cutBeforeTheMarker + JSON.stringify(ORDINARY_TURN) + '\n');
+
+    expect(transcriptCompactionState(path)).toBe('unreadable');
+  });
+
+  it('reads a transcript whose multi-byte character is split across two reads as clean', () => {
+    // Placed by byte offset, so the character really does straddle: padding to a
+    // character count leaves the boundary somewhere in the padding instead. The
+    // split decodes to a replacement character, which is still a legal character
+    // inside a JSON string — so the line parses and the rule above does not fire
+    // on it. Pinned because that is what makes the byte-level read safe here.
+    const prefix = '{"type":"user","message":{"role":"user","content":"';
+    const line = `${prefix}${'x'.repeat(SCAN_CHUNK_BYTES - 1 - prefix.length)}é"}}`;
+    expect(Buffer.byteLength(line.slice(0, line.indexOf('é')))).toBe(SCAN_CHUNK_BYTES - 1);
+    const path = join(mkdtempSync(join(tmpdir(), 'heartbeat-transcript-')), 'transcript.jsonl');
+    writeFileSync(path, `${line}\n`);
+    writtenTranscripts.push(path);
+
+    expect(transcriptCompactionState(path)).toBe('clean');
+  });
+
   it('reads a complete transcript that ends without a trailing newline as clean', () => {
     const path = transcriptWith([ORDINARY_TURN]);
     appendFileSync(path, JSON.stringify(ORDINARY_TURN));

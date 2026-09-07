@@ -71,18 +71,15 @@ function entryIsCompaction(line) {
 }
 
 /**
- * Scanned in chunks with an early exit because a long session's transcript runs
- * to tens of megabytes. `unreadable` is its own answer: a transcript the event
- * named but we could not read cannot prove the session is undegraded, and the
- * safe direction for a checkpoint is to assume it is.
+ * One rule for every line, complete or trailing. A cut entry answered
+ * `unreadable` only while it was the last thing in the file; once a later
+ * append wrote its own record and a newline, the damage became an ordinary
+ * completed line, and a scan that validated only the trailing one called that
+ * transcript clean — the compaction it could no longer see having been cut
+ * away before its marker. Both cases ask the same question, so they get the
+ * same answer here.
  */
-/**
- * A complete transcript ends with a newline, so anything left over is an entry
- * caught mid-write. If it will not parse we cannot say what it was going to be,
- * and the cut can fall before the marker is written at all, so the answer is
- * unknown rather than clean.
- */
-function trailingLineState(line) {
+function lineState(line) {
   if (!line.trim()) return 'clean';
   if (entryIsCompaction(line)) return 'compacted';
   try {
@@ -93,6 +90,12 @@ function trailingLineState(line) {
   }
 }
 
+/**
+ * Scanned in chunks with an early exit because a long session's transcript runs
+ * to tens of megabytes. `unreadable` is its own answer: a transcript the event
+ * named but we could not read cannot prove the session is undegraded, and the
+ * safe direction for a checkpoint is to assume it is.
+ */
 export function transcriptCompactionState(transcriptPath) {
   if (!transcriptPath) return 'none';
   let descriptor;
@@ -103,13 +106,24 @@ export function transcriptCompactionState(transcriptPath) {
   }
   try {
     const buffer = Buffer.alloc(SCAN_CHUNK_BYTES);
-    let partialLine = '';
+    // The parts of the line still being read, joined once when its newline
+    // arrives. Re-joining a growing prefix on every chunk instead made the scan
+    // quadratic in the length of a single entry, and one large tool result is
+    // enough to delay the hook past the point the session still wants it.
+    let pieces = [];
     for (;;) {
       const read = readSync(descriptor, buffer, 0, SCAN_CHUNK_BYTES, null);
-      if (read === 0) return trailingLineState(partialLine);
-      const lines = (partialLine + buffer.toString('utf8', 0, read)).split('\n');
-      partialLine = lines.pop() ?? '';
-      if (lines.some(entryIsCompaction)) return 'compacted';
+      if (read === 0) return lineState(pieces.join(''));
+      const chunk = buffer.toString('utf8', 0, read);
+      let start = 0;
+      for (let newline = chunk.indexOf('\n'); newline !== -1; newline = chunk.indexOf('\n', start)) {
+        pieces.push(chunk.slice(start, newline));
+        const state = lineState(pieces.join(''));
+        pieces = [];
+        if (state !== 'clean') return state;
+        start = newline + 1;
+      }
+      pieces.push(chunk.slice(start));
     }
   } catch {
     return 'unreadable';
