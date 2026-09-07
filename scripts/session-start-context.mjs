@@ -28,12 +28,12 @@ export function projectRoot(env = process.env) {
  * where its transcript lives. A terminal stdin is never read, so a hand run does
  * not wait for input.
  *
- * @param {{ isTTY?: boolean }} [stdin]
+ * @param {{ isTTY?: boolean, fd?: number }} [stdin]
  */
 export function sessionEvent(stdin = process.stdin) {
   if (stdin.isTTY) return {};
   try {
-    const raw = readFileSync(0, 'utf8').trim();
+    const raw = readFileSync(stdin.fd ?? 0, 'utf8').trim();
     if (!raw) return {};
     const event = JSON.parse(raw);
     return { source: event.source, transcriptPath: event.transcript_path };
@@ -49,7 +49,7 @@ export function sessionEvent(stdin = process.stdin) {
  * exit because a long session's transcript runs to tens of megabytes.
  */
 const COMPACTION_MARKER = /"subtype":\s*"compact_boundary"|"isCompactSummary":\s*true/;
-const SCAN_CHUNK_BYTES = 64 * 1024;
+export const SCAN_CHUNK_BYTES = 64 * 1024;
 const MARKER_OVERLAP_BYTES = 64;
 
 export function transcriptCarriesCompaction(transcriptPath) {
@@ -90,11 +90,12 @@ const COMPACTION_CHECKPOINT = [
   'appears even on a resume or a fork rather than only on the compaction itself. The',
   'engineering charter ends a session at the nearest green checkpoint on compaction and hands',
   'over by mechanism (git, the plan on main, the backlog), never by pushing a degraded context',
-  'onward: from here, do not push or merge. Finish the current green checkpoint, record where',
-  'things stand, and stop. That holds however complete your context feels and whether or not',
-  'you already handed over earlier in this transcript; only a new session clears it. The',
-  'contract below still applies for arming and checking, and its local review and receipt',
-  'steps reach that checkpoint; its steps 5 and 6 are forbidden in this session.',
+  'onward. Delivery work stops here: no implementation, no review, no receipt recording, no',
+  'push, no merge. Steps 1 to 4 below still apply, because reading state is how you find the',
+  'checkpoint; steps 5 to 8 are forbidden in this session, and the fresh session earns both',
+  'receipt layers before any push. Record where things stand and stop. That holds however',
+  'complete your context feels and whether or not you already handed over earlier in this',
+  'transcript; only a new session clears it.',
   '',
 ];
 

@@ -1,8 +1,9 @@
 import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, mkdtempSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import {
+  SCAN_CHUNK_BYTES,
   heartbeatContract,
   projectRoot,
   receiptCheckCommand,
@@ -124,19 +125,29 @@ const TURN_QUOTING_THE_MARKER: TranscriptEntry = {
   message: { role: 'user', content: JSON.stringify(COMPACTION) },
 };
 
-/** A real transcript runs to tens of megabytes, so the scan is chunked; these place a marker relative to that chunk. */
-const SCAN_CHUNK_BYTES = 64 * 1024;
+const MARKER_LITERAL = '"subtype":"compact_boundary"';
 
 function turnOfExactly(serializedBytes: number): TranscriptEntry {
   const shell: TranscriptEntry = { type: 'user', message: { role: 'user', content: '' } };
   return { type: 'user', message: { role: 'user', content: 'x'.repeat(serializedBytes - JSON.stringify(shell).length) } };
 }
 
-/** Pads so the compaction entry's `"subtype"` field spans the chunk boundary the scan reads across. */
+/**
+ * Pads so all but the marker's last byte falls in the first chunk: the widest
+ * split the scan's overlap has to span, which any overlap shorter than the
+ * marker fails.
+ */
 function turnEndingJustBeforeChunkBoundary(): TranscriptEntry {
-  const markerOffsetInEntry = JSON.stringify(COMPACTION).indexOf('"subtype"');
-  const firstLineBytes = SCAN_CHUNK_BYTES - markerOffsetInEntry - 13;
-  return turnOfExactly(firstLineBytes - 1);
+  const markerOffsetInEntry = JSON.stringify(COMPACTION).indexOf(MARKER_LITERAL);
+  expect(markerOffsetInEntry).toBeGreaterThan(-1);
+  return turnOfExactly(SCAN_CHUNK_BYTES - markerOffsetInEntry - MARKER_LITERAL.length);
+}
+
+function eventFile(event: Record<string, string>): string {
+  const path = join(mkdtempSync(join(tmpdir(), 'heartbeat-event-')), 'event.json');
+  writeFileSync(path, JSON.stringify(event));
+  writtenTranscripts.push(path);
+  return path;
 }
 
 function positionOf(text: string, marker: string): number {
@@ -234,12 +245,13 @@ describe('SessionStart heartbeat hook', () => {
     expect(stalled).toBeLessThan(refused);
   });
 
-  it('forbids push and merge after compaction, the charter checkpoint rule, keyed on the event source', () => {
+  it('stops every delivery step after compaction, the charter checkpoint rule, keyed on the event source', () => {
     const compacted = runHookWithEvent({ source: 'compact' });
     const started = runHookWithEvent({ source: 'startup' });
 
     expect(compacted).toContain('CONTEXT WAS COMPACTED');
-    expect(compacted).toContain('do not push or merge');
+    expect(compacted).toContain('no implementation, no review, no receipt recording, no');
+    expect(compacted).toContain('steps 5 to 8 are forbidden in this session');
     expect(started).not.toContain('CONTEXT WAS COMPACTED');
   });
 
@@ -247,7 +259,7 @@ describe('SessionStart heartbeat hook', () => {
     const compacted = runHookWithEvent({ source: 'compact' });
 
     expect(compacted).toContain("session's transcript carries a compaction");
-    expect(compacted).toContain('however complete your context feels');
+    expect(compacted).toContain('complete your context feels');
   });
 
   it('keeps the compaction checkpoint when a compacted session is resumed, read from the transcript', () => {
@@ -261,7 +273,7 @@ describe('SessionStart heartbeat hook', () => {
     });
 
     expect(resumedAfterCompaction).toContain('CONTEXT WAS COMPACTED');
-    expect(resumedAfterCompaction).toContain('do not push or merge');
+    expect(resumedAfterCompaction).toContain('Delivery work stops here');
     expect(resumedClean).not.toContain('CONTEXT WAS COMPACTED');
   });
 
@@ -310,8 +322,24 @@ describe('transcriptCarriesCompaction', () => {
 });
 
 describe('sessionEvent', () => {
+  it('reads the hook event from the descriptor it is handed', () => {
+    const fd = openSync(eventFile({ source: 'resume', transcript_path: 'somewhere.jsonl' }), 'r');
+
+    try {
+      expect(sessionEvent({ isTTY: false, fd })).toEqual({ source: 'resume', transcriptPath: 'somewhere.jsonl' });
+    } finally {
+      closeSync(fd);
+    }
+  });
+
   it('never reads a terminal stdin, so a hand run does not wait for input', () => {
-    expect(sessionEvent({ isTTY: true })).toEqual({});
+    const fd = openSync(eventFile({ source: 'compact' }), 'r');
+
+    try {
+      expect(sessionEvent({ isTTY: true, fd })).toEqual({});
+    } finally {
+      closeSync(fd);
+    }
   });
 });
 
