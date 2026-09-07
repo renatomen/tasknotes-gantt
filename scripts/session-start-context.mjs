@@ -38,7 +38,9 @@ export function sessionEvent(stdin = process.stdin) {
     const event = JSON.parse(raw);
     return { source: event.source, transcriptPath: event.transcript_path };
   } catch {
-    return {};
+    // Something wrote an event we cannot read. It named neither a source nor a
+    // transcript, so nothing downstream can establish that delivery is safe.
+    return { unreadable: true };
   }
 }
 
@@ -103,6 +105,7 @@ export function transcriptCompactionState(transcriptPath) {
 const SOURCES_INHERITING_A_TRANSCRIPT = new Set(['resume', 'fork']);
 
 export function sessionCompacted(event) {
+  if (event.unreadable) return true;
   if (event.source === 'compact') return true;
   const state = transcriptCompactionState(event.transcriptPath);
   if (state === 'compacted') return true;

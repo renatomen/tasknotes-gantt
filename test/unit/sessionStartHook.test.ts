@@ -92,15 +92,19 @@ function runHookFrom(cwd: string, env: ShellEnvironment = { ...process.env, CLAU
   });
 }
 
-/** Claude Code hands every hook a JSON event on stdin: `source` says how the session started, `transcript_path` where its transcript lives. */
-function runHookWithEvent(event: Record<string, string>): string {
+function runHookWithInput(input: string): string {
   return execFileSync('bash', ['-c', sessionStartCommand()], {
     cwd: ROOT,
     encoding: 'utf8',
     env: { ...process.env, CLAUDE_PROJECT_DIR: ROOT },
-    input: JSON.stringify(event),
+    input,
     stdio: ['pipe', 'pipe', 'pipe'],
   });
+}
+
+/** Claude Code hands every hook a JSON event on stdin: `source` says how the session started, `transcript_path` where its transcript lives. */
+function runHookWithEvent(event: Record<string, string>): string {
+  return runHookWithInput(JSON.stringify(event));
 }
 
 const writtenTranscripts: string[] = [];
@@ -338,6 +342,20 @@ describe('SessionStart heartbeat hook', () => {
 
   it('emits the delivery contract for a hand run that names no transcript', () => {
     const output = runHookFrom(ROOT);
+
+    expect(output).toContain('HEARTBEAT CONTRACT');
+    expect(output).not.toContain('CONTEXT WAS COMPACTED');
+  });
+
+  it('keeps the checkpoint when the hook event itself will not parse', () => {
+    const output = runHookWithInput('{"source":"compact"');
+
+    expect(output).toContain('CONTEXT WAS COMPACTED');
+    expect(output).not.toContain('git push');
+  });
+
+  it('emits the delivery contract when no event is written at all', () => {
+    const output = runHookWithInput('');
 
     expect(output).toContain('HEARTBEAT CONTRACT');
     expect(output).not.toContain('CONTEXT WAS COMPACTED');
