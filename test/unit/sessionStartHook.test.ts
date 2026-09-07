@@ -8,7 +8,8 @@ import {
   projectRoot,
   receiptCheckCommand,
   sessionEvent,
-  transcriptCarriesCompaction,
+  shellQuoted,
+  transcriptCompactionState,
 } from '../../scripts/session-start-context.mjs';
 
 /**
@@ -202,7 +203,7 @@ describe('SessionStart heartbeat hook', () => {
     const steps = numberedSteps(output);
     expect(steps.length).toBeGreaterThanOrEqual(8);
     for (const step of steps) {
-      expect(step).toMatch(new RegExp(`^\\s+\\d+\\. cd "${ROOT_FROM_HOOK}" && `));
+      expect(step.trim()).toContain(`cd ${shellQuoted(ROOT_FROM_HOOK)} && `);
     }
     expect(output).toContain(receiptCheckCommand(ROOT_FROM_HOOK));
     for (const write of ['git push', 'gh pr merge', 'record ce-code-review', 'cross-model-peer-review.sh']) {
@@ -295,53 +296,60 @@ describe('SessionStart heartbeat hook', () => {
     expect(resumedClean).not.toContain('CONTEXT WAS COMPACTED');
   });
 
-  it('treats an unreadable transcript as not compacted, so a hand run never fails on it', () => {
+  it('keeps the checkpoint when the transcript it was handed cannot be read, since that proves nothing', () => {
     const output = runHookWithEvent({ source: 'resume', transcript_path: join(tmpdir(), 'no-such-transcript.jsonl') });
+
+    expect(output).toContain('CONTEXT WAS COMPACTED');
+    expect(output).not.toContain('git push');
+  });
+
+  it('emits the delivery contract for a hand run that names no transcript', () => {
+    const output = runHookFrom(ROOT);
 
     expect(output).toContain('HEARTBEAT CONTRACT');
     expect(output).not.toContain('CONTEXT WAS COMPACTED');
   });
 });
 
-describe('transcriptCarriesCompaction', () => {
+describe('transcriptCompactionState', () => {
   it('finds a marker past the first chunk, where a real transcript carries it', () => {
     const path = transcriptWith([turnOfExactly(3 * SCAN_CHUNK_BYTES), COMPACTION, ORDINARY_TURN]);
 
-    expect(transcriptCarriesCompaction(path)).toBe(true);
+    expect(transcriptCompactionState(path)).toBe('compacted');
   });
 
   it('finds a marker that spans the boundary between two chunks', () => {
     const path = transcriptWith([turnEndingJustBeforeChunkBoundary(), COMPACTION, ORDINARY_TURN]);
 
-    expect(transcriptCarriesCompaction(path)).toBe(true);
+    expect(transcriptCompactionState(path)).toBe('compacted');
   });
 
   it('reads a multi-chunk transcript to the end before reporting no compaction', () => {
     const path = transcriptWith([turnOfExactly(2 * SCAN_CHUNK_BYTES), turnOfExactly(2 * SCAN_CHUNK_BYTES)]);
 
-    expect(transcriptCarriesCompaction(path)).toBe(false);
+    expect(transcriptCompactionState(path)).toBe('clean');
   });
 
   it('finds the summary marker form as well as the boundary form', () => {
     const path = transcriptWith([ORDINARY_TURN, COMPACT_SUMMARY]);
 
-    expect(transcriptCarriesCompaction(path)).toBe(true);
+    expect(transcriptCompactionState(path)).toBe('compacted');
   });
 
   it('is not fooled by a turn that quotes the marker, since a transcript escapes those quotes', () => {
     const path = transcriptWith([ORDINARY_TURN, TURN_QUOTING_THE_MARKER]);
 
-    expect(transcriptCarriesCompaction(path)).toBe(false);
+    expect(transcriptCompactionState(path)).toBe('clean');
   });
 
   it('is not fooled by a tool result that carries the marker as structured data', () => {
     const path = transcriptWith([ORDINARY_TURN, TURN_WITH_NESTED_MARKER]);
 
-    expect(transcriptCarriesCompaction(path)).toBe(false);
+    expect(transcriptCompactionState(path)).toBe('clean');
   });
 
   it('reports no compaction when no transcript path was given', () => {
-    expect(transcriptCarriesCompaction(undefined)).toBe(false);
+    expect(transcriptCompactionState(undefined)).toBe('none');
   });
 });
 

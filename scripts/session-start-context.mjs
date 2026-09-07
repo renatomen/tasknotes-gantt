@@ -64,48 +64,63 @@ function entryIsCompaction(line) {
   }
 }
 
-/** Scanned in chunks with an early exit because a long session's transcript runs to tens of megabytes. */
-export function transcriptCarriesCompaction(transcriptPath) {
-  if (!transcriptPath) return false;
+/**
+ * Scanned in chunks with an early exit because a long session's transcript runs
+ * to tens of megabytes. `unreadable` is its own answer: a transcript the event
+ * named but we could not read cannot prove the session is undegraded, and the
+ * safe direction for a checkpoint is to assume it is.
+ */
+export function transcriptCompactionState(transcriptPath) {
+  if (!transcriptPath) return 'none';
   let descriptor;
   try {
     descriptor = openSync(transcriptPath, 'r');
   } catch {
-    return false;
+    return 'unreadable';
   }
   try {
     const buffer = Buffer.alloc(SCAN_CHUNK_BYTES);
     let partialLine = '';
     for (;;) {
       const read = readSync(descriptor, buffer, 0, SCAN_CHUNK_BYTES, null);
-      if (read === 0) return entryIsCompaction(partialLine);
+      if (read === 0) return entryIsCompaction(partialLine) ? 'compacted' : 'clean';
       const lines = (partialLine + buffer.toString('utf8', 0, read)).split('\n');
       partialLine = lines.pop() ?? '';
-      if (lines.some(entryIsCompaction)) return true;
+      if (lines.some(entryIsCompaction)) return 'compacted';
     }
   } catch {
-    return false;
+    return 'unreadable';
   } finally {
     closeSync(descriptor);
   }
 }
 
 export function sessionCompacted(event) {
-  return event.source === 'compact' || transcriptCarriesCompaction(event.transcriptPath);
+  if (event.source === 'compact') return true;
+  const state = transcriptCompactionState(event.transcriptPath);
+  return state === 'compacted' || state === 'unreadable';
+}
+
+/**
+ * The root reaches a shell the heartbeat opens later, so it is quoted where a
+ * `$`, a backtick or a `$(...)` in an otherwise valid clone path cannot expand.
+ */
+export function shellQuoted(root) {
+  return `'${root.replaceAll("'", `'\\''`)}'`;
 }
 
 export function receiptCheckCommand(root) {
-  return `cd "${root}" && node scripts/check-review-receipts.mjs check`;
+  return `cd ${shellQuoted(root)} && node scripts/check-review-receipts.mjs check`;
 }
 
 function readSteps(root) {
   return [
-    `  1. cd "${root}" && git status -sb && git log --oneline -1`,
+    `  1. cd ${shellQuoted(root)} && git status -sb && git log --oneline -1`,
     `  2. ${receiptCheckCommand(root)}`,
     '     (exit 0 means BOTH receipts are stamped for HEAD; otherwise its "missing" line',
     '     names the layers still unstamped)',
-    `  3. cd "${root}" && gh pr view <n> --json headRefOid,mergeStateStatus,statusCheckRollup`,
-    `  4. cd "${root}" && gh api graphql -f query='{ repository(owner:"<owner>",name:"<repo>") { pullRequest(number:<n>) { reviewThreads(first:100) { pageInfo { hasNextPage endCursor } nodes { isResolved comments(first:1) { nodes { body } } } } } } }'`,
+    `  3. cd ${shellQuoted(root)} && gh pr view <n> --json headRefOid,mergeStateStatus,statusCheckRollup`,
+    `  4. cd ${shellQuoted(root)} && gh api graphql -f query='{ repository(owner:"<owner>",name:"<repo>") { pullRequest(number:<n>) { reviewThreads(first:100) { pageInfo { hasNextPage endCursor } nodes { isResolved comments(first:1) { nodes { body } } } } } } }'`,
     '     page on with endCursor while hasNextPage is true, then count the threads with',
     '     isResolved false across every page, reading each body, not just the count',
   ];
@@ -113,14 +128,14 @@ function readSteps(root) {
 
 function deliverySteps(root) {
   return [
-    `  5. cd "${root}" && git push -u origin HEAD`,
+    `  5. cd ${shellQuoted(root)} && git push -u origin HEAD`,
     '     only when local is ahead of origin and step 2 exited 0',
-    `  6. cd "${root}" && gh pr merge <n> --squash --delete-branch --match-head-commit <headRefOid-from-step-3>`,
+    `  6. cd ${shellQuoted(root)} && gh pr merge <n> --squash --delete-branch --match-head-commit <headRefOid-from-step-3>`,
     '     only when that headRefOid equals the local HEAD, CI is terminal-green, and zero',
     '     threads are unresolved; never with an unresolved final-gate thread',
-    `  7. cd "${root}" && node scripts/check-review-receipts.mjs record ce-code-review <reviewed-sha>`,
+    `  7. cd ${shellQuoted(root)} && node scripts/check-review-receipts.mjs record ce-code-review <reviewed-sha>`,
     '     only after a clean layer-one review of exactly that commit, never a moving HEAD',
-    `  8. cd "${root}" && bash scripts/cross-model-peer-review.sh <base> <report> --record`,
+    `  8. cd ${shellQuoted(root)} && bash scripts/cross-model-peer-review.sh <base> <report> --record`,
     '     started in the background, never awaited in the foreground; add --acknowledge',
     '     only after reading the findings and recording their acceptance in the PR body',
   ];
