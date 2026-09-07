@@ -1375,3 +1375,24 @@ when two HEARTBEAT jobs are armed or when a receipt predates HEAD; a merge refus
 receipt store rather than asking the agent to; a wrapper that records its own PID beside its report.
 Each is testable in a way a paragraph is not, and each removes the sentence that currently stands in
 for it. Do not extend the prose further first: that is the loop this entry exists to stop.
+
+Evidence added by the layer-one review of `554f7184`, and accepted here rather than fixed, because
+fixing each instance is the loop above. A reviewer asked to break the three string-pinned guards did
+so three times by the same move: leave every asserted substring in place and add a sentence that
+contradicts it. `ends the session on a successful merge` survives a clause re-arming the heartbeat
+for queued work; `accepts only hosted-review evidence` survives a trailing clause accepting a bare
+reaction; the `not.toContain` guard pins one literal phrasing and not the invariant behind it, so any
+paraphrase carrying the same defect passes. The ordering assertion is the one guard that is
+structural — it fails when the closeout moves back inside the `otherwise` branch — and it is
+correspondingly the only one that does not depend on the wording surviving. That asymmetry is the
+argument for the redesign above: the guard that checks a relationship held; the guards that check
+strings did not.
+
+The cross-model peer then reached the same conclusion independently on the next round, without
+having seen layer one's report, and named the same remedy — replace the prose pins with executable
+evidence and terminal-state predicates, then test the wrong-reviewer, prior-head, reaction-only,
+re-arm and continuation cases. Two reviewers on different model families converging on one design
+verdict, from different diffs, is the strongest evidence this entry has; it is no longer one
+reviewer's opinion about wording. Accepted and deferred here rather than answered with more
+assertions, which is the loop. The five cases the peer enumerated are the acceptance criteria for
+the unit when it is picked up.

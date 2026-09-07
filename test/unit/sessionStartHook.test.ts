@@ -230,11 +230,74 @@ describe('SessionStart heartbeat hook', () => {
       'nor recorded',
       'Never with an unresolved final-gate thread',
       'Zero threads also describes a',
-      'review that has not started, so require the hosted reviewer to have answered for this',
-      'exact head — a review, an approving reaction, or a summary naming this commit',
-      'never merge while one is still in flight',
+      'review that has not started, so require the hosted reviewer to have answered for the',
+      'exact headRefOid step 3 observed',
+      'Never merge while a review for this head is still in flight',
     ]) {
       expect(condition).toContain(clause);
+    }
+  });
+
+  it('accepts only hosted-review evidence that carries the head step 3 observed', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    const mergeStep = positionOf(contract, 'gh pr merge');
+    const condition = contract.slice(mergeStep, contract.indexOf('  7. ', mergeStep));
+    for (const clause of [
+      'a review BY THAT REVIEWER whose commit.oid equals it',
+      'or their summary naming that commit',
+      'confirm unique to that head, since a short prefix can name two heads',
+      'Your own review carries commit.oid too and answers for nobody',
+      'an approving reaction',
+      'carries no SHA at all',
+      'a review of an earlier head is not evidence for this one',
+    ]) {
+      expect(condition).toContain(clause);
+    }
+    // A reaction is the alternative that cannot name a commit, so offering it
+    // unqualified lets one left for an earlier head answer for this one.
+    expect(condition).not.toContain('an approving reaction, or a summary naming this commit');
+  });
+
+  it('names the field that binds a review to the head it reviewed', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    expect(contract).toContain('Every review it');
+    expect(contract).toContain('returns carries commit.oid');
+    expect(contract).toContain('not the review order, is what binds a review to');
+  });
+
+  it('ends the session on a successful merge instead of leaving the heartbeat armed', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    // The one-line stop belongs to the "otherwise" branch, so a closeout sitting
+    // before it would only ever be read on the runs where no merge happened.
+    const otherwiseBranch = positionOf(contract, 'otherwise say so in ONE line');
+    const closeout = positionOf(contract, 'A merge in step 6 ENDS this session');
+    expect(closeout).toBeGreaterThan(otherwiseBranch);
+
+    for (const clause of [
+      'delete every HEARTBEAT cron',
+      'a closed PR against a branch that is gone',
+      'Do not begin another work product in this session',
+    ]) {
+      expect(contract).toContain(clause);
+    }
+  });
+
+  it('reads the merge outcome from the PR rather than from the exit code', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    // --delete-branch runs after the merge, so a failed deletion fails a command
+    // whose PR is already merged. An agent reading the exit code alone concludes
+    // no merge happened and skips the closeout the previous test pins.
+    for (const clause of [
+      'Read that from',
+      'the PR and not from the exit code',
+      'Re-read state and mergedAt after',
+      'every merge attempt, and treat a merged PR as merged however the command exited',
+    ]) {
+      expect(contract).toContain(clause);
     }
   });
 
