@@ -48,6 +48,8 @@ jobs:
         run: npm run typecheck --if-present
       - name: Unit tests
         run: npm test --if-present
+      - name: Timezone contracts
+        run: npm run test:timezones
       - name: Maintainability trend
         # Runs on every PR, failing ones included (if: always(), deliberately
         # not continue-on-error): the measured values never fail the step, only

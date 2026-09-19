@@ -746,9 +746,8 @@ describe('TaskNotesSource', () => {
       const [task] = await source!.getTasks();
 
       // Assert
-      expect(task.start).toBeInstanceOf(Date);
-      expect(task.end).toBeInstanceOf(Date);
-      expect(typeof task.start).not.toBe('string');
+      expect(task.start).toEqual(new Date(2026, 4, 1));
+      expect(task.end).toEqual(new Date(2026, 4, 10));
     });
 
     it('yields null (not a fabricated date) for missing/unparseable dates', async () => {

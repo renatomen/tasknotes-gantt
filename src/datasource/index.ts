@@ -49,6 +49,7 @@ export type {
 } from './calendarItems';
 
 export { BasesSource } from './BasesSource';
+export { parseDateValue } from './dateValue';
 export { CompositeSource } from './CompositeSource';
 export {
   TaskNotesSource,

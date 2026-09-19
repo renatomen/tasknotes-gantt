@@ -14,6 +14,7 @@
     "dev": "vite build --watch",
     "install:vault": "node scripts/install-to-vault.mjs",
     "test": "jest --passWithNoTests",
+    "test:timezones": "node scripts/test-timezones.mjs",
     "test:coverage": "jest --coverage --passWithNoTests",
     "lint": "eslint . --max-warnings 0",
     "typecheck": "svelte-check --tsconfig tsconfig.json && npm run typecheck:test",
