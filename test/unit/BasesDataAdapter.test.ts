@@ -197,6 +197,7 @@ describe("BasesDataAdapter", () => {
       expect(result?.getFullYear()).toBe(2024);
       expect(result?.getMonth()).toBe(0); // January (0-indexed)
       expect(result?.getDate()).toBe(15);
+      expect(result?.getHours()).toBe(0);
     });
 
     it("should convert timestamp to Date object", () => {
@@ -208,9 +209,7 @@ describe("BasesDataAdapter", () => {
 
       // Assert
       expect(result).toBeInstanceOf(Date);
-      expect(result?.getFullYear()).toBe(2024);
-      expect(result?.getMonth()).toBe(5); // June (0-indexed)
-      expect(result?.getDate()).toBe(20);
+      expect(result?.getTime()).toBe(timestamp);
     });
 
     it("should return null for invalid date string", () => {
@@ -434,22 +433,20 @@ describe("BasesDataAdapter", () => {
   });
 
   describe("extractDate", () => {
-    it("should extract and convert date property", () => {
+    it("preserves the local day in a computed DateValue", () => {
       // Arrange - DateValue uses .date property
       const mockEntry: BasesEntryLike = {
         file: { path: "test.md", name: "test.md", basename: "test" },
         getValue: (_propertyId: string) => ({
-          date: new Date("2024-05-15"),
+          date: new Date(2024, 4, 15),
         }),
       };
 
       // Act
-      const result = adapter.extractDate(mockEntry, "note:start");
+      const result = adapter.extractDate(mockEntry, "formula.start");
 
       // Assert
-      expect(result).toBeInstanceOf(Date);
-      expect(result?.getFullYear()).toBe(2024);
-      expect(result?.getMonth()).toBe(4); // May (0-indexed)
+      expect(result).toEqual(new Date(2024, 4, 15));
     });
 
     it("reads a dot-form note. date property via the frontmatter fast path (no getValue)", () => {

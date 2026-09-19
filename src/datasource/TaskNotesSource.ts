@@ -35,6 +35,7 @@
 import type { App } from 'obsidian';
 import type { RelationshipIndex } from './companionResolve';
 import { toYmd } from './dateFieldMapping';
+import { parseDateValue } from './dateValue';
 import type {
   ChoiceOption,
   ChoiceRole,
@@ -1021,8 +1022,8 @@ export class TaskNotesSource implements DataSource {
     return {
       path: task.path,
       text: task.title ?? '',
-      start: this.toDate(task.scheduled),
-      end: this.toDate(task.due),
+      start: parseDateValue(task.scheduled),
+      end: parseDateValue(task.due),
       // Companion-fetched tasks have no Bases entry, so progress is resolved from
       // the note by path (checklist compute or frontmatter property, mode-aware)
       // via the controller-installed resolver. `null` when no resolver is set
@@ -1064,23 +1065,6 @@ export class TaskNotesSource implements DataSource {
       reltype,
       gap: rel.gap ?? edge.gap ?? null,
     };
-  }
-
-  /**
-   * Parse a raw scheduled/due value into a `Date` or `null` (no formatting).
-   *
-   * Accepts a `Date` (returned as-is when valid) or a date string; anything
-   * unparseable yields `null` so the data layer never fabricates a date.
-   */
-  private toDate(value: Date | string | null | undefined): Date | null {
-    if (value === null || value === undefined) {
-      return null;
-    }
-    if (value instanceof Date) {
-      return Number.isNaN(value.getTime()) ? null : value;
-    }
-    const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? null : parsed;
   }
 }
 

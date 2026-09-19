@@ -12,6 +12,7 @@
 import type { BasesEntryLike } from "./../types/bases-entry";
 import { stringifyDirectPrimitive } from "../../stringifyPrimitive";
 import { stringifyObject } from "../explicitString";
+import { parseDateValue } from "../../datasource/dateValue";
 
 /**
  * Options for number conversion
@@ -440,22 +441,7 @@ export class BasesDataAdapter {
    * @returns Date object or null if invalid
    */
   convertToDate(value: unknown): Date | null {
-    if (value === null || value === undefined) {
-      return null;
-    }
-
-    // Handle Date objects
-    if (value instanceof Date) {
-      return Number.isNaN(value.getTime()) ? null : value;
-    }
-
-    // Handle ISO strings and timestamps
-    if (typeof value === "string" || typeof value === "number") {
-      const date = new Date(value);
-      return Number.isNaN(date.getTime()) ? null : date;
-    }
-
-    return null;
+    return parseDateValue(value);
   }
 
   /**
