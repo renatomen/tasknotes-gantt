@@ -10,7 +10,7 @@ What colors a bar's **body**. **Default:** Default.
 
 | Value | Behavior |
 | --- | --- |
-| **None** | The body is left uncolored. |
+| **None** | This channel contributes no colour. The body is not left blank, though: with a strip set it becomes a neutral body under that strip, and with **both** channels *None* the bar falls back to the Default hierarchy fill so it is never invisible. |
 | **Default** | Structural hierarchy palette — green parents, blue children. |
 | **By status** | Colors by the TaskNotes status palette. *Companion only.* |
 | **By priority** | Colors by the TaskNotes priority palette. *Companion only.* |
@@ -29,7 +29,10 @@ that combination every bar takes the child color, so the parent/child
 distinction is not drawn.
 
 Parent vs child is color-coded under *Default* and *Obsidian theme*. Under *By
-status* / *By priority*, every bar colors by its own value instead. *By calendar*
+status* / *By priority*, a bar colors by its own value instead — provided that
+value is one the TaskNotes palette defines. A task whose mapped status or
+priority is blank, or set to something the palette does not know, gets no colour
+from that channel. *By calendar*
 is the mixed one: a task with a **coloured** calendar colors by that calendar,
 while a task with none — or one whose calendar note sets no colour — keeps the
 parent/child treatment. An **empty palette** degrades that

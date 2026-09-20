@@ -78,8 +78,10 @@ source that color differently:
   higher-contrast tone of the same hue — so a yellow accent gives yellow bars, and
   changing your accent or theme re-tints them live.
 
-Under **By status** and **By priority**, every bar is colored by its own value —
-parents and children alike, with no hierarchy coloring.
+Under **By status** and **By priority**, a bar is colored by its own value —
+parents and children alike, with no hierarchy coloring. Only values the
+TaskNotes palette defines get a colour; a task whose status or priority is blank
+or unrecognised takes none from that channel.
 
 **By calendar** is the mixed case. A task whose calendar sets a colour takes that
 colour. A task with no calendar, or one whose calendar note defines no colour,
