@@ -492,6 +492,22 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   chips with the `[[` suggester; read-mode count badge. Fixture: `gantt-inline-edit.e2e.ts`. Source: PR #236.
 - **Visual assets — capture for Time Estimate ⇄ duration sync (0.1.0-beta.8)** — an estimate driving a
   dateless bar's length, and a resize writing the span back. Source: PR #221.
+- **Visual assets — capture for working-time calendars (0.1.0-beta.11)** — non-working days shaded
+  behind the chart, and an estimate-derived bar stretching over them. Fixture:
+  `test/specs/gantt-calendar-items-sources.e2e.ts`. Source: PRs #271, #272.
+- **Visual assets — capture for the calendar-note editor (0.1.0-beta.11)** — the working-pattern
+  builder with its year-grid / week / Gantt-strip preview tabs. Fixture:
+  `test/specs/gantt-calendar-editor.e2e.ts`. Source: PRs #289–#298.
+- **Visual assets — capture for calendar items in the timeline (0.1.0-beta.11)** — a recurring task's
+  authored row with its occupancy pieces, and the source switcher. Source: PR #386.
+- **Visual assets — capture for independent Fill / Strip / Icon channels (0.1.0-beta.11)** — one view
+  filled by status while striped by priority. Source: PR #312.
+- **Visual assets — capture for the inferred-edge drag prompt (0.1.0-beta.11)** — dragging an
+  estimate-derived bar and choosing grow-estimate vs write-dates. Fixture:
+  `test/specs/gantt-inferred-drag-write.e2e.ts`. Source: PR #314.
+- **Blocker as of 2026-09-20:** `/tng-demo` delegates to the `ce-demo-reel` skill, which is installed
+  on disk but absent from the compound-engineering plugin's skill listing, so the command cannot
+  complete its delegation step. Re-check the plugin's listing before scheduling any capture above.
 
 ---
 
