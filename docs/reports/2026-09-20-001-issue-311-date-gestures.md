@@ -54,7 +54,7 @@ The production path was:
 5. When Bases delivered its updated entry, the unchanged metadata fingerprint selected `reuseTasks`, retaining the older task dates.
 6. A subsequent gesture started from that incorrect displayed position and could therefore write unintended dates.
 
-The controlled regression composes the real signature function and source reader. It independently advances cache and entry snapshots, proving the reader must return the values whose fingerprint was consumed. Additional cases cover removed fields, an unavailable cache, and preservation of the original receiver for computed-property access. The old reader failed four cases; the corrected reader passed. The host reproduction was then given literal position, width, and saved-date assertions: restoring only the old source reader failed on the second gesture, exactly 30 px (one day) behind. With the fix, all six moves passed, and the delayed and reopened views remained September 21–23.
+The controlled regression composes the real signature function and source reader. It independently advances cache and entry snapshots, proving the reader must return the values whose fingerprint was consumed. Additional cases cover removed fields, an unavailable cache, and preservation of the original receiver for computed-property access. The old reader failed four cases; the corrected reader passed. Independent review found that legacy `note:` mappings could still reach the retained getter. Adding that mapping form reproduced the same mismatch, and routing its note values through the current cache made it pass alongside the standard `note.` form. The host reproduction was then given literal position, width, and saved-date assertions: restoring only the old source reader failed on the second gesture, exactly 30 px (one day) behind. With the fix, all six moves passed, and the delayed and reopened views remained September 21–23.
 
 ## Fix
 
@@ -79,7 +79,7 @@ The Bases source now reads note fields from the same live metadata cache as the 
 
 ## Verification
 
-- `npm test -- --runInBand`: 184 suites, 4,176 tests passed.
+- `npm test -- --runInBand`: 184 suites, 4,177 tests passed.
 - `npm run test:timezones`: 53 tests passed in each of Los Angeles, UTC, and Auckland.
 - `npm run probe:svar -- test/probe/gantt-gesture-dates.probe.ts`: the seven-gesture sequence passed, including the pending-write and refresh checks.
 - `npm run e2e:local -- --spec test/specs/gantt-task-date-gestures.e2e.ts --spec test/specs/gantt-inferred-drag-write.e2e.ts`: both specs passed, four journeys total, against real Obsidian 1.13.7 and TaskNotes 4.11.0.

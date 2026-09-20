@@ -20,7 +20,7 @@ import type { App, BasesEntry, CachedMetadata } from 'obsidian';
 import type { FieldMappings } from './fieldMappings';
 import { BasesDataAdapter } from '../bases/services/BasesDataAdapter';
 import { checklistProgressPercent } from '../bases/checklistProgress';
-import { bareProperty } from './dateFieldMapping';
+import { bareProperty, noteFrontmatterKey } from './dateFieldMapping';
 import { coerceEstimateMinutes } from './noteEstimate';
 import { asPropertyId, type BasesEntryLike } from '../bases/types/bases-entry';
 import type {
@@ -83,7 +83,10 @@ export class BasesSource implements DataSource {
     const values: BasesEntryLike = cache ? {
       file: entry.file,
       frontmatter: cache.frontmatter ?? {},
-      getValue: property => entry.getValue(asPropertyId(property)),
+      getValue: property => {
+        const key = noteFrontmatterKey(property);
+        return key === null ? entry.getValue(asPropertyId(property)) : { data: cache.frontmatter?.[key] ?? null };
+      },
     } : entry;
 
     return {

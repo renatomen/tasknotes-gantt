@@ -94,7 +94,9 @@ describe('BasesSource', () => {
     };
 
     function fixture() {
-      const entry = Object.assign(makeEntry('task.md', 'task', {}), {
+      const entry = Object.assign(makeEntry('task.md', 'task', {
+        'note:begins': '2026-09-20', 'note:finishes': '2026-09-22',
+      }), {
         frontmatter: { begins: '2026-09-20', finishes: '2026-09-22' },
       });
       const cache: { frontmatter?: Record<string, unknown> } = {
@@ -107,11 +109,12 @@ describe('BasesSource', () => {
       return { entry, cache, cacheApp };
     }
 
-    it('reads the dates fingerprinted by refresh while Bases entries lag successive writes', async () => {
+    it.each(['note.', 'note:'])('reads the dates fingerprinted by refresh while Bases entries lag successive writes (%s)', async prefix => {
       const { entry, cache, cacheApp } = fixture();
-      const source = new BasesSource(cacheApp, [entry], mappings);
+      const dateMappings = { ...mappings, startProperty: `${prefix}begins`, endProperty: `${prefix}finishes` };
+      const source = new BasesSource(cacheApp, [entry], dateMappings);
       const signature = () => composeEntrySignature({
-        entries: [entry], viewMappings: mappings, resolvedMappings: mappings,
+        entries: [entry], viewMappings: dateMappings, resolvedMappings: dateMappings,
         estimateReadKey: null, noteCacheOf: () => ({ frontmatter: cache.frontmatter ?? null }),
       });
       const consumed = signature();
@@ -404,11 +407,11 @@ describe('BasesSource', () => {
     const TN_MAPPINGS: FieldMappings = { ...MAPPINGS, progressMode: 'tasknotes' };
 
     /** An App whose metadataCache.getFileCache returns listItems keyed by path. */
-    function makeCacheApp(caches: Record<string, unknown[]>): App {
+    function makeCacheApp(caches: Record<string, unknown[]>, frontmatter: Record<string, Record<string, unknown>> = {}): App {
       return {
         metadataCache: {
           getFileCache: (file: { path: string }) =>
-            file && caches[file.path] ? { listItems: caches[file.path] } : {},
+            file ? { listItems: caches[file.path], frontmatter: frontmatter[file.path] } : {},
           getFirstLinkpathDest: () => null,
         },
         vault: { getAbstractFileByPath: () => null },
@@ -494,7 +497,10 @@ describe('BasesSource', () => {
     it('reads the Progress Property (not the checklist) in property mode (R8)', async () => {
       // Arrange — property mode: the checklist would compute 100, but the mapped
       // property value (30) must win because the compute path is not taken.
-      const cacheApp = makeCacheApp({ 'tasks/p.md': [{ task: 'x', parent: -1 }] });
+      const cacheApp = makeCacheApp(
+        { 'tasks/p.md': [{ task: 'x', parent: -1 }] },
+        { 'tasks/p.md': { progress: 30 } },
+      );
       const entry = makeEntry('tasks/p.md', 'p', { 'note:progress': 30 });
       const source = new BasesSource(cacheApp, [entry], { ...MAPPINGS, progressMode: 'property' });
 
