@@ -43,7 +43,7 @@ import { cellRenderKey, type CellRender } from './cellRender';
 import { fingerprintPropertyValue } from './propertyFormat';
 import type { IncomingDep } from './dependencyTooltip';
 import type { EstimateMeaning } from './viewOptions';
-import type { EchoPayload } from './dragCommitPlan';
+import type { EchoPayload, EchoRow } from './dragCommitPlan';
 import {
   GANTT_VISUAL_CLASS_TOKENS,
   resolveDateStatusStateToken,
@@ -546,6 +546,36 @@ function publishedDateStatusToken(
 export type EchoTaskUpdate =
   | { progress: number }
   | { start: Date; end: Date; custom?: SvarTask['custom'] };
+
+export interface PlannedEchoUpdate {
+  instanceId: string;
+  task: EchoTaskUpdate;
+}
+
+interface CurrentEchoTask {
+  start?: unknown;
+  end?: unknown;
+  custom?: SvarTask['custom'];
+}
+
+/** SVAR's batched repaint must end with a geometry-changing update, if any. */
+export function planEchoUpdates(
+  rows: readonly EchoRow[],
+  getTask: (id: string) => CurrentEchoTask | undefined,
+): PlannedEchoUpdate[] {
+  const unchanged: PlannedEchoUpdate[] = [];
+  const changed: PlannedEchoUpdate[] = [];
+  for (const row of rows) {
+    const current = getTask(row.instanceId);
+    const task = echoTaskPatch(row.payload, current?.custom);
+    const changesGeometry = 'start' in task && (
+      !(current?.start instanceof Date) || task.start.getTime() !== current.start.getTime() ||
+      !(current?.end instanceof Date) || task.end.getTime() !== current.end.getTime()
+    );
+    (changesGeometry ? changed : unchanged).push({ instanceId: row.instanceId, task });
+  }
+  return [...unchanged, ...changed];
+}
 
 /**
  * Shape an executor echo payload into the `update-task` patch for one row. A

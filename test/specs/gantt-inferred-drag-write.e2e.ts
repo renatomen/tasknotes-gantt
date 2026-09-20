@@ -1,6 +1,7 @@
-/* global MouseEvent, EventTarget, Node */
+/* global Node */
 import { browser, expect, $, $$ } from "@wdio/globals";
 import { waitUntilOrExplain } from "./helpers/waitReady";
+import { performGanttGesture } from "../helpers/ganttGesture";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -273,39 +274,7 @@ async function dragEndEdge(
 ): Promise<{ pxPerDay: number; barWidth: number; moved: number }> {
   await waitForBar(notePath);
   lastDragged = notePath;
-  return browser.executeObsidian(({ app }, args) => {
-    void app;
-    const root = document.querySelector(".og-bases-gantt");
-    const bar = (Array.from(root?.querySelectorAll(".wx-bar") ?? []) as HTMLElement[]).find((b) =>
-      (b.getAttribute("data-id") ?? "").endsWith(args.notePath),
-    );
-    if (!bar) throw new Error(`no bar for ${args.notePath}`);
-    const bars = bar.closest(".wx-bars") as HTMLElement | null;
-    if (!bars) throw new Error("bar is not inside .wx-bars");
-
-    // One day in pixels, read off the finest time-scale row (day columns).
-    const rows = root?.querySelectorAll(".wx-scale .wx-row") ?? [];
-    const dayCell = rows[rows.length - 1]?.querySelector(".wx-cell") as HTMLElement | null;
-    const pxPerDay = dayCell?.getBoundingClientRect().width ?? 0;
-    if (pxPerDay <= 0) throw new Error("could not measure a day column");
-
-    const rect = bar.getBoundingClientRect();
-    const y = rect.top + rect.height / 2;
-    const startX = rect.right - 2; // inside the end-resize zone
-    const dx = args.days * pxPerDay;
-    const send = (target: EventTarget, type: string, clientX: number): void => {
-      target.dispatchEvent(
-        new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX, clientY: y }),
-      );
-    };
-
-    send(bar, "mousedown", startX);
-    // First move must exceed SVAR's 20px dead zone before the drag engages.
-    send(bars, "mousemove", startX + Math.sign(dx) * Math.max(Math.abs(dx), 21));
-    send(bars, "mousemove", startX + dx);
-    window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true }));
-    return { pxPerDay, barWidth: rect.width, moved: dx };
-  }, { notePath, days });
+  return browser.execute(performGanttGesture, { notePath, edge: "end" as const, days });
 }
 
 /** A rendered bar's geometry + classes, read in-page (endsWith on `data-id`). */

@@ -1,8 +1,9 @@
-/* global EventTarget, MouseEvent */
 import { browser, expect } from '@wdio/globals';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { waitUntilOrExplain } from './helpers/waitReady';
+import { performGanttGesture } from '../helpers/ganttGesture';
 
 const baseName = 'Report.base';
 
@@ -20,17 +21,19 @@ async function openBase(): Promise<void> {
     app.workspace.setActiveLeaf(leaf, { focus: true });
     app.workspace.revealLeaf(leaf);
   });
-  await browser.waitUntil(async () => {
+  await waitUntilOrExplain(async () => {
     await browser.executeObsidian(({ app }) => {
       const leaf = app.workspace.getLeavesOfType('bases')[0];
       if (leaf) app.workspace.setActiveLeaf(leaf, { focus: true });
     });
     return browser.execute(() => document.querySelectorAll('.og-bases-gantt .wx-bars > .wx-bar').length >= 3);
-  }, { timeout: 30000 });
+  }, () => 'Report Base must render its three tasks', { timeout: 30000 });
 }
 
 async function observe(name?: string) {
   return browser.executeObsidian(async ({ app }, name?: string) => {
+    const leaf = app.workspace.getLeavesOfType('bases')[0];
+    if (leaf) app.workspace.setActiveLeaf(leaf, { focus: true });
     const names = name ? [name] : ['Approval', 'Create Deviation', 'Parent'];
     const root = document.querySelector('.og-bases-gantt');
     const rows = root?.querySelectorAll('.wx-scale .wx-row');
@@ -54,32 +57,11 @@ async function observe(name?: string) {
   }, name);
 }
 
-async function drag(note: string, edge: 'move' | 'start' | 'end', days: number) {
-  return browser.execute((args) => {
-    const root = document.querySelector('.og-bases-gantt');
-    const bar = Array.from(root?.querySelectorAll('.wx-bars > .wx-bar') ?? []).find(el => el.getAttribute('data-id')?.endsWith(`${args.note}.md`));
-    if (!bar) throw new Error(`Missing bar ${args.note}`);
-    const rows = root?.querySelectorAll('.wx-scale .wx-row');
-    const cell = rows?.[rows.length - 1]?.querySelector('.wx-cell');
-    const pxPerDay = cell?.getBoundingClientRect().width ?? 0;
-    const rect = bar.getBoundingClientRect();
-    const bars = bar.closest('.wx-bars');
-    if (!bars || !pxPerDay) throw new Error('Missing scale/bar container');
-    const startX = args.edge === 'start' ? rect.left + 2 : args.edge === 'end' ? rect.right - 2 : rect.left + rect.width / 2;
-    const y = rect.top + rect.height / 2;
-    const dx = args.days * pxPerDay;
-    const send = (target: EventTarget, type: string, clientX: number) => target.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, button: 0, clientX, clientY: y }));
-    send(bar, 'mousedown', startX);
-    send(bars, 'mousemove', startX + Math.sign(dx) * Math.max(Math.abs(dx), 21));
-    send(bars, 'mousemove', startX + dx);
-    window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-    return { edge: args.edge, days: args.days, pxPerDay, beforeX: rect.left, beforeWidth: rect.width };
-  }, { note, edge, days });
-}
-
 async function expectDates(name: string, first: number, last: number): Promise<void> {
-  await browser.waitUntil(async () => {
+  let observed = '';
+  await waitUntilOrExplain(async () => {
     const state = await observe(name);
+    observed = JSON.stringify(state);
     const firstCell = state.cells.find(cell => cell.text === String(first));
     const bars = state.bars.filter(bar => bar.id === `:${name}.md` || bar.id?.startsWith(`:${name}.md#`));
     const note = state.notes.find(note => note.name === name)?.text ?? '';
@@ -88,7 +70,7 @@ async function expectDates(name: string, first: number, last: number): Promise<v
       bars.every(bar => Math.abs(bar.x - firstCell.x) < 1 && Math.abs(bar.width - (last - first + 1) * firstCell.width) < 1) &&
       note.includes(`scheduled: 2026-09-${first}`) && note.includes(`due: 2026-09-${last}`) &&
       gridDate('note.scheduled') === `${first}/09/2026` && gridDate('note.due') === `${last}/09/2026`;
-  }, { timeout: 15000, interval: 100, timeoutMsg: `${name}: expected saved and rendered September ${first}–${last}` });
+  }, () => `${name}: expected saved and rendered September ${first}–${last}; observed ${observed}`, { timeout: 15000, interval: 100 });
 }
 
 describe('Task calendar dates in PDT', () => {
@@ -114,7 +96,7 @@ describe('Task calendar dates in PDT', () => {
     });
     await openBase();
     let previous = '';
-    await browser.waitUntil(async () => {
+    await waitUntilOrExplain(async () => {
       const current = await browser.execute(() => JSON.stringify(Array.from(document.querySelectorAll('.og-bases-gantt .wx-bars > .wx-bar')).map(bar => {
         const rect = bar.getBoundingClientRect();
         return [bar.getAttribute('data-id'), rect.left, rect.width];
@@ -122,7 +104,7 @@ describe('Task calendar dates in PDT', () => {
       const stable = current === previous;
       previous = current;
       return stable;
-    }, { timeout: 15000, interval: 250 });
+    }, () => `Report bars must settle; observed ${previous}`, { timeout: 15000, interval: 250 });
 
   });
 
@@ -131,11 +113,11 @@ describe('Task calendar dates in PDT', () => {
     await expectDates('Parent', 18, 26);
     await expectDates('Create Deviation', 21, 23);
 
-    await drag('Create Deviation', 'move', -1);
+    await browser.execute(performGanttGesture, { notePath: 'Create Deviation.md', edge: 'move' as const, days: -1 });
     await expectDates('Create Deviation', 20, 22);
-    await drag('Create Deviation', 'start', 1);
+    await browser.execute(performGanttGesture, { notePath: 'Create Deviation.md', edge: 'start' as const, days: 1 });
     await expectDates('Create Deviation', 21, 22);
-    await drag('Create Deviation', 'end', 1);
+    await browser.execute(performGanttGesture, { notePath: 'Create Deviation.md', edge: 'end' as const, days: 1 });
     await expectDates('Create Deviation', 21, 23);
 
     await browser.executeObsidian(({ app }) => app.workspace.getLeavesOfType('bases').forEach(leaf => leaf.detach()));

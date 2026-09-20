@@ -1,5 +1,6 @@
-/* global Element, EventTarget, MouseEvent */
+/* global Element */
 import { test, expect, vi } from 'vitest';
+import { performGanttGesture } from '../helpers/ganttGesture';
 import { render } from 'vitest-browser-svelte';
 import type { TaskPatch } from '../../src/datasource/types';
 import { buildTaskUpdates } from '../../src/datasource/TaskNotesSource';
@@ -42,23 +43,7 @@ function dayWidth(root: HTMLElement): number {
   return cell.getBoundingClientRect().width;
 }
 
-function drag(root: HTMLElement, edge: 'move' | 'start' | 'end', days: number): void {
-  const bar = childBars(root)[0];
-  const parent = bar?.closest('.wx-bars');
-  if (!bar || !parent) throw new Error('Missing draggable child');
-  const rect = bar.getBoundingClientRect();
-  const x = edge === 'start' ? rect.left + 2 : edge === 'end' ? rect.right - 2 : rect.left + rect.width / 2;
-  const delta = days * dayWidth(root);
-  const send = (target: EventTarget, type: string, clientX: number) => target.dispatchEvent(new MouseEvent(type, {
-    bubbles: true, cancelable: true, button: 0, clientX, clientY: rect.top + rect.height / 2,
-  }));
-  send(bar, 'mousedown', x);
-  send(parent, 'mousemove', x + Math.sign(delta) * Math.max(Math.abs(delta), 21));
-  send(parent, 'mousemove', x + delta);
-  window.dispatchEvent(new MouseEvent('mouseup', { bubbles: true }));
-}
-
-test('moves and both resize edges keep sibling bars aligned with saved dates before and after refresh', async () => {
+test.each(['root', 'nested'] as const)('moves and both resize edges from the %s placement keep sibling bars aligned with saved dates before and after refresh', async placement => {
   let settleWrite = () => {};
   const onMutate = vi.fn((_id: string, _patch: TaskPatch) => new Promise<void>(resolve => { settleWrite = resolve; }));
   const screen = render(GanttPerfHost, { props: { data: await writableData(), onMutate } });
@@ -70,6 +55,10 @@ test('moves and both resize edges keep sibling bars aligned with saved dates bef
   expect(childBars(root)).toHaveLength(2);
   const origin = childBars(root)[0].getBoundingClientRect().left;
   const width = dayWidth(root);
+  const instanceId = childBars(root).find(bar =>
+    bar.getAttribute('data-id')?.endsWith('Child.md') === (placement === 'root'),
+  )?.getAttribute('data-id');
+  if (!instanceId) throw new Error(`Missing ${placement} child placement`);
 
   const expectSpan = (first: number, last: number) => {
     expect(childBars(root)).toHaveLength(2);
@@ -85,7 +74,7 @@ test('moves and both resize edges keep sibling bars aligned with saved dates bef
     ['move', -1, 20, 22], ['move', 1, 21, 23], ['move', -1, 20, 22],
     ['start', 1, 21, 22], ['start', -1, 20, 22], ['end', 1, 20, 23], ['end', -1, 20, 22],
   ] as const) {
-    drag(root, edge, days);
+    performGanttGesture({ notePath: 'Child.md', instanceId, edge, days }, root);
     writes += 1;
     await vi.waitFor(() => expect(onMutate).toHaveBeenCalledTimes(writes));
     try {

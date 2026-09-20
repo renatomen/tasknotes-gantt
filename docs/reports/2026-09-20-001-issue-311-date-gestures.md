@@ -4,9 +4,9 @@
 
 This investigation covers the opening report and the subsequent PDT report in [issue 311](https://github.com/renatomen/tasknotes-gantt/issues/311). The issue remains open; no comment or closure was requested or performed.
 
-The first fix, [PR 489](https://github.com/renatomen/tasknotes-gantt/pull/489), corrected date-only parsing. It did not establish that every gesture behaved correctly. This follow-up found two additional defects: an inclusive-end mismatch at the display boundary and a mismatch between refresh fingerprints and source reads.
+The first fix, [PR 489](https://github.com/renatomen/tasknotes-gantt/pull/489), corrected date-only parsing. It did not establish that every gesture behaved correctly. This follow-up found three additional defects: an inclusive-end mismatch at the display boundary, a mismatch between refresh fingerprints and source reads, and a batched echo that failed to repaint a sibling placement.
 
-Landing strategy: one PR for the two remaining gesture defects, their regressions, and this evidence record. Cohesion: both fixes are required for the same user-visible contract—successive gestures retain their intended inclusive dates through persistence and refresh—and the same host sequence verifies their composition. The parser fix is already on main. No ranked-defect file is changed, and no instrumentation is added to production.
+Landing strategy: one PR for the remaining gesture defects, their regressions, and this evidence record. Cohesion: the fixes are required for the same user-visible contract—successive gestures retain their intended inclusive dates through persistence and refresh—and the same host sequence verifies their composition. The parser fix is already on main. The [implementation plan](../plans/2026-09-20-001-fix-task-date-gesture-consistency.md) records the ranked-file contract for the synchronization hook. No instrumentation is added to production.
 
 ## Reproduced causes
 
@@ -56,13 +56,21 @@ The production path was:
 
 The controlled regression composes the real signature function and source reader. It independently advances cache and entry snapshots, proving the reader must return the values whose fingerprint was consumed. Additional cases cover removed fields, an unavailable cache, and preservation of the original receiver for computed-property access. The old reader failed four cases; the corrected reader passed. Independent review found that legacy `note:` mappings could still reach the retained getter. Adding that mapping form reproduced the same mismatch, and routing its note values through the current cache made it pass alongside the standard `note.` form. The host reproduction was then given literal position, width, and saved-date assertions: restoring only the old source reader failed on the second gesture, exactly 30 px (one day) behind. With the fix, all six moves passed, and the delayed and reopened views remained September 21–23.
 
+### A final unchanged echo suppressed the sibling repaint
+
+Selecting the child's root placement exposed a failure hidden by the first component test, which had selected the nested placement. After moving to September 20–22, resizing the root's start to September 21 wrote the intended September 21–22. While persistence was held pending, the root became two days wide but the nested copy remained on September 20–22, one day too far left and one day too wide. The earlier real-host check waited for persistence and refresh, which repaired the display and concealed this defect.
+
+The installed SVAR source maps explain the asymmetry. A geometry-changing `update-task` schedules a full geometry recalculation. An update whose dates are unchanged schedules a patch without geometry recalculation. State values are assigned immediately, while notifications are batched, so the last update controls that decision. The echo loop updated the changed nested copy first and the already-resized root last, suppressing the nested repaint. Moving the whole bar did not expose this because normalizing its midnight end changed the root's geometry too.
+
+The component test now independently selects root and nested placements and runs seven gestures from each. The original root-selection test failed at the first start resize with **expected 365 px, received 335 px**. Ordering unchanged-date patches before changed-date patches makes both sequences pass. A controlled mutation putting unchanged-date patches last fails both sequences at the same one-day mismatch. Pure tests cover both input orders, retained custom metadata, progress patches, absent rows, and stable ordering.
+
 ## Fix
 
 `normalizeTaskDateSpan` shares the date policy's existing local day-boundary conversion. `applyDatePolicy` and the geometry branch of `echoTaskPatch` use it. The echo adapter now emits the same inclusive span as the read path.
 
-The planner's write values retain their existing semantics. Progress echoes retain their separate branch. The adapter covers ordinary moves, both resize edges, sibling mirrors, inferred decisions, cascade echoes, and restores. No new logic was added to the Gantt component or registration layer.
+The planner's write values retain their existing semantics. Progress echoes retain their separate branch. The adapter covers ordinary moves, both resize edges, sibling mirrors, inferred decisions, cascade echoes, and restores. `planEchoUpdates` orders each source's echo patches at the existing pure synchronization boundary; the component only executes the returned updates and advances its baseline. It retains custom updates even when dates already agree and uses no vendor-private state flag.
 
-The Bases source now reads note fields from the same live metadata cache as the refresh fingerprint. Query entries still determine membership and provide computed values. An available cache with no frontmatter represents absent fields; it does not resurrect values from an old entry. No refresh delay, optimistic-state journal, or additional synchronization mechanism was introduced.
+The Bases source now reads note fields from the same live metadata cache as the refresh fingerprint. Query entries still determine membership and provide computed values. When either date is formula-backed, both dates retain the existing query snapshot: a real Obsidian measurement showed `date(due)` still returned September 23 while the live cache held September 22. A regression that initially failed now prevents a current start from being combined with an older computed end. An unavailable metadata cache retains the existing query-entry fallback. An available cache with no frontmatter represents absent fields; it does not resurrect values from an old entry. No refresh delay, optimistic-state journal, or additional synchronization mechanism was introduced.
 
 ## Behavior-to-evidence map
 
@@ -79,9 +87,9 @@ The Bases source now reads note fields from the same live metadata cache as the 
 
 ## Verification
 
-- `npm test -- --runInBand`: 184 suites, 4,177 tests passed.
+- `npm test -- --runInBand`: 184 suites, 4,183 tests passed.
 - `npm run test:timezones`: 53 tests passed in each of Los Angeles, UTC, and Auckland.
-- `npm run probe:svar -- test/probe/gantt-gesture-dates.probe.ts`: the seven-gesture sequence passed, including the pending-write and refresh checks.
+- `npm run probe:svar -- test/probe/gantt-gesture-dates.probe.ts`: both root and nested seven-gesture sequences passed, including the pending-write and refresh checks.
 - `npm run e2e:local -- --spec test/specs/gantt-task-date-gestures.e2e.ts --spec test/specs/gantt-inferred-drag-write.e2e.ts`: both specs passed, four journeys total, against real Obsidian 1.13.7 and TaskNotes 4.11.0.
 - The local six-move refresh reproduction also passed alongside both permanent host specs (three specs, five journeys total). Its source/signature regression is permanent; the timing probe is retained only as local diagnostic evidence.
 - Local lint and typecheck passed before final review. Existing Svelte warnings remain; the browser probe also logs a non-fatal ResizeObserver notification.
@@ -90,8 +98,8 @@ The broad logic cases stay at the unit/component tiers. The new Obsidian journey
 
 ## Confidence and limits
 
-The causes above have controlled counterfactual evidence. Every behavior described in the ticket has an explicit check; these checks do not establish correctness for every possible vault, plugin combination, scale, or event ordering.
+The causes above have controlled counterfactual evidence. Every TaskNotes behavior described in the ticket has an explicit check; these checks do not establish correctness for every possible vault, plugin combination, scale, or event ordering.
 
-The fixture uses September 2026 in PDT and the day numbers from the report. It does not reconstruct the reporter's complete historical vault. A first host journey waited for complete grid/bar/file agreement before each gesture and therefore missed the refresh race. Closer-spaced gestures exposed it. The permanent ordering regression lives at the source boundary; host timing is retained as reproduction evidence rather than as a broad timing-dependent test matrix.
+The fixture uses September 2026 in PDT and the day numbers from the report. It does not reconstruct the reporter's complete historical vault. A first host journey waited for complete grid/bar/file agreement before each gesture and therefore missed the refresh race. Closer-spaced gestures exposed it. Formula-driven refresh invalidation and property-based calendar-event refresh are separate from the TaskNotes drag path and are not covered by this verification. The permanent ordering regression lives at the source boundary; host timing is retained as reproduction evidence rather than as a broad timing-dependent test matrix. Echo ordering is scoped to the sibling updates for one source; this is not a claim to repair every possible concurrent SVAR update batch.
 
 Ticket closure should be assessed from these scoped results and the final review/CI receipts, rather than from the previous parser-only test result. The issue itself has not been edited.
