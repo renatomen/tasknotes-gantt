@@ -46,13 +46,17 @@ means *use the TaskNotes default*, not *no property*, so coloring, the status
 icon and the inline status editor all keep working. Standalone, a blank mapping
 has nothing to resolve to and status coloring is off.
 
-That resolution needs TaskNotes' field configuration to be readable. If it is
+That resolution needs TaskNotes' field configuration to be readable. When it is
 not — the API is present but reports no configuration — a blank mapping stays
-blank and behaves as though nothing were mapped. Mapping the property
-explicitly brings back **colouring and the icon**, which read the value. It
-cannot bring back **inline editing**: with no field configuration the view has
-no write target and goes read-only, so the status and priority pickers stay
-unavailable however the mapping is set.
+blank and behaves as though nothing were mapped, and **inline editing is
+unavailable whatever you do**: with no field configuration the view has no
+write target and goes read-only, so the pickers stay closed however the
+mapping is set.
+
+Mapping the property explicitly is worth trying as a diagnostic — it restores
+anything that depends only on *reading* the value. If colours and icons are
+still missing afterwards, TaskNotes' palettes are unreadable as well, and no
+view setting can recover them.
 Needs the TaskNotes companion palette to color; see
 [Appearance → Bar fill](appearance.md#bar-fill).
 
