@@ -512,9 +512,6 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   re-captured. Fixture: `test/specs/gantt-legend.e2e.ts`. The committed bytes stay in place — older
   releases pin to their own tags (`docs/conventions/visual-assets.md`), so a re-capture lands under a
   new filename rather than overwriting these.
-- **Blocker as of 2026-09-20:** `/tng-demo` delegates to the `ce-demo-reel` skill, which is installed
-  on disk but absent from the compound-engineering plugin's skill listing, so the command cannot
-  complete its delegation step. Re-check the plugin's listing before scheduling any capture above.
 
 ---
 
