@@ -112,16 +112,14 @@ decides which you meant. **Default:** Ask.
 | **Grow the estimate and write dates** | Write the new estimate **and** pin a real date on the edge you dragged. The end you authored is left alone. |
 
 Both answers write the same estimate — the difference is only whether the dragged
-edge becomes an authored date. "Grow" is the common case, not the rule: dragging
-an edge inward *reduces* the estimate, because it is always recomputed from the
-span you ended up with. If a drag does not change the **day count** the estimate is measured in, there is
-no new estimate to write, and *Grow the estimate only* leaves the task
-untouched. That count is the plain inclusive span by default; it is the
-*working-day* count only when **Estimate meaning** is *Working days* **and** the
-task resolves to a calendar. So on a *Working days* task whose calendar blocks
-the weekend, an end moved from Friday onto the adjoining Saturday writes
-nothing — while the same drag under the default *Calendar days* goes from one
-day to two and does write.
+edge becomes an authored date. "Grow" is the common case, not the rule: the
+estimate is recomputed from the span you ended up with, so dragging an edge
+inward *reduces* it.
+
+The one case that writes nothing is narrow: the task must **already store** an
+estimate, and that stored estimate must work out to the same day count as the
+new span. A task with no stored estimate always gets one written, because there
+is no previous value for the new one to match.
 
 The question needs somewhere to put the estimate, so it only arises when
 [Time Estimate Update](fields.md#time-estimate-update) has a write target. That
