@@ -46,6 +46,33 @@ the ranked-file contract: the wrapper is **ranked-defect entry 7**
 work on the gate — this is a finding about the accident the tool exists to catch,
 so it is in the "worth fixing" class, but not inside a docs unit.
 
+### P2 — A task's broken Calendar Property suspends its scheduling silently (2026-09-21)
+
+`resolveTaskCalendar` computes `flags` and `schedulingSuspended` for every task association
+(`src/controller/calendar/resolveCalendars.ts:173,204`), and **nothing in `src/` consumes them**.
+`resolveAssociatedCalendarFacts` (`src/bases/calendarShading.ts:328-346`) returns only
+`calendarBySource` and `associatedCalendars`, dropping both; `computeTaskBlocking`
+(`derivation.ts:321`) simply `continue`s over a suspended association. The unresolved-calendar
+banner counts only explicit display-selection entries (`flaggedCount = display?.flagged.length ?? 0`,
+`calendarShading.ts:228`). So a task whose Calendar Property points at a deleted or non-calendar
+note schedules as though it had no calendar, with nothing said anywhere. Surfaced by the
+cross-model peer during `docs/plans/2026-09-20-002` U1 and **documented rather than fixed** — that
+campaign's scope boundary is "a unit that finds a defect files it and documents the shipped
+behaviour as it is; documentation never becomes the fix". The gap is disclosed under R9 in
+`website/docs/settings/fields.md` and `docs/releases/0.1.0-beta.11.md`.
+
+### P2 — Blank status/priority mappings do not resolve when TaskNotes field discovery degrades (2026-09-21)
+
+Accepted finding from peer round 23 of the U1 branch, recorded rather than fixed. The settings and
+troubleshooting pages say a blank Status/Priority Property resolves to TaskNotes' own configured
+property in companion mode, which is true whenever `getFieldConfig()` returns a config. When
+`TaskNotesSource.getFieldConfig()` returns `null` — `api.model.config()` absent, empty, or throwing —
+`applyFieldMappingDefaults` leaves the mappings blank and status/priority colours and icons lose
+their values, while the troubleshooting page rules the blank mapping out as a cause. Narrow
+(degraded-API only) and non-blocking under the repo's P2 rule; the honest fix is either to qualify
+the docs on field-config availability or to surface the degraded discovery to the user, which is a
+product change and so outside this documentation campaign's scope.
+
 ### P1 — Schedule validation (errors & warnings), with swapped dates as the first slice (2026-08-10)
 Per-task validation with two severities, surfaced as a badge **left of the gantt bar**
 (hover for a description naming what's wrong). Example warnings: subtask ends beyond
