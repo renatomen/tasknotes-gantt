@@ -41,11 +41,12 @@ down to field mappings or which [mode](core-concepts.md#the-two-modes) you're in
 - **In companion mode, a blank mapping is usually not the cause** — it resolves
   to TaskNotes' own configured property. Check instead that the property
   actually carries a value TaskNotes knows, under [Fields](settings/fields.md).
-  The exception: if TaskNotes' field configuration cannot be read, a blank
-  mapping stays blank. Map the property explicitly to find out — if the colour
-  comes back, that was it; if it does not, the palette is unreadable too and no
-  view setting recovers it. Inline editing stays unavailable either way,
-  because the view has no write target.
+  The exception: where TaskNotes reports no configuration for that field, a
+  blank mapping stays blank — map the property explicitly there.
+- **The task's own value is blank, or is not one the palette defines.** A
+  healthy palette still colours nothing for a value it does not know.
+- **TaskNotes has not granted write access.** Colours and icons can work while
+  the inline pickers stay closed; the view is read-only without it.
 
 ## Weekend shading is missing
 

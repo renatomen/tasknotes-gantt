@@ -41,22 +41,15 @@ roll-up. Optional.
 ## Status Property
 
 The property whose value colors bars **By status**. **Leave blank** and, in
-companion mode, it resolves to TaskNotes' own configured status property — blank
-means *use the TaskNotes default*, not *no property*, so coloring, the status
-icon and the inline status editor all keep working. Standalone, a blank mapping
-has nothing to resolve to and status coloring is off.
+companion mode, it resolves to whichever status property TaskNotes reports —
+blank means *use the TaskNotes default*, not *no property*. Standalone, a blank
+mapping has nothing to resolve to and status coloring is off.
 
-That resolution needs TaskNotes' field configuration to be readable. When it is
-not — the API is present but reports no configuration — a blank mapping stays
-blank and behaves as though nothing were mapped, and **inline editing is
-unavailable whatever you do**: with no field configuration the view has no
-write target and goes read-only, so the pickers stay closed however the
-mapping is set.
-
-Mapping the property explicitly is worth trying as a diagnostic — it restores
-anything that depends only on *reading* the value. If colours and icons are
-still missing afterwards, TaskNotes' palettes are unreadable as well, and no
-view setting can recover them.
+A blank mapping resolves only for a field TaskNotes actually reports. Where it
+reports none, the mapping stays blank and behaves as though nothing were
+mapped; map the property explicitly in that case. Colouring, the icon and
+inline editing each have their own further requirements — see
+[No status or priority colors](../troubleshooting.md#no-status-or-priority-colors).
 Needs the TaskNotes companion palette to color; see
 [Appearance → Bar fill](appearance.md#bar-fill).
 
