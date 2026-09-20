@@ -41,7 +41,13 @@ markdown image syntax:
     like. State the property, never a remembered count — a count rots on the
     next image added. This must print `0`:
 
-            grep -rho 'https://raw.githubusercontent.com/renatomen/tasknotes-gantt/[^)]*' website/docs/ | grep -vc '/main/'
+            # Capture the count, then assert on the VALUE. `grep -c` exits 1 when it
+            # counts zero, so the passing state aborts under `set -e` if you test the
+            # status instead — and a failed upstream grep also prints nothing.
+            refs=$(grep -rho 'https://raw.githubusercontent.com/renatomen/tasknotes-gantt/[^)]*' website/docs/) || exit 1
+            offenders=$(printf '%s
+' "$refs" | grep -v '/main/' | wc -l)
+            [ "$offenders" -eq 0 ] || { echo "$offenders site image refs are not pinned to main"; exit 1; }
 
 ## Permanence
 
