@@ -78,9 +78,13 @@ source that color differently:
   higher-contrast tone of the same hue — so a yellow accent gives yellow bars, and
   changing your accent or theme re-tints them live.
 
-Hierarchy coloring applies **only** to these two sources. Under **By status** and
-**By priority**, every bar is colored by its own value — parents and children
-alike.
+Under **By status** and **By priority**, every bar is colored by its own value —
+parents and children alike, with no hierarchy coloring.
+
+**By calendar** is the mixed case: a task associated with a calendar takes that
+calendar's colour, while a task associated with none keeps the hierarchy
+treatment — green parents, blue children — so the two appear side by side in one
+chart.
 
 | Light theme | Dark theme |
 | :---: | :---: |
