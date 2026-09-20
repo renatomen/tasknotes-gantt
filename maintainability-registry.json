@@ -67,7 +67,7 @@
     },
     {
       "date": "2026-09-20",
-      "anchorSha": "1a75ed9dad16936747b48d3281a4a724f4419609",
+      "anchorSha": "04ccc4c2027d44601fde27e627a897d6b15269cc",
       "report": "docs/reports/2026-09-20-001-issue-311-date-gestures.md",
       "concernCounts": {
         "src/bases/GanttContainer.svelte": 28
