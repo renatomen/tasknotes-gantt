@@ -48,8 +48,11 @@ has nothing to resolve to and status coloring is off.
 
 That resolution needs TaskNotes' field configuration to be readable. If it is
 not — the API is present but reports no configuration — a blank mapping stays
-blank and behaves as though nothing were mapped. Map the property explicitly if
-colours or inline editing stop working with TaskNotes installed.
+blank and behaves as though nothing were mapped. Mapping the property
+explicitly brings back **colouring and the icon**, which read the value. It
+cannot bring back **inline editing**: with no field configuration the view has
+no write target and goes read-only, so the status and priority pickers stay
+unavailable however the mapping is set.
 Needs the TaskNotes companion palette to color; see
 [Appearance → Bar fill](appearance.md#bar-fill).
 

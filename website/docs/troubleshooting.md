@@ -42,8 +42,8 @@ down to field mappings or which [mode](core-concepts.md#the-two-modes) you're in
   to TaskNotes' own configured property. Check instead that the property
   actually carries a value TaskNotes knows, under [Fields](settings/fields.md).
   The exception: if TaskNotes' field configuration cannot be read, a blank
-  mapping stays blank — map the property explicitly and see whether the colour
-  returns.
+  mapping stays blank — map the property explicitly and the colour returns,
+  though inline editing stays unavailable because the view has no write target.
 
 ## Weekend shading is missing
 
