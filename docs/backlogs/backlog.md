@@ -493,8 +493,9 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
 - **Visual assets — capture for Time Estimate ⇄ duration sync (0.1.0-beta.8)** — an estimate driving a
   dateless bar's length, and a resize writing the span back. Source: PR #221.
 - **Visual assets — capture for working-time calendars (0.1.0-beta.11)** — non-working days shaded
-  behind the chart, and an estimate-derived bar stretching over them. Fixture:
-  `test/specs/gantt-calendar-items-sources.e2e.ts`. Source: PRs #271, #272.
+  behind the chart, and a worked-out bar stretching over them. Fixture:
+  `test/specs/gantt-calendar-stretch.e2e.ts` (stages exactly that behaviour; the shading-only scene
+  is `gantt-calendar-shading.e2e.ts`). Source: PRs #271, #272.
 - **Visual assets — capture for the calendar-note editor (0.1.0-beta.11)** — the working-pattern
   builder with its year-grid / week / Gantt-strip preview tabs. Fixture:
   `test/specs/gantt-calendar-editor.e2e.ts`. Source: PRs #289–#298.
