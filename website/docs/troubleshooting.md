@@ -30,7 +30,7 @@ down to field mappings or which [mode](core-concepts.md#the-two-modes) you're in
 
 - **You're in standalone mode.** Status/priority palettes need TaskNotes; bars
   fall back to the default hierarchy colors.
-- **The color source isn't set.** Choose **By status** or **By priority** under
+- **Neither colour channel is set to it.** Choose **By status** or **By priority** under
   [Appearance → Bar fill](settings/appearance.md#bar-fill) (or
   [Bar strip](settings/appearance.md#bar-strip)).
 - **The status/priority property isn't mapped** under [Fields](settings/fields.md).

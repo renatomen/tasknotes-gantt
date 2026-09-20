@@ -1,9 +1,10 @@
 # Timeline
 
 The **Timeline** group controls the time axis, dependency arrows, the parent-date
-cascade, working-time interpretation, and how tasks with missing dates appear.
+cascade, working-time interpretation, inferred-edge drags, and how tasks with
+missing dates appear.
 
-![The Timeline group expanded in the Configure view panel, showing Default Scale set to Days, Highlight weekends on, Estimate meaning set to Calendar days, Non-working-day rendering set to Shaded background, Default task duration 1, Dependency Arrows set to Primary instance only, Parent date updates set to Ask, and Inferred date drag set to Ask](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/view-options-timeline-light.png)
+![The Timeline group expanded in the Configure view panel, showing Default Scale set to Days, Highlight weekends on, Estimate meaning set to Calendar days, Non-working-day rendering set to Shaded background, Default task duration 1, Dependency Arrows set to Primary instance only, Parent date updates set to Ask, and Inferred date drag set to Ask](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/view-options-timeline.png)
 
 ## Default Scale
 
@@ -28,7 +29,7 @@ you**. **Default:** Calendar days.
 | Value | Behavior |
 | --- | --- |
 | **Calendar days** *(default)* | The estimate is flat elapsed time — non-working days are counted like any other. |
-| **Working days (skip non-working)** | A worked-out end skips the task's non-working days, so a 3-day estimate over a weekend lands on the following Tuesday rather than Sunday. |
+| **Working days (skip non-working)** | A worked-out end skips the task's non-working days. A 3-day estimate starting Friday, on a calendar whose non-working days are Saturday and Sunday, ends Tuesday rather than Sunday. |
 
 Non-working days come from the calendar a task resolves to, so this setting only
 changes anything once a calendar is in play. It affects **derived** edges only —
@@ -81,10 +82,10 @@ See [Parent / child roll-up](../features/parent-child.md#a-childs-dates-can-resh
 
 ## Inferred date drag
 
-What happens when you resize a bar edge the plugin **worked out** for you rather
-than one you authored. Growing the estimate and writing a real date are
-indistinguishable gestures, so this setting decides which you meant.
-**Default:** Ask.
+*(Companion only — this governs write-back.)* What happens when you resize a bar
+edge the plugin **worked out** for you rather than one you authored. Growing the
+estimate and writing a real date are indistinguishable gestures, so this setting
+decides which you meant. **Default:** Ask.
 
 | Value | Behavior |
 | --- | --- |
@@ -93,7 +94,9 @@ indistinguishable gestures, so this setting decides which you meant.
 | **Grow the estimate and write dates** | Write the new estimate **and** pin a real date on the edge you dragged. The end you authored is left alone. |
 
 Both answers grow the estimate — the difference is only whether the dragged edge
-becomes an authored date.
+becomes an authored date. If a drag does not change the working-day count (an end
+moved from a Friday onto the adjoining Saturday, say), there is no new estimate
+to write, and *Grow the estimate only* leaves the task untouched.
 
 The question needs somewhere to put the estimate, so it only arises when
 [Time Estimate Update](fields.md#time-estimate-update) has a write target. That

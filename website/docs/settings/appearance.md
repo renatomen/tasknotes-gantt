@@ -1,9 +1,10 @@
 # Appearance
 
 The **Appearance** group controls how bars are colored and iconed, the on-bar
-date indicators, the toolbar, and the chart's sizing.
+date indicators, the toolbar, the legend's default side, and the chart's
+sizing.
 
-![The Appearance group expanded in the Configure view panel, showing Bar fill set to Default, Bar strip to None, Task icon to None, date-status indicators on, Show toolbar off, and Default legend position set to Right](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/view-options-appearance-light.png)
+![The Appearance group expanded in the Configure view panel, showing Bar fill set to Default, Bar strip to None, Task icon to None, date-status indicators on, Show toolbar off, and Default legend position set to Right](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/view-options-appearance.png)
 
 ## Bar fill
 
@@ -25,14 +26,16 @@ as [Bar fill](#bar-fill) above. **Default:** None.
 
 Fill and strip are **independent channels**, so a bar can carry two attributes at
 once — a status fill under a calendar strip, say. Set **both** to **None** and
-the bar falls back to the Default hierarchy treatment rather than rendering
-unpainted.
+bars fall back to the Default fill rather than rendering unpainted — though in
+that combination every bar takes the child color, so the parent/child
+distinction is not drawn.
 
-Parent vs child is color-coded **only** under *Default* and *Obsidian theme*;
-under *By status* / *By priority* / *By calendar* every bar colors by its own
-value. An **empty palette** degrades that channel to *Default* — no TaskNotes
-companion means no status/priority palette, and a vault with no calendars has
-nothing for *By calendar* to color by. See
+Parent vs child is color-coded under *Default* and *Obsidian theme*. Under *By
+status* / *By priority*, every bar colors by its own value instead. *By calendar*
+is the mixed one: a task with a calendar colors by that calendar, while a task
+with none keeps the parent/child treatment. An **empty palette** degrades that
+channel to *Default* — no TaskNotes companion means no status/priority palette,
+and a vault with no calendars has nothing for *By calendar* to color by. See
 [Colors → Default vs Obsidian theme](../features/appearance.md#default-vs-obsidian-theme).
 
 ## Task icon
@@ -71,8 +74,9 @@ Which side the legend opens on. **Default:** Right.
 
 Every opening starts here. You can move the legend to the other side while it is
 open, but that move lasts only until you close it — the next open returns to this
-setting. If the chart is too small to seat the legend beside or beneath it, the
-legend covers the chart instead.
+setting. If the chart is too small to seat the legend on the side it is
+currently on, the legend covers the chart instead; the two sides have different
+size floors, so moving it to the other side can seat it again.
 
 ## Min height (px)
 

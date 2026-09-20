@@ -38,10 +38,10 @@ markdown image syntax:
     a tag would keep rendering an older release's bytes after the behaviour
     changed. This is the opposite trade-off from release notes, which pin to
     their tag precisely so an old note keeps showing what that release looked
-    like. Measured 2026-09-20 — all 27 existing site references already follow
-    it, so the rule is written down here rather than invented:
+    like. State the property, never a remembered count — a count rots on the
+    next image added. This must print `0`:
 
-            grep -rho 'https://raw.githubusercontent.com/renatomen/tasknotes-gantt/[^)]*' website/docs/ | wc -l
+            grep -rho 'https://raw.githubusercontent.com/renatomen/tasknotes-gantt/[^)]*' website/docs/ | grep -vc '/main/'
 
 ## Permanence
 

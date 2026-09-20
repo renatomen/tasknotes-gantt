@@ -43,8 +43,9 @@ The same kitchen-remodel tasks under different **fill × strip** combinations
     | :---: | :---: |
     | ![Bars fully filled with their status colour, light theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bars-fill-status-light.png) | ![The same, dark theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bars-fill-status-dark.png) |
 
-    **Fill** mode floods the whole bar with the **status** colour instead of a
-    thin strip — bolder, when colour is the main signal you want.
+    Setting **Bar fill** to *By status* floods the whole bar with the status
+    colour instead of leaving it to a thin strip — bolder, when colour is the
+    main signal you want.
 
 === "Obsidian theme"
 
