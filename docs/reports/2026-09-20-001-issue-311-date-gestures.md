@@ -96,6 +96,18 @@ The Bases source now reads note fields from the same live metadata cache as the 
 
 The broad logic cases stay at the unit/component tiers. The new Obsidian journey is limited to the host boundaries: actual timezone, mapped grid cells, gestures, persistence, and reopening.
 
+## Maintainability measurement
+
+Measured on September 20 against `04ccc4c2027d44601fde27e627a897d6b15269cc`, at code commit `1a75ed9dad16936747b48d3281a4a724f4419609`, using `maintainability-trend.mjs --base origin/main --head HEAD --at-ceiling`:
+
+| Metric | Before | After |
+| --- | ---: | ---: |
+| Rank-1 `GanttContainer.svelte` lines | 2,484 | 2,483 |
+| Enumerated component concerns, carried from the dated registry | 28 | 28 |
+| Functions at cognitive-complexity ceiling 15 | 16 | 16 |
+
+The component diff is +4/−5 lines. Its existing echo execution concern remains; no concern is added or claimed as extracted. The improvement is that echo ordering is explicit and independently testable in the pure synchronization module, with the component executing its result. The concern count is the registry's existing enumeration carried forward for this unchanged concern boundary, not a new audit of intervening repository history. Diagnostics placement has zero new imports or allowances. No ranked-file metric regresses in this change.
+
 ## Confidence and limits
 
 The causes above have controlled counterfactual evidence. Every TaskNotes behavior described in the ticket has an explicit check; these checks do not establish correctness for every possible vault, plugin combination, scale, or event ordering.
