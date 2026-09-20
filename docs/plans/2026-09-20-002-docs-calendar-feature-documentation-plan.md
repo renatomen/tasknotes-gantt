@@ -126,7 +126,11 @@ Each unit: its files, its capture fixture, its Definition of Done. Landing: one 
 - **Files:** `website/docs/settings/appearance.md`, `website/docs/settings/timeline.md`, `website/docs/settings/fields.md`, `docs/conventions/visual-assets.md`.
 - **Work:** delete **Bar color mode**, **Bar color source**, **Theme mode**; add **Bar fill**, **Bar strip**, **Default legend position** (Appearance), **Estimate meaning**, **Non-working-day rendering**, **Inferred date drag** (Timeline), **Calendar Property**, **Estimate meaning override** (Fields). Leave `Progress Property` where it is. Add the website-pins-to-`main` rule to the convention per R6.
 - **Capture fixture:** the Appearance and Timeline view-option panels, staged from any committed `test/vaults/*` fixture (single shots, `view-settings-groups-light.png` precedent).
-- **DoD — checkable, and not by a source grep:** a scratch script walks the option objects returned by `ganttViewOptions()` and the calendar-items group, collects every `displayName`, and diffs that set against the `##`/`###` headings across `website/docs/settings/*.md`. Both directions empty. Deleting the `Show recurring tasks` heading must make it fail — verify that by trying it. `mkdocs build --strict` green.
+- **DoD — checkable, and not by a source grep:** a scratch script walks the option objects returned by `ganttViewOptions()` and the calendar-items group, collects every `displayName`, and diffs that set against the `##`/`###` headings across `website/docs/settings/*.md`.
+  - **Direction that must be empty: every shipped control has a heading.** This is the direction that catches an undocumented setting, and it is the one U1 is accountable for.
+  - The reverse direction is *not* empty and must not be asserted to be. Settings pages legitimately carry non-control headings (`## Related`, `## Not a view setting: the quick source switcher`, `## The groups`, `## Companion vs. standalone`), three controls are deliberately collapsed into one `### Event start / end / title property` heading, and per-feed external toggles are named after the user's own feeds. The script therefore carries an **explicit, commented allow-list of non-control headings** plus the collapsed-heading and dynamic-feed rules; any heading matching none of them and no shipped control is reported for a human decision rather than silently ignored.
+  - **Prove the check works before trusting it:** delete the `Show recurring tasks` heading and confirm it fails; restore it by inverse edit, never `git checkout`.
+  - `mkdocs build --strict` green.
 
 ### U2. Calendars and working time
 
@@ -184,8 +188,11 @@ Per unit, before push:
 pip install -r website/requirements.txt          # mkdocs is not installed by default on this machine
 mkdocs build --strict -f website/mkdocs.yml      # R10; units touching website/
 node scripts/update-release-index.mjs --check    # U7, and any PR touching docs/releases/
-npx jest                                          # full suite when a unit adds a spec module
+npx jest                                          # full suite when a unit adds or changes a *.test.ts
+npm run e2e:local -- --spec test/specs/<the-new-spec>.e2e.ts   # U3: see below
 ```
+
+⚠️ **`npx jest` does not run a WDIO spec.** `jest.config.mjs:32` is `testMatch: ["**/*.test.ts"]`, so U3's new `gantt-calendar-editor-shots.e2e.ts` would pass every gate listed above while being entirely broken — a bad selector, a failed assertion or an unload failure would go unseen. Any unit that adds or edits a `*.e2e.ts` must run that spec through `e2e:local` and report its result.
 
 Plus the repo's standing two-layer pre-push review gate (`ce-code-review` + the independent cross-model peer, both receipts recorded) and the hosted final gate. **Run the layers sequentially and do not commit while the peer is running** — the wrapper binds its receipt to the exact head and refuses when HEAD moves underneath it. This was learned the expensive way on 2026-09-20: three rounds were wasted to a moving head.
 
