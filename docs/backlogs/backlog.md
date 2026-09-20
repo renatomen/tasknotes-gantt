@@ -497,8 +497,11 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   `test/specs/gantt-calendar-stretch.e2e.ts` (stages exactly that behaviour; the shading-only scene
   is `gantt-calendar-shading.e2e.ts`). Source: PRs #271, #272.
 - **Visual assets — capture for the calendar-note editor (0.1.0-beta.11)** — the working-pattern
-  builder with its year-grid / week / Gantt-strip preview tabs. Fixture:
-  `test/specs/gantt-calendar-editor.e2e.ts`. Source: PRs #289–#298.
+  builder with its year-grid / week / Gantt-strip preview tabs. Fixture: a **new**
+  `test/specs/gantt-calendar-editor-shots.e2e.ts` over the existing `test/vaults/gantt-calendar`.
+  Do **not** append to `test/specs/gantt-calendar-editor.e2e.ts`: it is ranked-defect entry 6
+  (`docs/reports/2026-08-15-001-maintainability-rediagnosis.md:234`) and growing it is a P1 under
+  the AGENTS.md invariant. Source: PRs #289–#298.
 - **Visual assets — capture for calendar items in the timeline (0.1.0-beta.11)** — a recurring task's
   authored row with its occupancy pieces, and the source switcher. Source: PR #386.
 - **Visual assets — capture for independent Fill / Strip / Icon channels (0.1.0-beta.11)** — one view
@@ -513,6 +516,12 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   re-captured. Fixture: `test/specs/gantt-legend.e2e.ts`. The committed bytes stay in place — older
   releases pin to their own tags (`docs/conventions/visual-assets.md`), so a re-capture lands under a
   new filename rather than overwriting these.
+- **Visual assets — README still renders the two stale legend PNGs (0.1.0-beta.11)** — `README.md:45`
+  references both `gantt-legend-right.png` and `gantt-legend-bottom.png` pinned to `792e961f`, with
+  alt text naming the retired *date-border* semantic that #402/#412 removed. The README is out of
+  scope for the calendar-documentation campaign (`docs/plans/2026-09-20-002`, § Scope boundaries), so
+  its campaign DoD is scoped to `website/docs/**` and `docs/releases/**` and this reference is parked
+  here instead. Fix it when the legend is re-captured under its new filenames, above.
 
 ---
 

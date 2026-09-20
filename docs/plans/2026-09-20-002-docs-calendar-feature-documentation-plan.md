@@ -22,11 +22,19 @@ execution: docs
 
 **The tree is the index, because artifacts cannot lie about themselves.** Every unit below names the exact file it creates or the exact heading it adds; a unit has landed when that artifact is on `main` and not before:
 
+Every command below reads `main`, never the working tree — a resume run from an
+abandoned branch would otherwise record its own unmerged work as landed:
+
 ```bash
-ls website/docs/features/            # calendars.md, calendar-editor.md, calendar-sets.md, legend.md
-git log --oneline --diff-filter=A -- docs/media/   # which captures exist, and when
-grep -c '^## ' website/docs/settings/appearance.md # U1's headings
-mkdocs build --strict -f website/mkdocs.yml        # the gate
+git ls-tree --name-only main website/docs/features/   # calendars.md, calendar-editor.md, calendar-sets.md, legend.md
+git log --oneline --diff-filter=A main -- docs/media/ # captures, campaign-added ones mixed with 11 pre-existing
+# U1 is the one unit whose artifact is not a new file, so probe its CONTENT, not a
+# heading count: U1 deletes two headings and adds three, so a count moves 9 -> 10
+# and would not distinguish U1 from an unrelated edit. Absence of the deleted pair
+# and presence of the added trio is what only U1 produces.
+git show main:website/docs/settings/appearance.md | grep -cE '^## (Bar color mode|Bar color source)'  # 0 once U1 landed
+git show main:website/docs/settings/appearance.md | grep -cE '^## (Bar fill|Bar strip|Default legend position)'  # 3 once U1 landed
+python3 -m mkdocs build --strict -f website/mkdocs.yml # the gate (bare `mkdocs` is not on PATH here)
 ```
 
 **Every unit's PR description should also cite this plan path and its unit id**, which makes `git log --grep 2026-09-20-002 main` a convenient secondary index. Treat it as convenience, not proof: measured on 2026-09-20, that grep returns **0 hits for `2026-07-13-001` and `2026-08-27-002`, whose work is demonstrably merged**, because nothing enforces the citation — no workflow or hook reads `plans/`. A unit missing from the grep may still have landed; check the artifacts. Adding a real guard is a candidate ratchet, not part of this plan.
@@ -46,19 +54,32 @@ grep -n "displayName: '" src/bases/viewOptions.ts src/bases/calendarItemOptions.
 grep -o "^#\{2,3\} .*" website/docs/settings/*.md
 ```
 
-⚠️ **A source grep for `displayName:` is not the settings inventory and must not be used as a completeness gate.** Seven shipped controls are built through helpers and carry no literal — `familyToggle(...)` (`calendarItemOptions.ts:118,131-133`) produces *Show recurring tasks*, *Show time entries*, *Show timeblocks*; `eventPropertyPicker(...)` (`:134,139,144`) produces the event-property pickers; per-feed external toggles are dynamic (`:247`). The same grep also counts five group and section *labels* as if they were settings. Any completeness claim must walk the **returned option objects** from `ganttViewOptions()` and the calendar-items group, not the source text (see U1 DoD).
+⚠️ **A source grep for `displayName:` is not the settings inventory and must not be used as a completeness gate.** Seven shipped controls are built through helpers and carry no literal — `familyToggle(...)` (`calendarItemOptions.ts:118,131,132,133`) produces *Show recurring tasks*, *Show time entries*, *Show timeblocks* and *Show property-based events*; `eventPropertyPicker(...)` (`:134,139,144`) produces the event-property pickers; per-feed external toggles are dynamic (`:247`). Four helper toggles plus three pickers is where the seven comes from — an earlier draft named only three toggles, leaving the count unexplained. The same grep also counts five group and section *labels* as if they were settings.
+
+⚠️ **Nor is walking `ganttViewOptions()` and `calendarItemOptionsGroup()` the inventory.** The registered set is *assembled*, not returned: `register.ts:1849-1875` calls `calendarItemOptionsGroup()` and then **mutates** it — `calendarItems.items.push(...externalCalendarOptionEntries(...))` and, when the session degraded, `push(externalCalendarDegradedEntry())` — before returning it beside `ganttViewOptions(isTaskNotesPresent(app), hasProgressProperty)`. A script calling those two builders directly never sees the pushed entries, so every external-calendar control is structurally outside its denominator, and any control added to that callback in future is invisible to it forever. The single source of truth is the registered `options:` callback itself (see U1 DoD).
 
 ### Wrong — the site documents controls that do not exist
 
 | Page | Documents | Reality |
 |---|---|---|
-| `settings/appearance.md:6` | **Bar color mode** | Removed by #312 (`git log -S tngantt_barColorMode` → `5a7cdde1`) |
-| `settings/appearance.md:15` | **Bar color source** | Replaced by `Bar fill` + `Bar strip` (#312) |
-| `settings/appearance.md:52` | **Theme mode** | No longer a view option; persisted from the toolbar (`viewOptions.ts:414-418`) |
+| `settings/appearance.md:6` | **Bar color mode** | Removed by #312 (`git log -S tngantt_barColorMode` → `5a7cdde1`); `grep -rn barColorMode src/` → no match |
+| `settings/appearance.md:15` | **Bar color source** | Replaced by `Bar fill` + `Bar strip` (#312); `grep -rn barColorSource src/` → no match |
+
+**Two, not three. `Theme mode` belongs in the next section, not this one.** An
+earlier draft of this table listed it here; that was wrong and would have cost a
+shipped control its documentation. The control ships — `themeResolver.ts`,
+`GanttToolbar.svelte`, `GanttContainer.svelte:2228` — and `appearance.md:52-56`
+already states the one thing a reader needs: *"(Set from the toolbar, not this
+menu — enable **Show toolbar** first.)"*. What is true of it is narrower than
+"removed": it is not a **view option** (`viewOptions.ts:414-418` says so in
+terms), and the page already says so. Deleting that section would violate R1/R2
+from the opposite direction — a shipped control documented nowhere.
 
 ### Missing settings
 
-`Bar fill` (:376), `Bar strip` (:390), `Default legend position` (:427) — Appearance; `Estimate meaning` (:273), `Non-working-day rendering` (:285), `Inferred date drag` (:334) — Timeline; `Calendar Property` (:84), `Estimate meaning override` (:232) — Fields. **Eight, not nine.** `Progress Property` is *not* missing: `viewOptions.ts:504,517,523` deliberately removes it from Fields and places it in the Progress group, where `website/docs/settings/progress.md:6` already documents it. Do not add it to `fields.md`.
+`Bar fill` (:376), `Bar strip` (:390), `Default legend position` (:427) — Appearance; `Estimate meaning` (:273), `Non-working-day rendering` (:285), `Inferred date drag` (:334) — Timeline; `Calendar Property` (:84), `Estimate meaning override` (:232) — Fields. **Eight, not nine.** `Progress Property` is *not* missing: `viewOptions.ts:504,516,523` deliberately removes it from Fields and places it in the Progress group, where `website/docs/settings/progress.md:6` already documents it. Do not add it to `fields.md`.
+
+⚠️ **One shipped control's heading already carries a MkDocs attribute list:** `website/docs/settings/fields.md:52` is `## Time Estimate Property { #time-estimate-property }`, against `displayName: 'Time Estimate Property'` (`viewOptions.ts:216`). An exact set-diff reports it undocumented on the first run. The repair is to strip a trailing attribute list before comparing — **not** to loosen matching generally (see U1 DoD).
 
 ### Missing feature documentation
 
@@ -84,13 +105,13 @@ Working-time calendars · calendar notes and the visual editor · calendar sets,
 - **R3.** Each new feature page explains what the feature is *for* before how to drive it, and gives at least one realistic worked example — a real planning situation, never `foo`/`bar`.
 - **R4.** Each feature page carries step-by-step instructions naming the exact control labels and where they live.
 - **R5.** Every screenshot depicts behaviour as shipped at the commit that adds it.
-- **R6.** Images follow `docs/conventions/visual-assets.md`: markdown syntax only, absolute `raw.githubusercontent.com` URLs. **Website pages pin to `main`** — verified across all 15 existing site image references. That rule is real by observation but is written nowhere; U1 adds it to `docs/conventions/visual-assets.md` § pinning so the next author is not guessing. Release notes pin to the release tag. Never catbox, never relative paths, never raw HTML.
+- **R6.** Images follow `docs/conventions/visual-assets.md`: markdown syntax only, absolute `raw.githubusercontent.com` URLs. **Website pages pin to `main`** — verified across all **27** existing site image references (25 distinct files over 8 pages), re-measured 2026-09-20 with `grep -rho 'https://raw.githubusercontent.com/renatomen/tasknotes-gantt/[^)]*' website/docs/ | wc -l`. All 27 carry `/main/`; the rule holds. (An earlier draft said 15 — the rule was right, the denominator was not, in a plan whose whole premise is that asserted inventories mislead. Cite the command, not a remembered number.) That rule is real by observation but is written nowhere; U1 adds it to `docs/conventions/visual-assets.md` under `## How assets are referenced` so the next author is not guessing. Release notes pin to the release tag. Never catbox, never relative paths, never raw HTML.
 - **R7.** Chart screenshots carrying colour meaning ship as a **light + dark pair** (`bars-*-light.png` / `bars-*-dark.png` precedent). Settings-panel and modal shots may be single.
 - **R8.** Granularity is stated wherever a reader could infer hour-level scheduling: a calendar authors working hours and **the Week preview displays them**, but nothing schedules or shades by them yet (`workingDays.ts:5-11`, `weekPreviewLayout.ts:3-9`). "Nothing reads them" is too strong and must not be written.
 - **R9.** Accepted gaps are disclosed where a user would otherwise be confused: a swapped task under split rendering has no cue; a bar too narrow to carry a tooth shows no date-status signal; rewriting a frontmatter field drops comments inside that field.
 - **R10.** `mkdocs build --strict -f website/mkdocs.yml` passes on every unit **that touches `website/`**. The CI gate (`.github/workflows/docs.yml`) is path-filtered to `website/**`, so it does **not** run on U7; U7 is gated by the release-index check instead.
-- **R11.** New pages are added to `nav:` in `website/mkdocs.yml` in a reading order that puts concept before control.
-- **R12.** Interoperability is described accurately: working patterns are authored as **RFC 5545 RRULE values**, which is why the syntax is familiar and portable. There is **no iCalendar import or export** — a calendar note is plugin frontmatter in Markdown, and `rfcMapping.ts` is consumed by `schema.ts` and a round-trip test, not by any `.ics` path. Do not write that another RFC client can read the note.
+- **R11.** New pages are added to `nav:` in `website/mkdocs.yml` in a reading order that puts concept before control. ⚠️ **`--strict` does not currently enforce this.** `website/mkdocs.yml` has no `validation:` key, so `validation.nav.omitted_files` keeps its MkDocs ≥1.5 default of INFO, which `--strict` does not escalate — a page left out of `nav` builds green. The first unit to add a page (U2) also adds `validation: {nav: {omitted_files: warn, not_found: warn}, links: {absolute_links: warn}}` to `website/mkdocs.yml`, which `--strict` then turns into a failure.
+- **R12.** Interoperability is described accurately: working patterns are authored as **RFC 5545 RRULE values**, which is why the syntax is familiar and portable. There is **no iCalendar import or export** — a calendar note is plugin frontmatter in Markdown, and `rfcMapping.ts` *projects* the model onto RFC shapes — it imports **from** `schema.ts`, and its only importer repo-wide is `test/unit/calendarRfcRoundTrip.test.ts`. No module under `src/` consumes it and there is no `.ics` path (`grep -rln '\.ics\b' src/` → no match). (An earlier draft had this dependency backwards, saying `schema.ts` consumed it; `schema.ts` imports nothing at all.) Do not write that another RFC client can read the note.
 
 ### Key decisions
 
@@ -114,6 +135,14 @@ Working-time calendars · calendar notes and the visual editor · calendar sets,
 
 **Binding on every unit:** no PR in this campaign grows a ranked-defect file's line count or concern count. A unit that finds itself editing one has escaped its scope and stops for re-planning. No other ranked-defect file appears in any unit's Files.
 
+**State it as a command that can fail, base-pinned:**
+
+```bash
+test -z "$(git diff --stat origin/main...HEAD -- test/specs/gantt-calendar-editor.e2e.ts)"
+```
+
+A bare `git diff --stat` compares the worktree to the index, so on any committed tree it prints nothing and the guard passes for a PR that rewrote the file line by line. The `origin/main...HEAD` form is the one that can actually go red.
+
 ---
 
 ## Implementation Units
@@ -123,14 +152,18 @@ Each unit: its files, its capture fixture, its Definition of Done. Landing: one 
 ### U1. Correct the settings pages, and write down the image-pinning rule
 
 - **Why first:** a user following `settings/appearance.md` today looks for "Bar color mode" and does not find it. Wrong instructions cost more than absent ones.
-- **Files:** `website/docs/settings/appearance.md`, `website/docs/settings/timeline.md`, `website/docs/settings/fields.md`, `docs/conventions/visual-assets.md`.
-- **Work:** delete **Bar color mode**, **Bar color source**, **Theme mode**; add **Bar fill**, **Bar strip**, **Default legend position** (Appearance), **Estimate meaning**, **Non-working-day rendering**, **Inferred date drag** (Timeline), **Calendar Property**, **Estimate meaning override** (Fields). Leave `Progress Property` where it is. Add the website-pins-to-`main` rule to the convention per R6.
-- **Capture fixture:** the Appearance and Timeline view-option panels, staged from any committed `test/vaults/*` fixture (single shots, `view-settings-groups-light.png` precedent).
-- **DoD — checkable, and not by a source grep:** a scratch script walks the option objects returned by `ganttViewOptions()` and the calendar-items group, collects every `displayName`, and diffs that set against the `##`/`###` headings across `website/docs/settings/*.md`.
+- **Files:** `website/docs/settings/appearance.md`, `website/docs/settings/timeline.md`, `website/docs/settings/fields.md`, `docs/conventions/visual-assets.md`, `scripts/check-settings-coverage.mjs` (new), `.github/workflows/ci.yml`, `test/unit/checkSettingsCoverage.test.ts` (new).
+- **Work:** delete **Bar color mode** and **Bar color source** — **and only those two**; **leave `Theme mode` exactly where it is** (§ Measurement: it ships from the toolbar and the page already says so). Add **Bar fill**, **Bar strip**, **Default legend position** (Appearance), **Estimate meaning**, **Non-working-day rendering**, **Inferred date drag** (Timeline), **Calendar Property**, **Estimate meaning override** (Fields). Leave `Progress Property` where it is. Add the website-pins-to-`main` rule to the convention per R6 — under `## How assets are referenced`, beside the existing PR-body and release-notes bullets (there is **no** `§ pinning` heading; an earlier draft of R6 named one that does not exist).
+- **Capture fixture:** the Appearance and Timeline view-option panels, staged from **`test/vaults/gantt-calendar`** (named per KD2 — "any committed fixture" is not a name). Single shots, `view-settings-groups-light.png` precedent. **Run the capture as `OBSIDIAN_TEST_VAULT= npm run e2e:local -- --spec <spec>`:** `test/wdio/wdio.conf.mts:12-13` reads that variable and takes its first `;`-separated entry as the vault it copies from, so clearing it for the command is what actually enforces KD1 rather than trusting the variable's contents.
+- **DoD — a committed check, not a scratch script.**
+  - **Walk the registered `options:` callback**, not its ingredients. `register.ts:1849-1875` assembles the real set: it calls `calendarItemOptionsGroup()`, **mutates** it with `externalCalendarOptionEntries(...)` and `externalCalendarDegradedEntry()`, and returns that beside `ganttViewOptions(companionAvailable, hasProgressProperty)`. Walking the two builders directly misses every pushed entry. Extract an exported builder from that callback if needed so a test can call it.
+  - **Pin the argument matrix, because it is the denominator.** Union the collected `displayName`s over: `companionAvailable` ∈ {true, false} × `hasProgressProperty` ∈ {true, false}, with an injected handle supplying one ICS, one Google and one Microsoft feed, and the degraded signal both set and clear. Left unstated, a bare `ganttViewOptions()` silently drops the companion-gated Relationships, Progress mode and Time Estimate Update.
+  - **Normalization is narrow and stated:** strip a trailing MkDocs attribute list (`/\s*\{[^}]*\}\s*$/`) and trim; then match **exactly and case-sensitively**. No substring, prefix or fuzzy matching — a loosened matcher would let one `## Bar fill and strip` heading satisfy both `Bar fill` and `Bar strip`.
   - **Direction that must be empty: every shipped control has a heading.** This is the direction that catches an undocumented setting, and it is the one U1 is accountable for.
-  - The reverse direction is *not* empty and must not be asserted to be. Settings pages legitimately carry non-control headings (`## Related`, `## Not a view setting: the quick source switcher`, `## The groups`, `## Companion vs. standalone`), three controls are deliberately collapsed into one `### Event start / end / title property` heading, and per-feed external toggles are named after the user's own feeds. The script therefore carries an **explicit, commented allow-list of non-control headings** plus the collapsed-heading and dynamic-feed rules; any heading matching none of them and no shipped control is reported for a human decision rather than silently ignored.
-  - **Prove the check works before trusting it:** delete the `Show recurring tasks` heading and confirm it fails; restore it by inverse edit, never `git checkout`.
-  - `mkdocs build --strict` green.
+  - The reverse direction is *not* empty and must not be asserted to be. Settings pages legitimately carry non-control headings (`## Related`, `## Not a view setting: the quick source switcher`, `## The groups`, `## Companion vs. standalone`, `## External calendars`), three controls are deliberately collapsed into one `### Event start / end / title property` heading, and per-feed external toggles are named after the user's own feeds. The allow-list lives **in the committed script**, one comment per entry saying why that heading is not a control; any heading matching neither it nor a shipped control is **reported and exits non-zero** for a human decision, never silently ignored.
+  - **Prove the check works with a mutation SET, one per class § Measurement warns about** — all five must fail before the check is trusted, each restored by inverse edit, never `git checkout`: (1) `## Show recurring tasks` (static, exact); (2) `## Time Estimate Property { #time-estimate-property }` (attribute-list heading); (3) `### Event start / end / title property` (collapsed — must name all three); (4) a companion-gated heading such as `## Expanded relationships`; (5) a throwaway control added to the `register.ts` options callback (catches the assembly path a builder-only walk cannot see). One mutant proves only the easiest path.
+  - **It runs on every PR, or it is memory rather than mechanism** (AGENTS.md, rule of the house). Wire it into **`.github/workflows/ci.yml`**, which has no `paths:` filter — **not** `docs.yml`, which is filtered to `website/**` and so would never fire on the PR that adds a control in `src/`, the exact drift this guard exists to catch. Cover the script with `test/unit/checkSettingsCoverage.test.ts` so `npx jest` exercises its allow-list branch too.
+  - `python3 -m mkdocs build --strict -f website/mkdocs.yml` green (the bare `mkdocs` binary is not on PATH here); `npx jest` green.
 
 ### U2. Calendars and working time
 
@@ -144,7 +177,8 @@ Each unit: its files, its capture fixture, its Definition of Done. Landing: one 
 - **Files:** `website/docs/features/calendar-editor.md` (new), `test/specs/gantt-calendar-editor-shots.e2e.ts` (new — see the ranked-defect contract), nav.
 - **Content:** **Create calendar** / **Create calendar set**; the form; the working-pattern (RRULE) builder; the year-grid, week and Gantt-strip preview tabs — noting the Week preview is the one surface that shows authored hours (R8); the timezone picker with live UTC offsets; the colour picker; the sticky header, unsaved-changes cue and close guard; renaming from the Name field; **Open calendar note as markdown**; availability blocks as *added* working time with `non_working` for days off; the frontmatter-comment caveat (R9).
 - **Capture fixture:** the new shots spec, reusing the existing calendar-editor `test/vaults/*` fixture. `test/specs/_local-calendar-editor-shots.e2e.ts` is an uncommitted local probe — mine it for technique, do not depend on it, and leave it alone (`_local-*` specs are gitignored and hang `e2e:local`).
-- **DoD:** every tab and top-level control in `src/editor/CalendarEditorForm.svelte` is either documented or listed in the PR body as deliberately out of scope with a reason; `git diff --stat` shows `gantt-calendar-editor.e2e.ts` untouched.
+- **DoD:** every tab and top-level control in `src/editor/CalendarEditorForm.svelte` is either documented or listed in the PR body as deliberately out of scope with a reason — **"top-level control" means every element the form's own markup renders directly in a tab panel (button, input, select, toggle), not elements nested inside a child component**; enumerate them from the file and list the enumeration in the PR body so the denominator is reviewable. `test -z "$(git diff --stat origin/main...HEAD -- test/specs/gantt-calendar-editor.e2e.ts)"` passes (base-pinned; a bare `git diff --stat` is empty on any committed tree and proves nothing).
+- **Ordering independence, because the ranked concern is shared mutable fixture state, not line count.** Entry 6's measured pain is "four separable suites serially mutating one fixture vault"; a fifth suite on the same `test/vaults/gantt-calendar` fixture reproduces it while the file-scoped guard stays green. Run `OBSIDIAN_TEST_VAULT= npm run e2e:local` over both `gantt-calendar-editor.e2e.ts` and the new shots spec in **both orders**, report both results, and state in the PR body whether the shots spec mutates shared vault state and cleans up after itself.
 
 ### U4. Calendar sets, union and conflicts
 
@@ -170,13 +204,13 @@ Each unit: its files, its capture fixture, its Definition of Done. Landing: one 
 ### U7. Slim the release notes
 
 - **Files:** `docs/releases/0.1.0-beta.11.md`, `docs/releases.md` (regenerated).
-- **Work:** rewrite each feature entry as a short summary plus a link to its new page. Keep the Fixed section substantive — no docs pages back it, and bug fixes get no imagery (KD4). Keep the @donaldwdci credit, keep #311 linked with its open residual stated. **Reset the `<!-- release-date: -->` comment**, which currently reads `2026-09-20`, the drafting day.
-- **DoD:** `node scripts/update-release-index.mjs --check` exits 0; every `https://tngantt.com/...` link in the file resolves against the built site (check the paths against `website/docs/` — `mkdocs --strict` does **not** see this file, R10); no manifest change in this PR.
+- **Work:** rewrite each feature entry as a short summary plus a link to its new page. Keep the Fixed section substantive — no docs pages back it, and bug fixes get no imagery (KD4). Keep the @donaldwdci credit, keep #311 linked with its open residual stated. Leave the `<!-- release-date: -->` comment as an explicitly non-final placeholder — **U8 sets it**, because U7 runs first and cannot know the tag day (`releaseFiles.mjs:220` throws only on an *absent* date line, never a stale one, and `generate-release-notes-import.mjs:9` bakes whatever it finds into the in-app What's New bundle).
+- **DoD:** `node scripts/update-release-index.mjs --check` exits 0 — **but note it is green before, during and after U7**: it reads only filenames (`update-release-index.mjs:57` is the whole per-release payload) and U7 renames nothing, so it cannot fail on anything U7 does. It is a supplement, not the gate. **The gate U7 must add and pass** is an executable link check with a non-zero exit: resolve every `https://tngantt.com/<path>` in the changed release file against `website/docs/<path>.md` or `<path>/index.md`, and every `raw.githubusercontent.com` URL against a file present in `docs/media/` (Material serves directory-style URLs, so accept both the `.md` and the `index.md` form). `mkdocs --strict` does **not** see this file (R10). No manifest change in this PR.
 
 ### U8. Cut the tag
 
 - **Work:** `npm version 0.1.0-beta.11` on a throwaway `release/*` branch cut from `main`, per `docs/releases/RELEASING.md`. Separate from U7 by construction — the manifest bump never rides the notes PR, and CI's clean-manifest guard enforces that on `main`.
-- **DoD:** the tag exists, the GitHub release is published with the notes body, and the in-app What's New bundle regenerated from notes present on `main`. #311 is left open for the maintainer to close.
+- **DoD:** the tag exists, the GitHub release is published with the notes body, and the in-app What's New bundle regenerated from notes present on `main`. **Set `<!-- release-date: -->` to the tag day** on the release branch immediately before `npm version`, and verify it against `git log -1 --format=%ad --date=short <tag>` (U7 cannot know this date; nothing else checks it). **After the tag exists, confirm every `raw.githubusercontent.com/.../<tag>/...` URL in `docs/releases/0.1.0-beta.11.md` returns HTTP 200** — until the tag is cut those URLs 404 by design (`visual-assets.md`: release notes pin to the release tag), and this is the only point at which that can be checked. #311 is left open for the maintainer to close.
 
 ---
 
@@ -185,14 +219,19 @@ Each unit: its files, its capture fixture, its Definition of Done. Landing: one 
 Per unit, before push:
 
 ```bash
-pip install -r website/requirements.txt          # mkdocs is not installed by default on this machine
-mkdocs build --strict -f website/mkdocs.yml      # R10; units touching website/
-node scripts/update-release-index.mjs --check    # U7, and any PR touching docs/releases/
-npx jest                                          # full suite when a unit adds or changes a *.test.ts
-npm run e2e:local -- --spec test/specs/<the-new-spec>.e2e.ts   # U3: see below
+pip install -r website/requirements.txt              # mkdocs is not installed by default on this machine
+python3 -m mkdocs build --strict -f website/mkdocs.yml  # R10; units touching website/ (bare `mkdocs` is not on PATH)
+node scripts/update-release-index.mjs --check        # U7, and any PR touching docs/releases/
+node scripts/check-settings-coverage.mjs             # from U1 on, every unit — the completeness guard
+npx jest                                              # EVERY unit, always — see below
+OBSIDIAN_TEST_VAULT= npm run e2e:local -- --spec test/specs/<the-new-spec>.e2e.ts   # U3; the cleared var is what enforces KD1
 ```
 
 ⚠️ **`npx jest` does not run a WDIO spec.** `jest.config.mjs:32` is `testMatch: ["**/*.test.ts"]`, so U3's new `gantt-calendar-editor-shots.e2e.ts` would pass every gate listed above while being entirely broken — a bad selector, a failed assertion or an unload failure would go unseen. Any unit that adds or edits a `*.e2e.ts` must run that spec through `e2e:local` and report its result.
+
+⚠️ **Run `npx jest` on every unit, not only when a unit touches a `*.test.ts`.** An earlier draft of this contract triggered it on changed test files, which is the same false-pass shape one line up: six committed suites — `releaseImages`, `releaseNoteLinks`, `releaseIndex`, `releaseNotesBundle`, `releaseCI`, `visualAssets` — assert directly on `docs/releases/**` and `docs/media/**`, so a units that changes only documentation can still break them. Measured 2026-09-20: the full suite is 184 suites / 4,183 tests in ~80s. It is cheap; run it.
+
+⚠️ **A green mechanical gate is not a reviewed image.** Every unit that references an image opens each referenced file and looks at it. The two stale legend PNGs passed every check in this list.
 
 Plus the repo's standing two-layer pre-push review gate (`ce-code-review` + the independent cross-model peer, both receipts recorded) and the hosted final gate. **Run the layers sequentially and do not commit while the peer is running** — the wrapper binds its receipt to the exact head and refuses when HEAD moves underneath it. This was learned the expensive way on 2026-09-20: three rounds were wasted to a moving head.
 
@@ -200,10 +239,10 @@ Plus the repo's standing two-layer pre-push review gate (`ce-code-review` + the 
 
 ## Definition of Done (campaign)
 
-1. No page documents a control that does not ship, and every shipped setting is documented exactly once on its own group's page — proven by the U1 option-walking check, not a source grep.
+1. No page documents a control that does not ship, and every shipped setting is documented exactly once on its own group's page — proven by re-running `node scripts/check-settings-coverage.mjs` on the tag commit and observing exit 0, not by a source grep and not by a measurement taken once in U1 and discarded.
 2. Working-time calendars, the calendar editor, calendar sets, and the legend each have a page with imagery.
-3. Every image referenced anywhere depicts post-#412 behaviour, confirmed by opening it.
-4. `mkdocs build --strict` green; nav reads concept-before-control.
+3. Every image referenced by `website/docs/**` or `docs/releases/**` depicts post-#412 behaviour, confirmed by opening it. **Scoped deliberately to what this campaign owns.** `README.md:45` still renders `gantt-legend-right.png` and `gantt-legend-bottom.png`, whose alt text names the retired *date-border* semantic, and the README is explicitly **out** of scope (§ Scope boundaries) — so "referenced anywhere" was a gate no unit could satisfy. The README's two stale references are parked in `docs/backlogs/backlog.md` instead.
+4. `mkdocs build --strict` green — with the `validation:` block R11 requires, without which a page missing from `nav` builds green; nav reads concept-before-control.
 5. The beta.11 notes are short and linked, dated to the real tag day, and `0.1.0-beta.11` is tagged and published.
 
 ## Appendix — Sources
