@@ -8,14 +8,15 @@ modes; status/priority coloring needs TaskNotes.
 Bars can be colored in a few ways, set per view under
 [Settings → Appearance](../settings/appearance.md):
 
-- **[Bar color source](../settings/appearance.md#bar-color-source)** — the
-  default hierarchy palette (green parents / blue children), **By status**, **By
-  priority**, or **Obsidian theme**. *By status* and *By priority* need the
-  TaskNotes companion palette; standalone they fall back to **Default**.
-- **[Bar color mode](../settings/appearance.md#bar-color-mode)** — a full
-  **Fill** or a left-edge **Strip** that leaves the bar body neutral.
+- **[Bar fill](../settings/appearance.md#bar-fill)** — what colors the bar's
+  body: the default hierarchy palette (green parents / blue children), **By
+  status**, **By priority**, **By calendar**, **Obsidian theme**, or **None**.
+  *By status* and *By priority* need the TaskNotes companion palette; standalone
+  they fall back to **Default**.
+- **[Bar strip](../settings/appearance.md#bar-strip)** — the same choice again
+  for a left-edge strip, set independently of the fill. Ships as **None**.
 
-The same kitchen-remodel tasks under different **source × mode** combinations
+The same kitchen-remodel tasks under different **fill × strip** combinations
 (click any image to zoom):
 
 === "Strip · by status"

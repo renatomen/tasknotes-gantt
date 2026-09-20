@@ -33,6 +33,15 @@ markdown image syntax:
 - Pin the `<ref>`:
   - **PR body** → the branch name or the commit SHA (no release tag exists yet).
   - **Release notes** → the release tag (e.g. `0.1.0`).
+  - **Website pages** (`website/docs/**`) → `main`. The site is continuously
+    deployed from `main` and documents what is shipped *now*, so a page pinned to
+    a tag would keep rendering an older release's bytes after the behaviour
+    changed. This is the opposite trade-off from release notes, which pin to
+    their tag precisely so an old note keeps showing what that release looked
+    like. Measured 2026-09-20 — all 27 existing site references already follow
+    it, so the rule is written down here rather than invented:
+
+            grep -rho 'https://raw.githubusercontent.com/renatomen/tasknotes-gantt/[^)]*' website/docs/ | wc -l
 
 ## Permanence
 

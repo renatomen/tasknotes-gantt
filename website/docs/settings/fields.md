@@ -42,12 +42,19 @@ roll-up. Optional.
 
 The property whose value colors bars **By status**. **Leave blank** for no
 status coloring. Needs the TaskNotes companion palette to color; see
-[Appearance → Bar color source](appearance.md#bar-color-source).
+[Appearance → Bar fill](appearance.md#bar-fill).
 
 ## Priority Property
 
 The property whose value colors bars **By priority**. **Leave blank** for no
 priority coloring.
+
+## Calendar Property
+
+The property holding a **wikilink to a calendar or calendar-set note**, which is
+how a task gets its working time — the days it may be scheduled across, and the
+days shaded as non-working. **Leave blank** for no calendar; the task then has no
+non-working days of its own. Optional.
 
 ## Time Estimate Property { #time-estimate-property }
 
@@ -56,6 +63,17 @@ date is missing**, and is the write target in Property mode (below). **Leave
 blank** and, whenever TaskNotes is present (companion mode), it resolves to
 TaskNotes' configured `timeEstimate` property — regardless of the write mode.
 Reading the estimate for inference is always on.
+
+## Estimate meaning override
+
+A property that lets a **single task** depart from the view's
+[Estimate meaning](timeline.md#estimate-meaning). Its value is `working-days` or
+`calendar-days`; **leave the property blank on a task** and that task follows the
+view. **Leave this mapping blank** and no task can override.
+
+An overridden task carries a small accent dot on its upper-left corner, and
+hovering it names both the interpretation in force and the view default it
+departs from.
 
 ## Time Estimate Update
 

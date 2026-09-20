@@ -3,28 +3,36 @@
 The **Appearance** group controls how bars are colored and iconed, the on-bar
 date indicators, the toolbar, and the chart's sizing.
 
-## Bar color mode
+![The Appearance group expanded in the Configure view panel, showing Bar fill set to Default, Bar strip to None, Task icon to None, date-status indicators on, Show toolbar off, and Default legend position set to Right](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/view-options-appearance-light.png)
 
-How a bar's color is applied. **Default:** Fill.
+## Bar fill
 
-| Value | Behavior |
-| --- | --- |
-| **Fill** | The whole bar is colored. |
-| **Strip** | Only a left-edge strip is colored; the bar body stays neutral. |
-
-## Bar color source
-
-What determines a bar's color. **Default:** Default.
+What colors a bar's **body**. **Default:** Default.
 
 | Value | Behavior |
 | --- | --- |
+| **None** | The body is left uncolored. |
 | **Default** | Structural hierarchy palette — green parents, blue children. |
-| **By status** | Colors by the TaskNotes status palette. *Companion only — falls back to Default standalone.* |
-| **By priority** | Colors by the TaskNotes priority palette. *Companion only — falls back to Default standalone.* |
+| **By status** | Colors by the TaskNotes status palette. *Companion only.* |
+| **By priority** | Colors by the TaskNotes priority palette. *Companion only.* |
+| **By calendar** | Colors by the calendar the task resolves to; a task associated with none takes the Default treatment. Works in both modes. |
 | **Obsidian theme** | Your Obsidian accent color (`--interactive-accent`) — children the raw accent, parents a higher-contrast tone. |
 
-Parent vs child is color-coded **only** under Default and Obsidian theme; under
-*By status* / *By priority* every bar colors by its own value. See
+## Bar strip
+
+What colors the **left-edge strip** that runs down a bar. Takes the same values
+as [Bar fill](#bar-fill) above. **Default:** None.
+
+Fill and strip are **independent channels**, so a bar can carry two attributes at
+once — a status fill under a calendar strip, say. Set **both** to **None** and
+the bar falls back to the Default hierarchy treatment rather than rendering
+unpainted.
+
+Parent vs child is color-coded **only** under *Default* and *Obsidian theme*;
+under *By status* / *By priority* / *By calendar* every bar colors by its own
+value. An **empty palette** degrades that channel to *Default* — no TaskNotes
+companion means no status/priority palette, and a vault with no calendars has
+nothing for *By calendar* to color by. See
 [Colors → Default vs Obsidian theme](../features/appearance.md#default-vs-obsidian-theme).
 
 ## Task icon
@@ -54,6 +62,17 @@ Show a toolbar above the chart carrying the Auto/Light/Dark theme switch.
 *(Set from the toolbar, not this menu — enable **Show toolbar** first.)* Switches
 the chart between **Auto**, **Light**, and **Dark**, independent of Obsidian's own
 theme.
+
+## Default legend position
+
+Which side the legend opens on. **Default:** Right.
+
+**Values:** Right · Bottom.
+
+Every opening starts here. You can move the legend to the other side while it is
+open, but that move lasts only until you close it — the next open returns to this
+setting. If the chart is too small to seat the legend beside or beneath it, the
+legend covers the chart instead.
 
 ## Min height (px)
 
