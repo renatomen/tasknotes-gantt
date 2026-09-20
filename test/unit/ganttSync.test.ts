@@ -16,6 +16,7 @@ import {
   buildSvarTasks,
   buildTreatmentTaskTypes,
   echoTaskPatch,
+  planEchoUpdates,
   crossGroupClassPairs,
   planTaskSync,
   planLinkSync,
@@ -1873,6 +1874,56 @@ describe('echoTaskPatch', () => {
   const customOf = (over: Partial<RenderInstance> = {}): SvarTask['custom'] =>
     buildSvarTasks(inputs({ instances: [inst({ id: 'a', ...over })] }))[0]!.custom;
 
+  it.each([['nested', 'root'], ['root', 'nested']])('leaves a changed sibling last when echoing %s then %s', (first, second) => {
+    const current = {
+      start: new Date(2026, 0, 5),
+      end: new Date(2026, 0, 9, 23, 59, 59, 999),
+    };
+    const updates = planEchoUpdates(
+      [first, second].map(instanceId => ({ instanceId, payload: geometryPayload([]) })),
+      id => id === 'root' ? current : { ...current, start: new Date(2026, 0, 4) },
+    );
+    expect(updates.map(update => update.instanceId)).toEqual(['root', 'nested']);
+  });
+
+  it('retains custom updates when echo dates are already current', () => {
+    const current = {
+      start: new Date(2026, 0, 5),
+      end: new Date(2026, 0, 9, 23, 59, 59, 999),
+      custom: customOf(),
+    };
+    const runs = [{ startDate: '2026-01-07', days: 2 }];
+    const updates = planEchoUpdates([{ instanceId: 'root', payload: geometryPayload(runs, true) }], () => current);
+    expect(updates).toEqual([{
+      instanceId: 'root',
+      task: { start: current.start, end: current.end, custom: {
+        ...current.custom, ghostRuns: runs, stretchFlagged: true,
+        occupancyRuns: undefined, occupancyEnvelope: undefined,
+      } },
+    }]);
+  });
+
+  it('retains progress patches and stable ordering among missing geometry rows', () => {
+    const updates = planEchoUpdates([
+      { instanceId: 'a', payload: geometryPayload([]) },
+      { instanceId: 'progress', payload: { kind: 'progress', progress: 40 } },
+      { instanceId: 'b', payload: geometryPayload([]) },
+    ], () => undefined);
+    expect(updates).toEqual([
+      { instanceId: 'progress', task: { progress: 40 } },
+      { instanceId: 'a', task: { start: new Date(2026, 0, 5), end: new Date(2026, 0, 9, 23, 59, 59, 999) } },
+      { instanceId: 'b', task: { start: new Date(2026, 0, 5), end: new Date(2026, 0, 9, 23, 59, 59, 999) } },
+    ]);
+  });
+
+  it('preserves row order when every geometry is already current', () => {
+    const updates = planEchoUpdates(
+      ['a', 'b'].map(instanceId => ({ instanceId, payload: geometryPayload([]) })),
+      () => ({ start: new Date(2026, 0, 5), end: new Date(2026, 0, 9, 23, 59, 59, 999) }),
+    );
+    expect(updates.map(update => update.instanceId)).toEqual(['a', 'b']);
+  });
+
   it('maps a progress echo to a progress-only patch', () => {
     expect(echoTaskPatch({ kind: 'progress', progress: 40 }, customOf())).toEqual({
       progress: 40,
@@ -1885,7 +1936,7 @@ describe('echoTaskPatch', () => {
 
     const patch = echoTaskPatch(geometryPayload(runs), current);
 
-    expect(patch).toMatchObject({ start: new Date(2026, 0, 5), end: new Date(2026, 0, 9) });
+    expect(patch).toMatchObject({ start: new Date(2026, 0, 5), end: new Date(2026, 0, 9, 23, 59, 59, 999) });
     const custom = (patch as { custom: SvarTask['custom'] }).custom;
     expect(custom.ghostRuns).toEqual(runs);
     // Everything else in the row's custom record rides along untouched.
@@ -1900,10 +1951,10 @@ describe('echoTaskPatch', () => {
     expect((patch as { custom: SvarTask['custom'] }).custom.ghostRuns).toBeUndefined();
   });
 
-  it('stays span-only when the row has no current custom record to advance', () => {
+  it('keeps the final calendar day inclusive without a custom record', () => {
     expect(echoTaskPatch(geometryPayload([{ startDate: '2026-01-07', days: 2 }]), undefined)).toEqual({
       start: new Date(2026, 0, 5),
-      end: new Date(2026, 0, 9),
+      end: new Date(2026, 0, 9, 23, 59, 59, 999),
     });
   });
 

@@ -90,6 +90,11 @@ function endOfDay(d: Date): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate(), 23, 59, 59, 999);
 }
 
+/** Render both authored task dates inclusively, without changing their calendar days. */
+export function normalizeTaskDateSpan(start: Date, end: Date): Pick<ResolvedDates, 'start' | 'end'> {
+  return { start: startOfDay(start), end: endOfDay(end) };
+}
+
 /** Add `days` calendar days to a date (negative subtracts). */
 function addDays(d: Date, days: number): Date {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate() + days, 0, 0, 0, 0);
@@ -118,17 +123,16 @@ export function applyDatePolicy(
 
   if (start && end) {
     if (start.getTime() <= end.getTime()) {
-      return { start: startOfDay(start), end: endOfDay(end), dateStatus: 'complete' };
+      return { ...normalizeTaskDateSpan(start, end), dateStatus: 'complete' };
     }
     // Inverted range → swap the endpoints.
-    return { start: startOfDay(end), end: endOfDay(start), dateStatus: 'swapped' };
+    return { ...normalizeTaskDateSpan(end, start), dateStatus: 'swapped' };
   }
 
   if (end && !start) {
     // Only a due date: the bar precedes the deadline (work leads up to it).
     return {
-      start: startOfDay(addDays(end, -span)),
-      end: endOfDay(end),
+      ...normalizeTaskDateSpan(addDays(end, -span), end),
       dateStatus: 'inferred-start',
     };
   }
@@ -136,16 +140,14 @@ export function applyDatePolicy(
   if (start && !end) {
     // Only a start date: the bar begins there and runs forward.
     return {
-      start: startOfDay(start),
-      end: endOfDay(addDays(start, span)),
+      ...normalizeTaskDateSpan(start, addDays(start, span)),
       dateStatus: 'inferred-end',
     };
   }
 
   // Neither date: placeholder bar at today.
   return {
-    start: startOfDay(options.today),
-    end: endOfDay(addDays(options.today, span)),
+    ...normalizeTaskDateSpan(options.today, addDays(options.today, span)),
     dateStatus: 'placeholder',
   };
 }

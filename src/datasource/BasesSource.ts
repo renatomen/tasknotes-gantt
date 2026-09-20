@@ -16,12 +16,13 @@
  * @module datasource/BasesSource
  */
 
-import type { App, BasesEntry } from 'obsidian';
+import type { App, BasesEntry, CachedMetadata } from 'obsidian';
 import type { FieldMappings } from './fieldMappings';
 import { BasesDataAdapter } from '../bases/services/BasesDataAdapter';
 import { checklistProgressPercent } from '../bases/checklistProgress';
-import { bareProperty } from './dateFieldMapping';
+import { bareProperty, noteFrontmatterKey } from './dateFieldMapping';
 import { coerceEstimateMinutes } from './noteEstimate';
+import { asPropertyId, type BasesEntryLike } from '../bases/types/bases-entry';
 import type {
   DataSource,
   DataSourceCapabilities,
@@ -42,7 +43,7 @@ export class BasesSource implements DataSource {
   private readonly adapter: BasesDataAdapter;
 
   /**
-   * @param app - Obsidian app, used only for `metadataCache` parent resolution.
+   * @param app - Obsidian app, used for current note data and parent resolution.
    * @param entries - Bases query entries (e.g. `basesView.data.data`).
    * @param mappings - Property→field mapping configuration.
    */
@@ -77,24 +78,36 @@ export class BasesSource implements DataSource {
    */
   private toSourceTask(entry: BasesEntry): SourceTask {
     const path = entry.file.path;
+    const cache = this.app.metadataCache.getFileCache(entry.file);
+    // The refresh fingerprint reads this cache; retained query entries can lag a write.
+    const values: BasesEntryLike = cache ? {
+      file: entry.file,
+      frontmatter: cache.frontmatter ?? {},
+      getValue: property => {
+        const key = noteFrontmatterKey(property);
+        return key === null ? entry.getValue(asPropertyId(property)) : { data: cache.frontmatter?.[key] ?? null };
+      },
+    } satisfies Required<Omit<BasesEntryLike, 'properties'>> : entry;
+    const hasComputedDate = [this.mappings.startProperty, this.mappings.endProperty]
+      .some(property => property?.startsWith('formula.'));
+    const dateValues = hasComputedDate ? entry : values;
 
-    // Official BasesEntry is structurally assignable to the adapter's BasesEntryLike (see bases-entry.ts / plan KTD 4).
     return {
       path,
-      text: this.adapter.extractText(entry, this.mappings.textProperty),
-      start: this.adapter.extractDate(entry, this.mappings.startProperty),
-      end: this.adapter.extractDate(entry, this.mappings.endProperty),
+      text: this.adapter.extractText(values, this.mappings.textProperty),
+      start: this.adapter.extractDate(dateValues, this.mappings.startProperty),
+      end: this.adapter.extractDate(dateValues, this.mappings.endProperty),
       progress:
         this.mappings.progressMode === 'tasknotes'
-          ? this.computeChecklistProgress(entry)
-          : this.adapter.extractProgress(entry, this.mappings.progressProperty),
-      estimate: this.extractEstimateMinutes(entry),
-      status: this.adapter.extractOptionalString(entry, this.mappings.statusProperty),
+          ? this.computeChecklistProgress(cache)
+          : this.adapter.extractProgress(values, this.mappings.progressProperty),
+      estimate: this.extractEstimateMinutes(cache),
+      status: this.adapter.extractOptionalString(values, this.mappings.statusProperty),
       // Priority value comes from the mapped Base property. The color palette still
       // comes from the TaskNotes companion (getPriorityColors); a value with no
       // palette entry simply gets no color. Unmapped → null.
-      priority: this.adapter.extractOptionalString(entry, this.mappings.priorityProperty),
-      parents: this.resolveParents(entry),
+      priority: this.adapter.extractOptionalString(values, this.mappings.priorityProperty),
+      parents: this.resolveParents(values),
     };
   }
 
@@ -110,8 +123,7 @@ export class BasesSource implements DataSource {
    * the #161 refresh storm). Lives here rather than on `BasesDataAdapter` because
    * that adapter is constructed without an `App`/`metadataCache` (KTD1).
    */
-  private computeChecklistProgress(entry: BasesEntry): number | null {
-    const cache = this.app.metadataCache.getFileCache(entry.file);
+  private computeChecklistProgress(cache: CachedMetadata | null): number | null {
     return checklistProgressPercent(cache?.listItems);
   }
 
@@ -124,10 +136,9 @@ export class BasesSource implements DataSource {
    * (`formula.*`) mapping bares to `undefined` and yields `null` (falls back to the
    * Default duration).
    */
-  private extractEstimateMinutes(entry: BasesEntry): number | null {
+  private extractEstimateMinutes(cache: CachedMetadata | null): number | null {
     const bareKey = bareProperty(this.mappings.timeEstimateProperty);
     if (!bareKey) return null;
-    const cache = this.app.metadataCache.getFileCache(entry.file);
     return coerceEstimateMinutes(cache?.frontmatter?.[bareKey]);
   }
 
@@ -139,7 +150,7 @@ export class BasesSource implements DataSource {
    * `parents` to be resolved vault paths in the same namespace as `path`.
    * References that do not resolve to a vault file are dropped.
    */
-  private resolveParents(entry: BasesEntry): string[] {
+  private resolveParents(entry: BasesEntryLike): string[] {
     const parentProperty = this.mappings.parentProperty;
     if (!parentProperty) {
       return [];

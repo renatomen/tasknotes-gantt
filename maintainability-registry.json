@@ -64,6 +64,15 @@
         "scripts/cross-model-peer-review.sh": 10
       },
       "atCeiling": 16
+    },
+    {
+      "date": "2026-09-20",
+      "anchorSha": "04ccc4c2027d44601fde27e627a897d6b15269cc",
+      "report": "docs/reports/2026-09-20-001-issue-311-date-gestures.md",
+      "concernCounts": {
+        "src/bases/GanttContainer.svelte": 28
+      },
+      "atCeiling": 16
     }
   ],
   "boundary": {

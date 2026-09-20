@@ -45,7 +45,7 @@
     buildTreatmentTaskTypes,
     buildInstanceCueTaskTypes,
     baseSortDescriptor,
-    echoTaskPatch,
+    planEchoUpdates,
     type SvarTask,
   } from './ganttSync';
   import {
@@ -1953,10 +1953,9 @@
    *  against pre-echo state and skips the re-issue that repaints it. */
   function echoSourceGeometry(echoes: SourceEchoes): void {
     if (!api) return;
-    for (const row of echoes.rows) {
-      const task = echoTaskPatch(row.payload, api.getTask?.(row.instanceId)?.custom);
-      api.exec('update-task', { id: row.instanceId, task, eventSource: OG_ECHO_SOURCE });
-      applyEchoToBaseline(appliedSyncState, row.instanceId, task);
+    for (const { instanceId, task } of planEchoUpdates(echoes.rows, id => api?.getTask?.(id))) {
+      api.exec('update-task', { id: instanceId, task, eventSource: OG_ECHO_SOURCE });
+      applyEchoToBaseline(appliedSyncState, instanceId, task);
     }
   }
 

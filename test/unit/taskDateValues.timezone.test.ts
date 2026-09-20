@@ -8,6 +8,13 @@ import {
 } from '../../src/datasource/TaskNotesSource';
 import { applyDatePolicy } from '../../src/controller/datePolicy';
 import { classifyTypedValue } from '../../src/bases/propertyValues';
+import { planGestureCommit, type PlannerDerivation } from '../../src/bases/dragCommitPlanner';
+import { echoTaskPatch } from '../../src/bases/ganttSync';
+import { inclusiveDaySpan, minutesToSpanDays, spanDaysToMinutes } from '../../src/controller/durationConversion';
+
+const plainDerivation: PlannerDerivation = {
+  inclusiveDaySpan, minutesToSpanDays, spanDaysToMinutes, defaultDurationDays: 1,
+};
 
 async function readBasesDates(start: string, end: string) {
   const entry = {
@@ -15,7 +22,7 @@ async function readBasesDates(start: string, end: string) {
     frontmatter: { begins: start, finishes: end },
     getValue: () => null,
   } as unknown as BasesEntry;
-  const source = new BasesSource({} as App, [entry], {
+  const source = new BasesSource({ metadataCache: { getFileCache: () => null } } as unknown as App, [entry], {
     textProperty: '',
     startProperty: 'note.begins',
     endProperty: 'note.finishes',
@@ -44,7 +51,7 @@ async function readBasesDateValues(start: Date, end: Date) {
     file: { path: 'Approval.md', basename: 'Approval' },
     getValue: (property: string) => ({ date: values[property] }),
   } as unknown as BasesEntry;
-  const source = new BasesSource({} as App, [entry], {
+  const source = new BasesSource({ metadataCache: { getFileCache: () => null } } as unknown as App, [entry], {
     textProperty: '',
     startProperty: 'formula.begins',
     endProperty: 'formula.finishes',
@@ -90,6 +97,28 @@ describe.each([
   { name: 'Bases frontmatter', read: readBasesDates },
   { name: 'TaskNotes companion', read: readTaskNotesDates },
 ])('$name calendar dates', ({ read }) => {
+  it.each([
+    { gesture: 'whole-bar move', first: 20, last: 22 },
+    { gesture: 'start-edge resize', first: 22, last: 23 },
+    { gesture: 'end-edge resize', first: 21, last: 24 },
+  ])('$gesture echoes the same inclusive span that its saved dates render', async ({ first, last }) => {
+    const task = await read('2026-09-21', '2026-09-23');
+    const before = applyDatePolicy(task, { defaultDuration: 1, today: new Date(2026, 8, 1) });
+    const plan = planGestureCommit({
+      kind: 'bar', instanceId: 'Approval.md', before: { ...before, estimateMinutes: null },
+      after: { start: new Date(2026, 8, first), end: new Date(2026, 8, last) },
+      estimateWritable: false, inferredDragMode: 'ask',
+    }, [{ id: 'Approval.md', sourcePath: 'Approval.md', text: 'Approval', ...before }], undefined, plainDerivation);
+    const updates = buildTaskUpdates(plan.writes[0].patch);
+    const echo = echoTaskPatch(plan.echoes[0].rows[0].payload, undefined);
+    const reread = await read(String(updates.scheduled), String(updates.due));
+    const refreshed = applyDatePolicy(reread, { defaultDuration: 1, today: new Date(2026, 8, 1) });
+
+    expect(updates).toEqual({ scheduled: `2026-09-${first}`, due: `2026-09-${last}` });
+    expect(echo).toEqual({ start: new Date(2026, 8, first), end: new Date(2026, 8, last, 23, 59, 59, 999) });
+    expect(echo).toEqual({ start: refreshed.start, end: refreshed.end });
+  });
+
   it.each(calendarDays)('reads $text at local midnight, matching the grid', async ({ text, year, month, day }) => {
     const task = await read(text, text);
     const expected = new Date(year, month, day);
