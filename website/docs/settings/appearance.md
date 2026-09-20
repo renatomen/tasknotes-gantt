@@ -4,8 +4,6 @@ The **Appearance** group controls how bars are colored and iconed, the on-bar
 date indicators, the toolbar, the legend's default side, and the chart's
 sizing.
 
-![The Appearance group expanded in the Configure view panel, showing Bar fill set to Default, Bar strip to None, Task icon to None, date-status indicators on, Show toolbar off, and Default legend position set to Right](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/view-options-appearance.png)
-
 ## Bar fill
 
 What colors a bar's **body**. **Default:** Default.

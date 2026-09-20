@@ -16,6 +16,36 @@ plausibly wanted. Lightweight alternative to opening GitHub issues prematurely (
 
 ## High priority
 
+### P1 — The cross-model peer gate refuses every change that adds an image (2026-09-20)
+`scripts/cross-model-peer-review.sh:285-287` refuses with exit 14 when the reviewed
+diff contains `Binary files ... differ`. The intent is right — a PNG's bytes never
+reach the reviewer, and a verdict on a diff nobody read is the accident the gate
+exists to catch. But it refuses the **whole** review rather than the binary part, so
+no change that adds a `docs/media/` asset can earn a peer receipt, and the pre-push
+hook requires that receipt. **Since the guard landed (`018cbb07`, #419, 2026-08-14)
+not one image has reached `main`** — newest is `b1045795` (#412, 2026-08-11) — which
+is why nobody hit it until now.
+
+This blocks the documentation campaign (`docs/plans/2026-09-20-002`): U1 through U6
+each ship screenshots, and U1's two captures were dropped from its PR for exactly
+this reason. Measured, not inferred:
+
+```bash
+git log --oneline --diff-filter=A --since=2026-08-14 origin/main -- docs/media/   # empty
+bash scripts/cross-model-peer-review.sh origin/main /tmp/x.md --record            # exit 14
+```
+
+**Recommendation:** exclude binary paths from the text handed to the reviewer while
+still listing them as changed, so the reviewer knows an asset moved without being
+asked to review bytes it cannot see. The plan already assigns image review to a
+separate visual pass ("Screenshot review is visual, by a human or an agent opening
+the file"), so the gate is not the right place for it. Needs its own unit carrying
+the ranked-file contract: the wrapper is **ranked-defect entry 7**
+(`docs/reports/2026-08-15-001-maintainability-rediagnosis.md`), and
+`docs/solutions/workflow-issues/bound-work-on-the-review-tool-itself.md` bounds
+work on the gate — this is a finding about the accident the tool exists to catch,
+so it is in the "worth fixing" class, but not inside a docs unit.
+
 ### P1 — Schedule validation (errors & warnings), with swapped dates as the first slice (2026-08-10)
 Per-task validation with two severities, surfaced as a badge **left of the gantt bar**
 (hover for a description naming what's wrong). Example warnings: subtask ends beyond
@@ -475,6 +505,23 @@ into view** → **highlight** (navigation only, no note activation). Date-less/p
 - **Pure decision module to plan:** ancestor-chain + best-fit-level selection (`focusController`),
   unit-testable without SVAR/Obsidian. e2e mirrors `gantt-fullscreen.e2e.ts`.
 - Source: focus-on-task brainstorm session (2026-06-29).
+
+### Visual assets — the two U1 view-option panels, captured but unlandable (2026-09-20)
+The Appearance and Timeline view-option panels were captured for plan
+`2026-09-20-002` U1, from the committed `test/vaults/gantt-calendar` fixture, opened
+and reviewed by eye — then **removed from the PR** because the peer gate refuses any
+diff containing a binary file (see the P1 above). The text corrections landed without
+them. Re-add both once that gate is fixed; nothing needs re-deciding, only re-running.
+
+Recipe, measured and working: a gitignored `_local-*` probe drives the Bases toolbar's
+view-name button, clicks the active entry's `.bases-toolbar-menu-item-icon` chevron to
+open `.bases-toolbar-menu-form.view-config-menu`, expands one `.input-group` by its
+`.input-group-header-text`, and takes an **element** screenshot of `.bases-toolbar-menu`
+(a whole-window shot times out the renderer). Scope rows to `.input-group-container`,
+not `.input-group` — the content is a sibling of the header, not a child. Run it as
+`OBSIDIAN_TEST_VAULT="$(pwd)/.wdio-vault" npm run e2e:local -- --spec <spec>`; the
+`--spec` flag lifts the `_local-*` exclusion in `test/wdio/wdio.conf.mts`. Name the
+files without a theme suffix (`visual-assets.md`: single-theme assets omit it).
 
 ### Visual assets — capture for shipped features
 These features shipped without a convention-compliant `docs/media/` asset; capture each via

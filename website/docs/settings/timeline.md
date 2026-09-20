@@ -4,8 +4,6 @@ The **Timeline** group controls the time axis, dependency arrows, the parent-dat
 cascade, working-time interpretation, inferred-edge drags, and how tasks with
 missing dates appear.
 
-![The Timeline group expanded in the Configure view panel, showing Default Scale set to Days, Highlight weekends on, Estimate meaning set to Calendar days, Non-working-day rendering set to Shaded background, Default task duration 1, Dependency Arrows set to Primary instance only, Parent date updates set to Ask, and Inferred date drag set to Ask](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/view-options-timeline.png)
-
 ## Default Scale
 
 The initial zoom of the timeline. **Default:** Days.
