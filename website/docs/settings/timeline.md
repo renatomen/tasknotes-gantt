@@ -57,9 +57,10 @@ counts:
 - **Which calendar.** A bar splits according to the calendar its own
   [Calendar Property](fields.md#calendar-property) resolves to, while shading
   follows the calendars shown. Until you use **Select calendars…** those are the
-  calendars your tasks are associated with, so they line up; make an explicit
-  selection and it wins for shading only — a bar can then split over unshaded
-  days, or shaded days can run behind a bar that does not split.
+  calendars your tasks are associated with — but that union is chart-wide while
+  splitting stays per task, so two tasks on different calendars already see
+  each other's shaded days without splitting on them. An explicit selection
+  then wins for shading only, widening the gap in both directions.
 - **Which days.** Shading covers a calendar's non-working days, its
   working-pattern gaps, **and its events and recurring events**. Only the first
   two block a task. So a calendar event on an otherwise working day shades that

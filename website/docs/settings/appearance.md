@@ -10,7 +10,7 @@ What colors a bar's **body**. **Default:** Default.
 
 | Value | Behavior |
 | --- | --- |
-| **None** | This channel contributes no colour. The body is not left blank, though: with a strip set it becomes a neutral body under that strip, and with **both** channels *None* the bar falls back to the Default hierarchy fill so it is never invisible. |
+| **None** | This channel contributes no colour. The body is not left blank, though: with a strip set it becomes a neutral body under that strip, and with **both** channels *None* the bar falls back to the Default **child** colour so it is never invisible — no parent/child distinction is drawn in that combination (see below). |
 | **Default** | Structural hierarchy palette — green parents, blue children. |
 | **By status** | Colors by the TaskNotes status palette. *Companion only.* |
 | **By priority** | Colors by the TaskNotes priority palette. *Companion only.* |
