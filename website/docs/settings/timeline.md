@@ -43,7 +43,7 @@ How a non-working day is drawn. **Default:** Shaded background.
 | Value | Behavior |
 | --- | --- |
 | **Shaded background** *(default)* | Non-working days are shaded behind the chart, across every row. |
-| **Split segments** | Bars spanning a non-working day are additionally broken into segments, so you can see which days a given bar actually works. |
+| **Split segments** | A bar spanning *both* working and non-working days is additionally broken into segments, so you can see which days it actually works. A bar whose span is **entirely** non-working stays continuous — there is nothing to divide it into. |
 
 *Split segments* **adds** the segments rather than replacing the shading — both
 values shade. The two are driven from different places, though: shading follows
@@ -98,8 +98,10 @@ decides which you meant. **Default:** Ask.
 | **Grow the estimate only** | Write the new estimate; the dragged edge stays worked-out and keeps re-deriving. |
 | **Grow the estimate and write dates** | Write the new estimate **and** pin a real date on the edge you dragged. The end you authored is left alone. |
 
-Both answers grow the estimate — the difference is only whether the dragged edge
-becomes an authored date. If a drag does not change the working-day count (an end
+Both answers write the same estimate — the difference is only whether the dragged
+edge becomes an authored date. "Grow" is the common case, not the rule: dragging
+an edge inward *reduces* the estimate, because it is always recomputed from the
+span you ended up with. If a drag does not change the working-day count (an end
 moved from a Friday onto the adjoining Saturday, say), there is no new estimate
 to write, and *Grow the estimate only* leaves the task untouched.
 

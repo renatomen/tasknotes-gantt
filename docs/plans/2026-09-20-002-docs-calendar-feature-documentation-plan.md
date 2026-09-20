@@ -211,7 +211,7 @@ Each unit: its files, its capture fixture, its Definition of Done. Landing: one 
 ### U2. Calendars and working time
 
 - **Files:** `website/docs/features/calendars.md` (new), `website/docs/features/appearance.md` (Weekend shading section only), `website/mkdocs.yml` nav.
-- **Content:** what a calendar note is; **Select calendars…**; non-working days as background shading; **Estimate meaning → Working days** stretching a worked-out span, and that it is opt-in (ships as *Calendar days*); that **Non-working-day rendering → Split segments** *adds* segments over shading rather than replacing it; that authored dates never move and a fully dateless placeholder does not stretch; granularity per R8; RRULE values per R12.
+- **Content:** what a calendar note is; **Select calendars…**; non-working days as background shading; **Estimate meaning → Working days** stretching a worked-out span, and that it is opt-in (ships as *Calendar days*); that **Non-working-day rendering → Split segments** *adds* segments over shading rather than replacing it, and that a fully blocked span stays continuous (`derivation.ts:196` returns no runs for it); that authored dates never move and a fully dateless placeholder does not stretch; granularity per R8; RRULE values per R12.
 - **Capture fixtures:** `test/specs/gantt-calendar-shading.e2e.ts` and `test/specs/gantt-calendar-stretch.e2e.ts`, with their `test/vaults/*` fixtures. Light + dark pairs per R7.
 - **DoD:** the page contains a numbered procedure from "no calendar" to a shaded, stretched chart, naming each control by its shipped label; every behavioural claim cites a path under `src/controller/calendar/` or `src/bases/calendarShading.ts` in the PR body; the Weekend shading section links to this page.
 
