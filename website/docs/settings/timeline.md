@@ -45,20 +45,25 @@ How a non-working day is drawn. **Default:** Shaded background.
 | **Shaded background** *(default)* | Non-working days are shaded behind the chart, across every row. |
 | **Split segments** | A bar spanning *both* working and non-working days is additionally broken into segments, so you can see which days it actually works. A bar whose span is **entirely** non-working stays continuous — there is nothing to divide it into. |
 
-*Split segments* **adds** the segments rather than replacing the shading. The
-segments are in-bar geometry and are drawn at **every** scale; the shading is
-not — it appears only at the **hour** and **day** scales, the same restriction
+*Split segments* **adds** the segments rather than replacing the shading. Both
+appear only at the **hour** and **day** scales — the same restriction
 [Highlight weekends](#highlight-weekends) carries, because a week or month
-column is not a single day. So at week and month scale you still get split
-bars, just nothing shaded behind them.
+column is not a single day. Choose a coarser scale and a split bar goes back to
+being continuous with nothing shaded behind it.
 
-Which calendar drives which also differs. A bar splits according to the calendar
-its own [Calendar Property](fields.md#calendar-property) resolves to. Shading
-follows the calendars selected in **Select calendars…** — but only once you have
-made a selection; until then it follows the union of the calendars your tasks
-are associated with, so the two agree by default. After an explicit selection
-they can diverge: a bar can split over days that are not shaded, or shaded days
-can run behind a bar that does not split.
+**Shading and splitting are not the same signal**, and they can disagree on two
+counts:
+
+- **Which calendar.** A bar splits according to the calendar its own
+  [Calendar Property](fields.md#calendar-property) resolves to, while shading
+  follows the calendars shown. Until you use **Select calendars…** those are the
+  calendars your tasks are associated with, so they line up; make an explicit
+  selection and it wins for shading only — a bar can then split over unshaded
+  days, or shaded days can run behind a bar that does not split.
+- **Which days.** Shading covers a calendar's non-working days, its
+  working-pattern gaps, **and its events and recurring events**. Only the first
+  two block a task. So a calendar event on an otherwise working day shades that
+  day without stretching or splitting anything through it.
 
 ## Default task duration (days)
 

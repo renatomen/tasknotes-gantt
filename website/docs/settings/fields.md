@@ -66,12 +66,17 @@ association — this property — is what decides whether *that task* stretches 
 splits. Shading depends on whether you have used **Select calendars…**:
 
 - **Until you make a selection** (the default), the chart shades the union of the
-  calendars your tasks are associated with. Map this property and the days shade
-  on their own; the two always agree.
-- **Once you make an explicit selection**, it wins for shading, and the two can
-  then disagree in both directions: select a calendar but leave this property
-  blank and you get shading with no stretching; associate a task with a calendar
-  you did *not* select and its bar splits over days that are not shaded.
+  calendars your tasks are associated with — so mapping this property is enough
+  to get shading, and the same calendars drive both.
+- **Once you make an explicit selection**, it wins for shading only: select a
+  calendar but leave this property blank and you get shading with no stretching;
+  associate a task with a calendar you did *not* select and its bar splits over
+  days that are not shaded.
+
+Even when the same calendar drives both, they do not cover the same **days**.
+Shading includes that calendar's events and recurring events; scheduling does
+not — only its non-working days and its working-pattern gaps hold a task back.
+An event on an otherwise working day is shaded and scheduled straight through.
 
 ## Time Estimate Property { #time-estimate-property }
 
