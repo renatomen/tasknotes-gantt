@@ -45,8 +45,13 @@ How a non-working day is drawn. **Default:** Shaded background.
 | **Shaded background** *(default)* | Non-working days are shaded behind the chart, across every row. |
 | **Split segments** | A bar spanning *both* working and non-working days is additionally broken into segments, so you can see which days it actually works. A bar whose span is **entirely** non-working stays continuous — there is nothing to divide it into. |
 
-*Split segments* **adds** the segments rather than replacing the shading — both
-values shade. The two are driven from different places, though: shading follows
+Shading is drawn only at the **hour** and **day** scales, the same restriction
+[Highlight weekends](#highlight-weekends) carries — at week and month scale the
+columns are not single days, so neither value shades anything.
+
+At those two scales, *Split segments* **adds** the segments rather than replacing
+the shading — both values shade. The two are driven from different places,
+though: shading follows
 the calendars selected in **Select calendars…**, while a bar splits according to
 the calendar that bar's own [Calendar Property](fields.md#calendar-property)
 resolves to. They usually coincide; where they do not, a bar can split over days

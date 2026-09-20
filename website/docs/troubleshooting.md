@@ -33,9 +33,14 @@ down to field mappings or which [mode](core-concepts.md#the-two-modes) you're in
 - **Neither colour channel is set to it.** Choose **By status** or **By priority** under
   [Appearance → Bar fill](settings/appearance.md#bar-fill) (or
   [Bar strip](settings/appearance.md#bar-strip)).
-- **Standalone, the status/priority property isn't mapped** under
-  [Fields](settings/fields.md). In companion mode a blank mapping is *not* the
-  cause — it resolves to TaskNotes' own configured property.
+- **You're standalone, so there is no palette to colour from.** *By status* and
+  *By priority* read TaskNotes' configured palettes; without the companion both
+  are empty and the channel silently falls back to the default hierarchy
+  colours. Mapping a status or priority property does **not** help here — the
+  mapping is not the missing piece, the palette is.
+- **In companion mode, a blank mapping is not the cause** — it resolves to
+  TaskNotes' own configured property. Check instead that the property actually
+  carries a value TaskNotes knows, under [Fields](settings/fields.md).
 
 ## Weekend shading is missing
 
