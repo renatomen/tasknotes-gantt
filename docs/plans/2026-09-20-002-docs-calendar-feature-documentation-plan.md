@@ -148,7 +148,8 @@ Working-time calendars · calendar notes and the visual editor · calendar sets,
 
 ### Scope boundaries
 
-- **In:** `website/docs/**`, `website/mkdocs.yml`, `docs/media/**`, new capture spec modules under `test/`, `docs/conventions/visual-assets.md` (R6 only), and in U7 only, `docs/releases/**`.
+- **In:** `website/docs/**`, `website/mkdocs.yml`, `docs/media/**`, new capture spec modules under `test/`, `docs/conventions/visual-assets.md` (R6 only), and `docs/releases/**`.
+  - **U7 owns the release notes' *rewrite*, not their arrival.** The `0.1.0-beta.11` draft predates this plan: it was written at `403a3a42` and the plan was added at `d01d8c1b`, several commits later on the same branch, so the draft lands together with the plan rather than in U7. That ordering is required, not incidental — `docs/releases/RELEASING.md:112-124` makes notes-on-`main`-first load-bearing, because `npm version` regenerates the in-app What's New bundle from the notes present on the branch being cut, which is how `0.1.0-beta.5` silently dropped `beta.4`. What U7 owns is slimming each entry to a short summary plus a link to the page U2–U6 create. No unit between U1 and U6 touches `docs/releases/**`.
 - **Out:** production behaviour in `src/`. A unit that finds a defect files it in `docs/backlogs/backlog.md` and documents the shipped behaviour as it is. Documentation never becomes the fix.
 - **Out:** the README (already demoted by the 2026-07-13 plan).
 
