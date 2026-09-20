@@ -22,7 +22,7 @@ async function readBasesDates(start: string, end: string) {
     frontmatter: { begins: start, finishes: end },
     getValue: () => null,
   } as unknown as BasesEntry;
-  const source = new BasesSource({} as App, [entry], {
+  const source = new BasesSource({ metadataCache: { getFileCache: () => null } } as unknown as App, [entry], {
     textProperty: '',
     startProperty: 'note.begins',
     endProperty: 'note.finishes',
@@ -51,7 +51,7 @@ async function readBasesDateValues(start: Date, end: Date) {
     file: { path: 'Approval.md', basename: 'Approval' },
     getValue: (property: string) => ({ date: values[property] }),
   } as unknown as BasesEntry;
-  const source = new BasesSource({} as App, [entry], {
+  const source = new BasesSource({ metadataCache: { getFileCache: () => null } } as unknown as App, [entry], {
     textProperty: '',
     startProperty: 'formula.begins',
     endProperty: 'formula.finishes',

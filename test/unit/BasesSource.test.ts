@@ -18,6 +18,7 @@ import { BasesSource } from '../../src/datasource/BasesSource';
 import type { BasesEntry } from 'obsidian';
 import type { FieldMappings } from '../../src/bases/types/field-mapping';
 import type { App } from 'obsidian';
+import { composeEntrySignature } from '../../src/bases/entrySignature';
 
 /** Property IDs use the colon form so extraction routes through getValue(). */
 const MAPPINGS: FieldMappings = {
@@ -66,6 +67,7 @@ function makeEntry(
 function makeApp(links: Record<string, string>, existingPaths: string[] = []): App {
   return {
     metadataCache: {
+      getFileCache: () => null,
       getFirstLinkpathDest: (linkpath: string) => {
         const resolved = links[linkpath];
         return resolved ? { path: resolved } : null;
@@ -83,6 +85,76 @@ describe('BasesSource', () => {
 
   beforeEach(() => {
     app = makeApp({});
+  });
+
+  describe('note snapshot freshness', () => {
+    const mappings: FieldMappings = {
+      textProperty: 'file.name', startProperty: 'note.begins',
+      endProperty: 'note.finishes', progressProperty: '',
+    };
+
+    function fixture() {
+      const entry = Object.assign(makeEntry('task.md', 'task', {}), {
+        frontmatter: { begins: '2026-09-20', finishes: '2026-09-22' },
+      });
+      const cache: { frontmatter?: Record<string, unknown> } = {
+        frontmatter: { begins: '2026-09-21', finishes: '2026-09-23' },
+      };
+      const cacheApp = {
+        ...makeApp({}),
+        metadataCache: { getFileCache: () => cache },
+      } as unknown as App;
+      return { entry, cache, cacheApp };
+    }
+
+    it('reads the dates fingerprinted by refresh while Bases entries lag successive writes', async () => {
+      const { entry, cache, cacheApp } = fixture();
+      const source = new BasesSource(cacheApp, [entry], mappings);
+      const signature = () => composeEntrySignature({
+        entries: [entry], viewMappings: mappings, resolvedMappings: mappings,
+        estimateReadKey: null, noteCacheOf: () => ({ frontmatter: cache.frontmatter ?? null }),
+      });
+      const consumed = signature();
+
+      const [first] = await source.getTasks();
+      expect([first.start, first.end]).toEqual([new Date(2026, 8, 21), new Date(2026, 8, 23)]);
+      entry.frontmatter = { begins: '2026-09-21', finishes: '2026-09-23' };
+      expect(signature()).toBe(consumed);
+
+      cache.frontmatter = { begins: '2026-09-20', finishes: '2026-09-22' };
+      expect(signature()).not.toBe(consumed);
+      const [second] = await source.getTasks();
+      expect([second.start, second.end]).toEqual([new Date(2026, 8, 20), new Date(2026, 8, 22)]);
+    });
+
+    it.each([{}, { begins: '2026-09-21' }, undefined])(
+      'does not resurrect a removed end date from a retained entry (%j)', async frontmatter => {
+        const { entry, cache, cacheApp } = fixture();
+        cache.frontmatter = frontmatter;
+        const [task] = await new BasesSource(cacheApp, [entry], mappings).getTasks();
+        expect(task.end).toBeNull();
+      },
+    );
+
+    it('uses the query entry while its metadata cache is unavailable', async () => {
+      const { entry } = fixture();
+      const [task] = await new BasesSource(makeApp({}), [entry], mappings).getTasks();
+      expect([task.start, task.end]).toEqual([new Date(2026, 8, 20), new Date(2026, 8, 22)]);
+    });
+
+    it('keeps computed-property access bound to its original Bases entry', async () => {
+      const { entry, cacheApp } = fixture();
+      const computed = Object.assign(entry, {
+        getValue() {
+          expect(this).toBe(computed);
+          return { date: new Date(2026, 8, 24) };
+        },
+      });
+      const [task] = await new BasesSource(cacheApp, [computed], {
+        ...mappings, endProperty: 'formula.finish',
+      }).getTasks();
+      expect(task.end).toEqual(new Date(2026, 8, 24));
+    });
   });
 
   describe('capabilities', () => {
