@@ -516,6 +516,16 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   re-captured. Fixture: `test/specs/gantt-legend.e2e.ts`. The committed bytes stay in place — older
   releases pin to their own tags (`docs/conventions/visual-assets.md`), so a re-capture lands under a
   new filename rather than overwriting these.
+- **Extract the view-options assembly out of `register.ts` (ranked entry 2)** — `register.ts:1849-1875`
+  assembles the registered option set by calling `calendarItemOptionsGroup()` and then mutating it with
+  `externalCalendarOptionEntries(...)` / `externalCalendarDegradedEntry()` before returning it beside
+  `ganttViewOptions(...)`. `scripts/check-settings-coverage.mjs` (added by `docs/plans/2026-09-20-002`
+  U1) must mirror that assembly order from outside, so the two can drift. Extracting it into its own
+  module is ranked entry 2's own prescribed remedy ("the ~20 option readers and the calendar/picker
+  cluster are clean extract candidates", `docs/reports/2026-08-15-001-maintainability-rediagnosis.md:230`).
+  Needs its own unit carrying the full ranked-file contract: ranking citation, touch argument, and a
+  Definition of Done stating no ranked-file metric regresses. The coverage script then walks the
+  extracted builder instead of re-composing.
 - **Visual assets — README still renders the two stale legend PNGs (0.1.0-beta.11)** — `README.md:45`
   references both `gantt-legend-right.png` and `gantt-legend-bottom.png` pinned to `792e961f`, with
   alt text naming the retired *date-border* semantic that #402/#412 removed. The README is out of
