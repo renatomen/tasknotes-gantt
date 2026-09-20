@@ -81,10 +81,10 @@ source that color differently:
 Under **By status** and **By priority**, every bar is colored by its own value —
 parents and children alike, with no hierarchy coloring.
 
-**By calendar** is the mixed case: a task associated with a calendar takes that
-calendar's colour, while a task associated with none keeps the hierarchy
-treatment — green parents, blue children — so the two appear side by side in one
-chart.
+**By calendar** is the mixed case. A task whose calendar sets a colour takes that
+colour. A task with no calendar, or one whose calendar note defines no colour,
+keeps the hierarchy treatment instead — green parents, blue children — so both
+appear side by side in one chart.
 
 | Light theme | Dark theme |
 | :---: | :---: |

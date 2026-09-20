@@ -45,17 +45,20 @@ How a non-working day is drawn. **Default:** Shaded background.
 | **Shaded background** *(default)* | Non-working days are shaded behind the chart, across every row. |
 | **Split segments** | A bar spanning *both* working and non-working days is additionally broken into segments, so you can see which days it actually works. A bar whose span is **entirely** non-working stays continuous — there is nothing to divide it into. |
 
-Shading is drawn only at the **hour** and **day** scales, the same restriction
-[Highlight weekends](#highlight-weekends) carries — at week and month scale the
-columns are not single days, so neither value shades anything.
+*Split segments* **adds** the segments rather than replacing the shading. The
+segments are in-bar geometry and are drawn at **every** scale; the shading is
+not — it appears only at the **hour** and **day** scales, the same restriction
+[Highlight weekends](#highlight-weekends) carries, because a week or month
+column is not a single day. So at week and month scale you still get split
+bars, just nothing shaded behind them.
 
-At those two scales, *Split segments* **adds** the segments rather than replacing
-the shading — both values shade. The two are driven from different places,
-though: shading follows
-the calendars selected in **Select calendars…**, while a bar splits according to
-the calendar that bar's own [Calendar Property](fields.md#calendar-property)
-resolves to. They usually coincide; where they do not, a bar can split over days
-that are not shaded, or shaded days can run behind a bar that does not split.
+Which calendar drives which also differs. A bar splits according to the calendar
+its own [Calendar Property](fields.md#calendar-property) resolves to. Shading
+follows the calendars selected in **Select calendars…** — but only once you have
+made a selection; until then it follows the union of the calendars your tasks
+are associated with, so the two agree by default. After an explicit selection
+they can diverge: a bar can split over days that are not shaded, or shaded days
+can run behind a bar that does not split.
 
 ## Default task duration (days)
 
@@ -106,9 +109,14 @@ decides which you meant. **Default:** Ask.
 Both answers write the same estimate — the difference is only whether the dragged
 edge becomes an authored date. "Grow" is the common case, not the rule: dragging
 an edge inward *reduces* the estimate, because it is always recomputed from the
-span you ended up with. If a drag does not change the working-day count (an end
-moved from a Friday onto the adjoining Saturday, say), there is no new estimate
-to write, and *Grow the estimate only* leaves the task untouched.
+span you ended up with. If a drag does not change the **day count** the estimate is measured in, there is
+no new estimate to write, and *Grow the estimate only* leaves the task
+untouched. That count is the plain inclusive span by default; it is the
+*working-day* count only when **Estimate meaning** is *Working days* **and** the
+task resolves to a calendar. So on a *Working days* task whose calendar blocks
+the weekend, an end moved from Friday onto the adjoining Saturday writes
+nothing — while the same drag under the default *Calendar days* goes from one
+day to two and does write.
 
 The question needs somewhere to put the estimate, so it only arises when
 [Time Estimate Update](fields.md#time-estimate-update) has a write target. That

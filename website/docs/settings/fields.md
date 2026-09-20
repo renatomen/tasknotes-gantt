@@ -61,13 +61,17 @@ how a task gets its working time — the days it may be scheduled across.
 **Leave blank** for no calendar; the task then has no non-working days of its
 own, so *Working days* and *Split segments* do nothing for it. Optional.
 
-**This is not the same thing as which calendars are shown.** A task's own
-association — this property — decides whether *it* stretches or splits. The
-**Select calendars…** picker decides which calendars are **shaded** behind the
-chart. They are read from different places and can disagree in both directions:
-select a calendar but leave this property blank and you get shading with no
-stretching; associate a task with a calendar you have not selected for display
-and the bar splits over days that are not shaded.
+**Stretching and shading are read from different places.** A task's own
+association — this property — is what decides whether *that task* stretches or
+splits. Shading depends on whether you have used **Select calendars…**:
+
+- **Until you make a selection** (the default), the chart shades the union of the
+  calendars your tasks are associated with. Map this property and the days shade
+  on their own; the two always agree.
+- **Once you make an explicit selection**, it wins for shading, and the two can
+  then disagree in both directions: select a calendar but leave this property
+  blank and you get shading with no stretching; associate a task with a calendar
+  you did *not* select and its bar splits over days that are not shaded.
 
 ## Time Estimate Property { #time-estimate-property }
 

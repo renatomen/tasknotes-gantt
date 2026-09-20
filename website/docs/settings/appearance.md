@@ -30,8 +30,9 @@ distinction is not drawn.
 
 Parent vs child is color-coded under *Default* and *Obsidian theme*. Under *By
 status* / *By priority*, every bar colors by its own value instead. *By calendar*
-is the mixed one: a task with a calendar colors by that calendar, while a task
-with none keeps the parent/child treatment. An **empty palette** degrades that
+is the mixed one: a task with a **coloured** calendar colors by that calendar,
+while a task with none — or one whose calendar note sets no colour — keeps the
+parent/child treatment. An **empty palette** degrades that
 channel to *Default* — no TaskNotes companion means no status/priority palette,
 and a vault with no calendars has nothing for *By calendar* to color by. See
 [Colors → Default vs Obsidian theme](../features/appearance.md#default-vs-obsidian-theme).
