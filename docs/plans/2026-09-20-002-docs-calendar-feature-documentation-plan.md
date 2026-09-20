@@ -45,10 +45,17 @@ can pass or fail for reasons unrelated to the campaign. It is the gate for the w
 front of you. To build what is actually on `origin/main`, do it in a throwaway worktree:
 
 ```bash
-git worktree add --detach /tmp/og-main origin/main \
-  && python3 -m mkdocs build --strict -f /tmp/og-main/website/mkdocs.yml \
-  ; git worktree remove --force /tmp/og-main
+git worktree add --detach /tmp/og-main origin/main || exit 1
+python3 -m mkdocs build --strict -f /tmp/og-main/website/mkdocs.yml; rc=$?
+git worktree remove --force /tmp/og-main
+exit "$rc"
 ```
+
+⚠️ **Capture the build's status before cleaning up.** Chaining the removal with `;`
+hands the recipe's exit code to `git worktree remove`, so a red build followed by a
+successful cleanup exits 0 — silently defeating this plan's own "a red `mkdocs build
+--strict` outranks new prose" stop condition. Same failure as piping a gate through
+`grep`: the last command's status wins. Keep `rc`.
 
 **Every unit's PR description should also cite this plan path and its unit id**, which makes `git log --grep 2026-09-20-002 main` a convenient secondary index. Treat it as convenience, not proof: measured on 2026-09-20, that grep returns **0 hits for `2026-07-13-001` and `2026-08-27-002`, whose work is demonstrably merged**, because nothing enforces the citation — no workflow or hook reads `plans/`. A unit missing from the grep may still have landed; check the artifacts. Adding a real guard is a candidate ratchet, not part of this plan.
 
