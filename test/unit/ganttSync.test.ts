@@ -1885,7 +1885,7 @@ describe('echoTaskPatch', () => {
 
     const patch = echoTaskPatch(geometryPayload(runs), current);
 
-    expect(patch).toMatchObject({ start: new Date(2026, 0, 5), end: new Date(2026, 0, 9) });
+    expect(patch).toMatchObject({ start: new Date(2026, 0, 5), end: new Date(2026, 0, 9, 23, 59, 59, 999) });
     const custom = (patch as { custom: SvarTask['custom'] }).custom;
     expect(custom.ghostRuns).toEqual(runs);
     // Everything else in the row's custom record rides along untouched.
@@ -1900,10 +1900,10 @@ describe('echoTaskPatch', () => {
     expect((patch as { custom: SvarTask['custom'] }).custom.ghostRuns).toBeUndefined();
   });
 
-  it('stays span-only when the row has no current custom record to advance', () => {
+  it('keeps the final calendar day inclusive without a custom record', () => {
     expect(echoTaskPatch(geometryPayload([{ startDate: '2026-01-07', days: 2 }]), undefined)).toEqual({
       start: new Date(2026, 0, 5),
-      end: new Date(2026, 0, 9),
+      end: new Date(2026, 0, 9, 23, 59, 59, 999),
     });
   });
 

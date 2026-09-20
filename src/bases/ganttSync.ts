@@ -19,7 +19,7 @@
  */
 
 import type { RenderInstance, RenderLink, LinkRewriteMode } from '../controller/InstanceExpansion';
-import type { DateStatus } from '../controller/datePolicy';
+import { normalizeTaskDateSpan, type DateStatus } from '../controller/datePolicy';
 import type { CalendarItemFamily } from '../datasource/calendarItems';
 import type { OccupancyRunSpan } from '../render/segmentLayout';
 import {
@@ -573,10 +573,10 @@ export function echoTaskPatch(
 ): EchoTaskUpdate {
   if (payload.kind === 'progress') return { progress: payload.progress };
   const { geometry } = payload;
-  if (!currentCustom) return { start: geometry.start, end: geometry.end };
+  const span = normalizeTaskDateSpan(geometry.start, geometry.end);
+  if (!currentCustom) return span;
   return {
-    start: geometry.start,
-    end: geometry.end,
+    ...span,
     custom: {
       ...currentCustom,
       ghostRuns: geometry.ghostRuns.length > 0 ? geometry.ghostRuns : undefined,
