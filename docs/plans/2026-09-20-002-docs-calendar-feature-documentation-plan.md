@@ -29,7 +29,7 @@ sit on a feature branch, so a unit merged remotely would read as *absent* and be
 twice:
 
 ```bash
-git fetch --quiet origin main
+git fetch --quiet origin main || exit 1   # a stale origin/main would read merged work as absent
 git ls-tree --name-only origin/main website/docs/features/   # calendars.md, calendar-editor.md, calendar-sets.md, legend.md
 git log --oneline --diff-filter=A origin/main -- docs/media/ # captures, campaign-added ones mixed with 11 pre-existing
 # U1 is the one unit whose artifact is not a new file, so probe its CONTENT, not a

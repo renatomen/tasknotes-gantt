@@ -69,8 +69,8 @@ splits. Shading depends on whether you have used **Select calendars…**:
   calendars your tasks are associated with — so mapping this property is enough
   to get shading. That union is **chart-wide**, while a bar splits only on its
   own calendar, so the two can already differ: give two tasks different
-  calendars and each bar runs straight through the days the other's calendar
-  shaded.
+  calendars and each bar runs straight through the days that only the other's
+  calendar blocks. Days both calendars block still split both bars.
 - **Once you make an explicit selection**, it wins for shading only: select a
   calendar but leave this property blank and you get shading with no stretching;
   associate a task with a calendar you did *not* select and its bar splits over
