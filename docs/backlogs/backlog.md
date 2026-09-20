@@ -505,6 +505,13 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
 - **Visual assets — capture for the inferred-edge drag prompt (0.1.0-beta.11)** — dragging an
   estimate-derived bar and choosing grow-estimate vs write-dates. Fixture:
   `test/specs/gantt-inferred-drag-write.e2e.ts`. Source: PR #314.
+- **Visual assets — RE-CAPTURE the context-aware legend (0.1.0-beta.11)** — `gantt-legend-right.png`
+  and `gantt-legend-bottom.png` are STALE: captured 2026-08-08 (PR #391), they show a "Date border —
+  A red border marks a task…" legend row that PRs #402 and #412 retired on 2026-08-10/11. They were
+  pulled from the 0.1.0-beta.11 notes for that reason and must not be referenced by any release until
+  re-captured. Fixture: `test/specs/gantt-legend.e2e.ts`. The committed bytes stay in place — older
+  releases pin to their own tags (`docs/conventions/visual-assets.md`), so a re-capture lands under a
+  new filename rather than overwriting these.
 - **Blocker as of 2026-09-20:** `/tng-demo` delegates to the `ce-demo-reel` skill, which is installed
   on disk but absent from the compound-engineering plugin's skill listing, so the command cannot
   complete its delegation step. Re-check the plugin's listing before scheduling any capture above.
