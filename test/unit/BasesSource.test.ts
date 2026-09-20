@@ -104,7 +104,7 @@ describe('BasesSource', () => {
       };
       const cacheApp = {
         ...makeApp({}),
-        metadataCache: { getFileCache: () => cache },
+        metadataCache: { getFileCache: (file: { path: string }) => file.path === entry.file.path ? cache : null },
       } as unknown as App;
       return { entry, cache, cacheApp };
     }
@@ -157,6 +157,20 @@ describe('BasesSource', () => {
         ...mappings, endProperty: 'formula.finish',
       }).getTasks();
       expect(task.end).toEqual(new Date(2026, 8, 24));
+    });
+
+    it('keeps both dates on the query snapshot when one date is computed', async () => {
+      const { entry, cache, cacheApp } = fixture();
+      cache.frontmatter = { begins: '2026-09-26', finishes: '2026-09-28' };
+      const computed = Object.assign(entry, {
+        getValue: () => ({ date: new Date(2026, 8, 22) }),
+      });
+
+      const [task] = await new BasesSource(cacheApp, [computed], {
+        ...mappings, endProperty: 'formula.finish',
+      }).getTasks();
+
+      expect([task.start, task.end]).toEqual([new Date(2026, 8, 20), new Date(2026, 8, 22)]);
     });
   });
 

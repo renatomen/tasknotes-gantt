@@ -87,13 +87,16 @@ export class BasesSource implements DataSource {
         const key = noteFrontmatterKey(property);
         return key === null ? entry.getValue(asPropertyId(property)) : { data: cache.frontmatter?.[key] ?? null };
       },
-    } : entry;
+    } satisfies Required<Omit<BasesEntryLike, 'properties'>> : entry;
+    const hasComputedDate = [this.mappings.startProperty, this.mappings.endProperty]
+      .some(property => property?.startsWith('formula.'));
+    const dateValues = hasComputedDate ? entry : values;
 
     return {
       path,
       text: this.adapter.extractText(values, this.mappings.textProperty),
-      start: this.adapter.extractDate(values, this.mappings.startProperty),
-      end: this.adapter.extractDate(values, this.mappings.endProperty),
+      start: this.adapter.extractDate(dateValues, this.mappings.startProperty),
+      end: this.adapter.extractDate(dateValues, this.mappings.endProperty),
       progress:
         this.mappings.progressMode === 'tasknotes'
           ? this.computeChecklistProgress(cache)
