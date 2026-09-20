@@ -40,21 +40,34 @@ roll-up. Optional.
 
 ## Status Property
 
-The property whose value colors bars **By status**. **Leave blank** for no
-status coloring. Needs the TaskNotes companion palette to color; see
+The property whose value colors bars **By status**. **Leave blank** and, whenever
+TaskNotes is present (companion mode), it resolves to TaskNotes' own configured
+status property — blank means *use the TaskNotes default*, not *no property*, so
+coloring, the status icon and the inline status editor all keep working.
+Standalone, a blank mapping has nothing to resolve to and status coloring is off.
+Needs the TaskNotes companion palette to color; see
 [Appearance → Bar fill](appearance.md#bar-fill).
 
 ## Priority Property
 
-The property whose value colors bars **By priority**. **Leave blank** for no
-priority coloring.
+The property whose value colors bars **By priority**. **Leave blank** and it
+resolves to TaskNotes' configured priority property in companion mode, exactly as
+Status Property does above.
 
 ## Calendar Property
 
 The property holding a **wikilink to a calendar or calendar-set note**, which is
-how a task gets its working time — the days it may be scheduled across, and the
-days shaded as non-working. **Leave blank** for no calendar; the task then has no
-non-working days of its own. Optional.
+how a task gets its working time — the days it may be scheduled across.
+**Leave blank** for no calendar; the task then has no non-working days of its
+own, so *Working days* and *Split segments* do nothing for it. Optional.
+
+**This is not the same thing as which calendars are shown.** A task's own
+association — this property — decides whether *it* stretches or splits. The
+**Select calendars…** picker decides which calendars are **shaded** behind the
+chart. They are read from different places and can disagree in both directions:
+select a calendar but leave this property blank and you get shading with no
+stretching; associate a task with a calendar you have not selected for display
+and the bar splits over days that are not shaded.
 
 ## Time Estimate Property { #time-estimate-property }
 
@@ -73,7 +86,11 @@ view. **Leave this mapping blank** and no task can override.
 
 An overridden task carries a small accent dot on its upper-left corner, and
 hovering it names both the interpretation in force and the view default it
-departs from.
+departs from — **but only when that task also resolves to a calendar**. With no
+calendar the span cannot re-project, so the bar renders flat whichever meaning is
+set, and a dot there would claim a difference the bar does not show. An override
+on a task with a blank or unresolvable
+[Calendar Property](#calendar-property) is therefore silent and has no effect.
 
 ## Time Estimate Update
 

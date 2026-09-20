@@ -29,9 +29,11 @@ you**. **Default:** Calendar days.
 | **Calendar days** *(default)* | The estimate is flat elapsed time — non-working days are counted like any other. |
 | **Working days (skip non-working)** | A worked-out end skips the task's non-working days. A 3-day estimate starting Friday, on a calendar whose non-working days are Saturday and Sunday, ends Tuesday rather than Sunday. |
 
-Non-working days come from the calendar a task resolves to, so this setting only
-changes anything once a calendar is in play. It affects **derived** edges only —
-a date you authored yourself is never moved. A single task can depart from the
+Non-working days come from the calendar **that task itself resolves to** through
+its [Calendar Property](fields.md#calendar-property) — *not* from whichever
+calendars you selected for display. A task with no calendar of its own never
+stretches, however many calendars are shaded behind it. It affects **derived**
+edges only — a date you authored yourself is never moved. A single task can depart from the
 view's choice through [Estimate meaning override](fields.md#estimate-meaning-override).
 
 ## Non-working-day rendering
@@ -41,9 +43,14 @@ How a non-working day is drawn. **Default:** Shaded background.
 | Value | Behavior |
 | --- | --- |
 | **Shaded background** *(default)* | Non-working days are shaded behind the chart, across every row. |
-| **Split segments** | Bars spanning a non-working day are additionally broken into segments over that shading, so you can see which days a given bar actually works. |
+| **Split segments** | Bars spanning a non-working day are additionally broken into segments, so you can see which days a given bar actually works. |
 
-*Split segments* **adds** the segments to the shading rather than replacing it.
+*Split segments* **adds** the segments rather than replacing the shading — both
+values shade. The two are driven from different places, though: shading follows
+the calendars selected in **Select calendars…**, while a bar splits according to
+the calendar that bar's own [Calendar Property](fields.md#calendar-property)
+resolves to. They usually coincide; where they do not, a bar can split over days
+that are not shaded, or shaded days can run behind a bar that does not split.
 
 ## Default task duration (days)
 
