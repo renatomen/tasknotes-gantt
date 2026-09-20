@@ -38,9 +38,12 @@ down to field mappings or which [mode](core-concepts.md#the-two-modes) you're in
   are empty and the channel silently falls back to the default hierarchy
   colours. Mapping a status or priority property does **not** help here — the
   mapping is not the missing piece, the palette is.
-- **In companion mode, a blank mapping is not the cause** — it resolves to
-  TaskNotes' own configured property. Check instead that the property actually
-  carries a value TaskNotes knows, under [Fields](settings/fields.md).
+- **In companion mode, a blank mapping is usually not the cause** — it resolves
+  to TaskNotes' own configured property. Check instead that the property
+  actually carries a value TaskNotes knows, under [Fields](settings/fields.md).
+  The exception: if TaskNotes' field configuration cannot be read, a blank
+  mapping stays blank — map the property explicitly and see whether the colour
+  returns.
 
 ## Weekend shading is missing
 

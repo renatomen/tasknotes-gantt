@@ -61,9 +61,12 @@ campaign's scope boundary is "a unit that finds a defect files it and documents 
 behaviour as it is; documentation never becomes the fix". The gap is disclosed under R9 in
 `website/docs/settings/fields.md` and `docs/releases/0.1.0-beta.11.md`.
 
-### P2 — Blank status/priority mappings do not resolve when TaskNotes field discovery degrades (2026-09-21)
+### P2 — Blank mappings do not resolve when TaskNotes field discovery degrades (2026-09-21)
 
-Accepted finding from peer round 23 of the U1 branch, recorded rather than fixed. The settings and
+**The documentation half is fixed** (PR #491): `fields.md` and `troubleshooting.md` now qualify
+the claim on TaskNotes' field configuration being readable, and tell the user to map the property
+explicitly when it is not. What remains open is the **product** half — the plugin degrades
+silently. The settings and
 troubleshooting pages say a blank Status/Priority Property resolves to TaskNotes' own configured
 property in companion mode, which is true whenever `getFieldConfig()` returns a config. When
 `TaskNotesSource.getFieldConfig()` returns `null` — `api.model.config()` absent, empty, or throwing —

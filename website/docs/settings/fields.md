@@ -40,11 +40,16 @@ roll-up. Optional.
 
 ## Status Property
 
-The property whose value colors bars **By status**. **Leave blank** and, whenever
-TaskNotes is present (companion mode), it resolves to TaskNotes' own configured
-status property — blank means *use the TaskNotes default*, not *no property*, so
-coloring, the status icon and the inline status editor all keep working.
-Standalone, a blank mapping has nothing to resolve to and status coloring is off.
+The property whose value colors bars **By status**. **Leave blank** and, in
+companion mode, it resolves to TaskNotes' own configured status property — blank
+means *use the TaskNotes default*, not *no property*, so coloring, the status
+icon and the inline status editor all keep working. Standalone, a blank mapping
+has nothing to resolve to and status coloring is off.
+
+That resolution needs TaskNotes' field configuration to be readable. If it is
+not — the API is present but reports no configuration — a blank mapping stays
+blank and behaves as though nothing were mapped. Map the property explicitly if
+colours or inline editing stop working with TaskNotes installed.
 Needs the TaskNotes companion palette to color; see
 [Appearance → Bar fill](appearance.md#bar-fill).
 
