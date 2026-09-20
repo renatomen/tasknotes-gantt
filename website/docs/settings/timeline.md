@@ -116,10 +116,14 @@ edge becomes an authored date. "Grow" is the common case, not the rule: the
 estimate is recomputed from the span you ended up with, so dragging an edge
 inward *reduces* it.
 
-The one case that writes nothing is narrow: the task must **already store** an
-estimate, and that stored estimate must work out to the same day count as the
-new span. A task with no stored estimate always gets one written, because there
-is no previous value for the new one to match.
+The estimate write is skipped in one narrow case: the task must **already
+store** an estimate, and that stored estimate must work out to the same day
+count as the new span. A task with no stored estimate always gets one written,
+because there is no previous value for the new one to match.
+
+Only *Grow the estimate only* leaves the task genuinely untouched then. Under
+*Grow the estimate and write dates* the dragged edge is still pinned as a real
+date — skipping the estimate does not skip the date.
 
 The question needs somewhere to put the estimate, so it only arises when
 [Time Estimate Update](fields.md#time-estimate-update) has a write target. That
