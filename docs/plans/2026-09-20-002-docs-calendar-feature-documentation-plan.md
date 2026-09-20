@@ -22,19 +22,32 @@ execution: docs
 
 **The tree is the index, because artifacts cannot lie about themselves.** Every unit below names the exact file it creates or the exact heading it adds; a unit has landed when that artifact is on `main` and not before:
 
-Every command below reads `main`, never the working tree — a resume run from an
-abandoned branch would otherwise record its own unmerged work as landed:
+Every probe below reads **`origin/main` after a fetch**, never the working tree and
+never local `main`. A resume run from an abandoned branch would otherwise record its
+own unmerged work as landed — and local `main` does not advance on its own while you
+sit on a feature branch, so a unit merged remotely would read as *absent* and be done
+twice:
 
 ```bash
-git ls-tree --name-only main website/docs/features/   # calendars.md, calendar-editor.md, calendar-sets.md, legend.md
-git log --oneline --diff-filter=A main -- docs/media/ # captures, campaign-added ones mixed with 11 pre-existing
+git fetch --quiet origin main
+git ls-tree --name-only origin/main website/docs/features/   # calendars.md, calendar-editor.md, calendar-sets.md, legend.md
+git log --oneline --diff-filter=A origin/main -- docs/media/ # captures, campaign-added ones mixed with 11 pre-existing
 # U1 is the one unit whose artifact is not a new file, so probe its CONTENT, not a
-# heading count: U1 deletes two headings and adds three, so a count moves 9 -> 10
-# and would not distinguish U1 from an unrelated edit. Absence of the deleted pair
-# and presence of the added trio is what only U1 produces.
-git show main:website/docs/settings/appearance.md | grep -cE '^## (Bar color mode|Bar color source)'  # 0 once U1 landed
-git show main:website/docs/settings/appearance.md | grep -cE '^## (Bar fill|Bar strip|Default legend position)'  # 3 once U1 landed
-python3 -m mkdocs build --strict -f website/mkdocs.yml # the gate (bare `mkdocs` is not on PATH here)
+# heading count: a count moves 9 -> 10, which an unrelated edit could also produce.
+# Absence of the deleted pair and presence of the added trio is what only U1 produces.
+git show origin/main:website/docs/settings/appearance.md | grep -cE '^## (Bar color mode|Bar color source)'  # 0 once U1 landed
+git show origin/main:website/docs/settings/appearance.md | grep -cE '^## (Bar fill|Bar strip|Default legend position)'  # 3 once U1 landed
+```
+
+⚠️ **`mkdocs build` is not a resume probe.** It reads the **working tree**, so on an
+abandoned branch it reports on that branch's unmerged state, not on what landed — it
+can pass or fail for reasons unrelated to the campaign. It is the gate for the work in
+front of you. To build what is actually on `origin/main`, do it in a throwaway worktree:
+
+```bash
+git worktree add --detach /tmp/og-main origin/main \
+  && python3 -m mkdocs build --strict -f /tmp/og-main/website/mkdocs.yml \
+  ; git worktree remove --force /tmp/og-main
 ```
 
 **Every unit's PR description should also cite this plan path and its unit id**, which makes `git log --grep 2026-09-20-002 main` a convenient secondary index. Treat it as convenience, not proof: measured on 2026-09-20, that grep returns **0 hits for `2026-07-13-001` and `2026-08-27-002`, whose work is demonstrably merged**, because nothing enforces the citation — no workflow or hook reads `plans/`. A unit missing from the grep may still have landed; check the artifacts. Adding a real guard is a candidate ratchet, not part of this plan.
