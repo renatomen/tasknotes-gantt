@@ -76,12 +76,16 @@ const ATTRIBUTE_LIST_BODY = /^\{:? *#[\w-]+ *\}$/;
 const INLINE_SYNTAX = /[{}*_`[\]<>&\\~^\p{Cc}\p{Cf}]|[^\S ]|==|\+\+|:[+\-\w]+:/u;
 /** The opening of an ATX heading at column 0: one to six hashes, then a space or tab. */
 const ATX_OPENING = /^(#{1,6})[ \t]/;
-/** A fence, a raw HTML block, or an HTML comment starting anywhere on the line. */
-const UNMODELLED_MARKDOWN = /(?:^ {0,3}(?:`{3,}|~{3,}|<))|(?:<!--)/;
+/** A fence, a raw HTML block, a blockquote, or an HTML comment starting anywhere on the line. */
+const UNMODELLED_MARKDOWN = /(?:^ {0,3}(?:`{3,}|~{3,}|<|>))|(?:<!--)/;
 /** Any control character but a tab: the renderer may normalize it into structure the guard does not see. */
 const CONTROL_CHARACTER = /[^\P{Cc}\t]/u;
-/** A hash-shaped line that is not a canonical heading: indented, unspaced, or closed with hashes. */
-const NONCANONICAL_HASH = /^[ \t]*#/;
+/**
+ * A hash reached through indentation or container markers (list bullets and
+ * numbers, blockquotes): with the canonical form excluded, a heading the
+ * renderer may show that the guard does not read.
+ */
+const NONCANONICAL_HASH = /^[ \t>*+\-\d.)]*#/;
 /** A setext underline; under a line of text it can turn that line into a heading. */
 const SETEXT_UNDERLINE = /^[ \t]*(=+|-+)[ \t]*$/;
 /**

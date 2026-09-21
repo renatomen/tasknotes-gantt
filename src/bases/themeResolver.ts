@@ -26,6 +26,8 @@ export type ThemeMode = 'auto' | 'light' | 'dark';
 export interface ToolbarPersistedControl {
   /** The label the toolbar renders. */
   uiLabel: string;
+  /** The toolbar callback prop that hands the chosen value up to be persisted. */
+  changeProp: string;
   /** The heading documenting it on its settings page. */
   docHeading: string;
   /** The options group whose settings page documents it. */
@@ -38,7 +40,7 @@ export interface ToolbarPersistedControl {
  * its inventory.
  */
 export const TOOLBAR_PERSISTED_CONTROLS: readonly ToolbarPersistedControl[] = [
-  { uiLabel: 'Theme', docHeading: 'Theme mode', group: 'Appearance' },
+  { uiLabel: 'Theme', changeProp: 'onModeChange', docHeading: 'Theme mode', group: 'Appearance' },
 ];
 
 /** Coerce an arbitrary stored value to a known mode; unknown → `auto`. */

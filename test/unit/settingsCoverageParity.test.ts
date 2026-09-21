@@ -187,12 +187,31 @@ describe('settings-coverage parity with the registered options callback', () => 
 });
 
 /**
- * Source-shape pins on GanttToolbar.svelte. The toolbar never writes config:
- * a control it persists hands its value up through an `on…Change` prop, so
- * those props are the persisted controls, however each one is marked up.
+ * Source-shape pins on GanttToolbar.svelte. Its imports are type-only and it
+ * neither binds props nor dispatches events or shares context, so the only way
+ * a value leaves it is a callback prop. Every callback prop is therefore the
+ * `changeProp` of a TOOLBAR_PERSISTED_CONTROLS entry or declared here as not
+ * persisting anything, whatever it is named and however it is marked up.
  */
-function persistedChangeProps(source: string): string[] {
-  return [...source.matchAll(/^\s*(on\w+Change)\??\s*:/gm)].map((match) => match[1]);
+const NON_PERSISTING_TOOLBAR_CALLBACKS: Record<string, string> = {
+  onOpenSourceSwitcher: 'opens the quick source switcher, whose hidden sources are session state',
+};
+
+/** Members of the toolbar's Props interface whose type is a function. */
+function callbackProps(source: string): string[] {
+  const props = /interface Props \{([\s\S]*?)\n {2}\}/.exec(source)?.[1] ?? '';
+  return [...props.matchAll(/^\s*(\w+)\??\s*:\s*\(/gm)].map((match) => match[1]);
+}
+
+/** Every way besides a callback prop that a Svelte component can hand a value out. */
+function otherOutputChannels(source: string): string[] {
+  const channels = [
+    ...[...source.matchAll(/^\s*import\s+(?!type\b)[^\n]*/gm)].map((match) => match[0].trim()),
+  ];
+  for (const marker of ['$bindable', 'createEventDispatcher', 'setContext', 'getContext']) {
+    if (source.includes(marker)) channels.push(marker);
+  }
+  return channels;
 }
 
 /** The labels the toolbar renders for its labelled control groups. */
@@ -202,22 +221,44 @@ function renderedToolbarLabels(source: string): string[] {
 
 describe('TOOLBAR_PERSISTED_CONTROLS against the toolbar', () => {
   const toolbar = readFileSync(resolve('src/bases/GanttToolbar.svelte'), 'utf8');
+  const persistedProps = TOOLBAR_PERSISTED_CONTROLS.map((control) => control.changeProp);
 
-  it('has one entry per value the toolbar hands up to be persisted', () => {
-    expect(persistedChangeProps(toolbar)).toEqual(['onModeChange']);
-    expect(TOOLBAR_PERSISTED_CONTROLS).toHaveLength(persistedChangeProps(toolbar).length);
+  it('hands values out through callback props only', () => {
+    expect(otherOutputChannels(toolbar)).toEqual([]);
+  });
+
+  it('classifies every callback prop as a persisted control or as persisting nothing', () => {
+    const callbacks = callbackProps(toolbar);
+
+    expect(callbacks.length).toBeGreaterThan(0);
+    expect([...callbacks].sort((a, b) => a.localeCompare(b))).toEqual(
+      [...persistedProps, ...Object.keys(NON_PERSISTING_TOOLBAR_CALLBACKS)].sort((a, b) => a.localeCompare(b)),
+    );
   });
 
   it('carries the label the toolbar renders for each labelled control group', () => {
     expect(renderedToolbarLabels(toolbar)).toEqual(TOOLBAR_PERSISTED_CONTROLS.map((control) => control.uiLabel));
   });
 
-  it('the persistence pin sees a new change prop, whatever its markup', () => {
+  it('the classification sees a new callback prop, whatever its name', () => {
     const anchor = '    onModeChange: (mode: ThemeMode) => void;';
     expect(toolbar).toContain(anchor);
-    const planted = toolbar.replace(anchor, `${anchor}\n    onDensityChange?: (density: string) => void;`);
+    const planted = toolbar.replace(anchor, `${anchor}\n    onDensitySelect?: (density: string) => void;`);
 
-    expect(persistedChangeProps(planted)).toEqual(['onModeChange', 'onDensityChange']);
+    expect(callbackProps(planted)).toContain('onDensitySelect');
+  });
+
+  it('the channel pin sees a value import and a bindable prop', () => {
+    const anchor = "  import type { ThemeMode } from './themeResolver';";
+    expect(toolbar).toContain(anchor);
+    const planted = toolbar
+      .replace(anchor, `${anchor}\n  import { persistThemeMode } from './themeResolver';`)
+      .replace('$props()', '$props(); let density = $bindable()');
+
+    expect(otherOutputChannels(planted)).toEqual([
+      "import { persistThemeMode } from './themeResolver';",
+      '$bindable',
+    ]);
   });
 
   it('the label pin sees a labelled group carrying extra attributes', () => {
