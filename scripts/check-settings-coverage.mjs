@@ -62,9 +62,12 @@ export const NON_CONTROL_HEADINGS = [
 ];
 
 const ATTRIBUTE_LIST = /\s*\{[^}]*\}\s*$/;
-const HEADING = /^(#{2,3})\s+(.+?)\s*$/;
+/** An ATX heading of level 2 or 3: up to three spaces of indent, optional closing hashes. */
+const HEADING = /^ {0,3}(#{2,3})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/;
 /** A fence, a raw HTML block, or an HTML comment starting anywhere on the line. */
 const UNMODELLED_MARKDOWN = /^ {0,3}(`{3,}|~{3,}|<)|<!--/;
+/** A setext underline; directly under a line of text it turns that line into a heading. */
+const SETEXT_UNDERLINE = /^ {0,3}(=+|-+)[ \t]*$/;
 /**
  * YAML front matter, which MkDocs strips before rendering: it can only open a
  * page, after an optional byte-order mark (MkDocs reads pages as utf-8-sig).
@@ -99,24 +102,37 @@ export function parseSettingsHeadings(pages) {
 }
 
 /**
- * Inside a fence, an HTML comment, a raw HTML block or front matter a
- * heading-shaped line may not render as a heading, so the guard cannot tell
- * whether it documents anything. Settings pages are headings and prose; each
- * such line is a finding.
+ * Whether `line` is Markdown the guard does not read: inside a fence, an HTML
+ * comment, a raw HTML block or front matter a heading-shaped line may not
+ * render as a heading, and a setext underline makes a heading out of a line
+ * the guard reads as prose.
+ *
+ * @param {string[]} lines
+ * @param {number} index
+ */
+function isUnmodelled(lines, index) {
+  const line = lines[index];
+  if (UNMODELLED_MARKDOWN.test(line)) return true;
+  if (index === 0) return FRONT_MATTER.test(line);
+  const above = lines[index - 1];
+  return SETEXT_UNDERLINE.test(line) && above.trim() !== '' && !HEADING.test(above);
+}
+
+/**
+ * Each line the guard does not read is a finding: settings pages are ATX
+ * headings and prose, and anything else could hide a heading from the reader
+ * or show one the guard cannot see.
  *
  * @param {SettingsPage[]} pages
  * @returns {string[]}
  */
 export function unmodelledMarkdownFindings(pages) {
-  return pages.flatMap((page) =>
-    page.markdown
-      .split(/\r?\n/)
-      .flatMap((line, index) =>
-        UNMODELLED_MARKDOWN.test(line) || (index === 0 && FRONT_MATTER.test(line))
-          ? [`unsupported markdown: ${page.file}:${index + 1}: ${line.trim()}`]
-          : [],
-      ),
-  );
+  return pages.flatMap((page) => {
+    const lines = page.markdown.split(/\r?\n/);
+    return lines.flatMap((line, index) =>
+      isUnmodelled(lines, index) ? [`unsupported markdown: ${page.file}:${index + 1}: ${line.trim()}`] : [],
+    );
+  });
 }
 
 /**

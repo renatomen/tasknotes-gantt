@@ -319,6 +319,12 @@ describe('parseSettingsHeadings', () => {
 
     expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
   });
+
+  it('reads a heading indented up to three spaces or carrying closing hashes', () => {
+    const pages = [{ file: 'fields.md', markdown: '   ## A\n## B ##\n    ## indented code\n' }];
+
+    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
+  });
 });
 
 describe('unmodelledMarkdownFindings', () => {
@@ -343,6 +349,24 @@ describe('unmodelledMarkdownFindings', () => {
     const pages = [{ file: 'timeline.md', markdown: '\uFEFF---\ntitle: Timeline\n## Default Scale\n---\n' }];
 
     expect(unmodelledMarkdownFindings(pages)).toEqual(['unsupported markdown: timeline.md:1: ---']);
+  });
+
+  it('reports a setext heading, which the guard cannot read as a heading', () => {
+    const pages = [{ file: 'appearance.md', markdown: '## A\n\nDefault Scale\n-------------\n' }];
+
+    expect(unmodelledMarkdownFindings(pages)).toEqual(['unsupported markdown: appearance.md:4: -------------']);
+  });
+
+  it('turns a setext duplicate of a documented control into a finding', () => {
+    const control = { group: 'Timeline', name: 'Default Scale', keys: ['tngantt_defaultScale'] };
+    const pages = [
+      { file: 'timeline.md', markdown: '## Default Scale\n' },
+      { file: 'appearance.md', markdown: 'Default Scale\n=============\n' },
+    ];
+
+    expect(checkSettingsCoverage({ controls: [control], pages, allowList: [] }).findings).toEqual([
+      'unsupported markdown: appearance.md:2: =============',
+    ]);
   });
 
   it('leaves a thematic break below the first line alone', () => {
