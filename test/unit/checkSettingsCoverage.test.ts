@@ -347,6 +347,7 @@ describe('unmodelledMarkdownFindings', () => {
     ['an emoji shortcode in a heading', '## Foo :smile:', 'unsupported markdown: fields.md:2: ## Foo :smile:'],
     ['an emoji shortcode starting with a sign', '## Foo :-1:', 'unsupported markdown: fields.md:2: ## Foo :-1:'],
     ['a tab inside heading text', '## Foo\tBar', 'unsupported markdown: fields.md:2: ## Foo\tBar'],
+    ['hashes before an attribute list', '## Foo # { #id }', 'unsupported markdown: fields.md:2: ## Foo # { #id }'],
   ])('reports %s, which could hide a heading from the reader', (_name, line, finding) => {
     const pages = [{ file: 'fields.md', markdown: `## A\n${line}\n` }];
 

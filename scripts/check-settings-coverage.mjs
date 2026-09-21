@@ -180,7 +180,9 @@ function headingText(line) {
 function stripAttributeList(text) {
   const open = text.lastIndexOf(' {');
   if (open === -1 || !ATTRIBUTE_LIST_BODY.test(text.slice(open + 1))) return text;
-  return trimBlanks(text.slice(0, open));
+  const stripped = trimBlanks(text.slice(0, open));
+  // attr_list also strips trailing hashes once the list is gone; refuse rather than mirror that.
+  return stripped === '' || stripped.endsWith('#') ? text : stripped;
 }
 
 /**
@@ -199,7 +201,7 @@ function isUnmodelled(lines, index) {
   if (INLINE_SYNTAX.test(headingText(line) ?? '')) return true;
   if (index === 0) return FRONT_MATTER.test(line);
   const above = lines[index - 1];
-  return SETEXT_UNDERLINE.test(line) && above.trim() !== '' && canonicalAtx(above) === null;
+  return SETEXT_UNDERLINE.test(line) && trimBlanks(above) !== '' && canonicalAtx(above) === null;
 }
 
 /**
