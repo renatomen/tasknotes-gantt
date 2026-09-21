@@ -189,18 +189,20 @@ describe('settings-coverage parity with the registered options callback', () => 
 /**
  * Source-shape pins on GanttToolbar.svelte. Its imports are type-only and it
  * neither binds props nor dispatches events or shares context, so the only way
- * a value leaves it is a callback prop. Every callback prop is therefore the
- * `changeProp` of a TOOLBAR_PERSISTED_CONTROLS entry or declared here as not
- * persisting anything, whatever it is named and however it is marked up.
+ * a value leaves it is through a prop. Every prop is therefore the
+ * `changeProp` of a TOOLBAR_PERSISTED_CONTROLS entry, or declared here as
+ * persisting nothing, whatever its type, name or markup.
  */
-const NON_PERSISTING_TOOLBAR_CALLBACKS: Record<string, string> = {
+const TOOLBAR_PROPS_PERSISTING_NOTHING: Record<string, string> = {
+  mode: 'input: the current theme mode, displayed',
   onOpenSourceSwitcher: 'opens the quick source switcher, whose hidden sources are session state',
+  externalEventsLoading: 'input: shows the external-events loading indicator',
 };
 
-/** Members of the toolbar's Props interface whose type is a function. */
-function callbackProps(source: string): string[] {
+/** Every member of the toolbar's Props interface, whatever its type or declaration shape. */
+function toolbarProps(source: string): string[] {
   const props = /interface Props \{([\s\S]*?)\n {2}\}/.exec(source)?.[1] ?? '';
-  return [...props.matchAll(/^\s*(\w+)\??\s*:\s*\(/gm)].map((match) => match[1]);
+  return [...props.matchAll(/^ {4}(\w+)\??\s*[:(]/gm)].map((match) => match[1]);
 }
 
 /** Every way besides a callback prop that a Svelte component can hand a value out. */
@@ -227,12 +229,12 @@ describe('TOOLBAR_PERSISTED_CONTROLS against the toolbar', () => {
     expect(otherOutputChannels(toolbar)).toEqual([]);
   });
 
-  it('classifies every callback prop as a persisted control or as persisting nothing', () => {
-    const callbacks = callbackProps(toolbar);
+  it('classifies every prop as a persisted control or as persisting nothing', () => {
+    const props = toolbarProps(toolbar);
 
-    expect(callbacks.length).toBeGreaterThan(0);
-    expect([...callbacks].sort((a, b) => a.localeCompare(b))).toEqual(
-      [...persistedProps, ...Object.keys(NON_PERSISTING_TOOLBAR_CALLBACKS)].sort((a, b) => a.localeCompare(b)),
+    expect(props.length).toBeGreaterThan(0);
+    expect([...props].sort((a, b) => a.localeCompare(b))).toEqual(
+      [...persistedProps, ...Object.keys(TOOLBAR_PROPS_PERSISTING_NOTHING)].sort((a, b) => a.localeCompare(b)),
     );
   });
 
@@ -240,12 +242,17 @@ describe('TOOLBAR_PERSISTED_CONTROLS against the toolbar', () => {
     expect(renderedToolbarLabels(toolbar)).toEqual(TOOLBAR_PERSISTED_CONTROLS.map((control) => control.uiLabel));
   });
 
-  it('the classification sees a new callback prop, whatever its name', () => {
+  it.each([
+    ['an arrow-typed callback', '    onDensitySelect?: (density: string) => void;', 'onDensitySelect'],
+    ['a method signature', '    onDensityChange(density: string): void;', 'onDensityChange'],
+    ['an optional method signature', '    onDensityChange?(density: string): void;', 'onDensityChange'],
+    ['a callback typed by an alias', '    onDensityChange: DensityHandler;', 'onDensityChange'],
+    ['a plain value prop', '    density: string;', 'density'],
+  ])('the classification sees %s, whatever its name', (_shape, member, name) => {
     const anchor = '    onModeChange: (mode: ThemeMode) => void;';
     expect(toolbar).toContain(anchor);
-    const planted = toolbar.replace(anchor, `${anchor}\n    onDensitySelect?: (density: string) => void;`);
 
-    expect(callbackProps(planted)).toContain('onDensitySelect');
+    expect(toolbarProps(toolbar.replace(anchor, `${anchor}\n${member}`))).toContain(name);
   });
 
   it('the channel pin sees a value import and a bindable prop', () => {

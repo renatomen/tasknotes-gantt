@@ -81,11 +81,12 @@ const UNMODELLED_MARKDOWN = /(?:^ {0,3}(?:`{3,}|~{3,}|<|>))|(?:<!--)/;
 /** Any control character but a tab: the renderer may normalize it into structure the guard does not see. */
 const CONTROL_CHARACTER = /[^\P{Cc}\t]/u;
 /**
- * A hash reached through indentation or container markers (list bullets and
- * numbers, blockquotes): with the canonical form excluded, a heading the
- * renderer may show that the guard does not read.
+ * A word starting with a hash: whatever container marker precedes it (list,
+ * blockquote, definition, footnote, with any label), Python-Markdown can
+ * render it as a heading, spaced or not. With the canonical form excluded, a
+ * heading the renderer may show that the guard does not read.
  */
-const NONCANONICAL_HASH = /^[ \t>*+\-\d.)]*#/;
+const NONCANONICAL_HASH = /(?:^|\s)#/;
 /** A setext underline; under a line of text it can turn that line into a heading. */
 const SETEXT_UNDERLINE = /^[ \t]*(=+|-+)[ \t]*$/;
 /**
