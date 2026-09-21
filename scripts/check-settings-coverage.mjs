@@ -62,11 +62,18 @@ export const NON_CONTROL_HEADINGS = [
 ];
 
 /**
- * One trailing attribute list, shaped as Python-Markdown's attr_list strips it
- * from a heading. Only the last brace group is removed; a heading still
- * carrying a brace afterwards is refused, not guessed at.
+ * The one attribute-list form the guard strips: a single plain `{ #id }`
+ * (optionally `{: #id }`), which attr_list always removes from a heading.
+ * A heading carrying any other brace group is refused, not guessed at.
  */
-const ATTRIBUTE_LIST = / +\{:?[ ]*[^}\n ][^}\n]*\}[ ]*$/;
+const ATTRIBUTE_LIST = / +\{:? *#[\w-]+ *\}[ ]*$/;
+/**
+ * Inline syntax the renderer would transform (braces, emphasis, code, links,
+ * HTML, entities, escapes, mark/keys/emoji extensions) or control characters:
+ * a heading carrying any of it does not render as the literal text the guard
+ * reads, so it is refused.
+ */
+const INLINE_SYNTAX = /[{}*_`[\]<>&\\~^\p{Cc}\p{Zl}\p{Zp}]|==|\+\+|:\w[\w+-]*:/u;
 /**
  * The one heading form the guard reads: level 2 or 3 at column 0, a space,
  * then text not ending in `#`. The site's renderer (Python-Markdown) always
@@ -140,7 +147,7 @@ function isUnmodelled(lines, index) {
   const line = lines[index];
   if (UNMODELLED_MARKDOWN.test(line)) return true;
   if (NONCANONICAL_HASH.test(line) && !CANONICAL_ATX.test(line)) return true;
-  if (/[{}]/.test(headingText(line) ?? '')) return true;
+  if (INLINE_SYNTAX.test(headingText(line) ?? '')) return true;
   if (index === 0) return FRONT_MATTER.test(line);
   const above = lines[index - 1];
   return SETEXT_UNDERLINE.test(line) && above.trim() !== '' && !CANONICAL_ATX.test(above);

@@ -339,6 +339,12 @@ describe('unmodelledMarkdownFindings', () => {
     ['a brace group the renderer keeps (no space before it)', '## Foo{: .x}', 'unsupported markdown: fields.md:2: ## Foo{: .x}'],
     ['an empty brace group', '## Foo {}', 'unsupported markdown: fields.md:2: ## Foo {}'],
     ['two brace groups', '## X {: #a } {: .b }', 'unsupported markdown: fields.md:2: ## X {: #a } {: .b }'],
+    ['markup inside a brace group, which the renderer keeps', '## Show toolbar {*x*}', 'unsupported markdown: fields.md:2: ## Show toolbar {*x*}'],
+    ['a class attribute list', '## Foo { .wide }', 'unsupported markdown: fields.md:2: ## Foo { .wide }'],
+    ['emphasis in a heading', '## Foo *bar*', 'unsupported markdown: fields.md:2: ## Foo *bar*'],
+    ['a code span in a heading', '## Foo `x`', 'unsupported markdown: fields.md:2: ## Foo `x`'],
+    ['a link in a heading', '## [link](u)', 'unsupported markdown: fields.md:2: ## [link](u)'],
+    ['an emoji shortcode in a heading', '## Foo :smile:', 'unsupported markdown: fields.md:2: ## Foo :smile:'],
   ])('reports %s, which could hide a heading from the reader', (_name, line, finding) => {
     const pages = [{ file: 'fields.md', markdown: `## A\n${line}\n` }];
 
