@@ -98,9 +98,26 @@ describe('settingsInventory', () => {
 
     expect(settingsInventory(builders)).toEqual(
       expect.arrayContaining([
-        { group: 'Timeline', name: 'Theme mode', keys: ['tngantt_themeModeToggle', 'toolbar:Theme'] },
+        expect.objectContaining({
+          group: 'Timeline',
+          name: 'Theme mode',
+          keys: ['tngantt_themeModeToggle', 'toolbar:Theme'],
+        }),
       ]),
     );
+  });
+
+  it('reports one control rendered twice in a panel even when both copies share a key', () => {
+    const knob = { type: 'toggle', displayName: 'Knob', key: 'tngantt_knob', default: false };
+    const builders = buildersWith([knob, { ...knob }]);
+    const pages = [
+      { file: 'timeline.md', markdown: '## Knob\n' },
+      { file: 'calendar-items.md', markdown: '### ICS calendars\n### Google calendars\n### Microsoft calendars\n## External calendars\n' },
+    ];
+
+    expect(checkSettingsCoverage({ controls: settingsInventory(builders), pages, allowList: [] }).findings).toEqual([
+      'shared label: Timeline › Knob names 2 controls (tngantt_knob)',
+    ]);
   });
 
   it('inventories a static entry whose key merely starts like a per-feed toggle', () => {
@@ -108,7 +125,7 @@ describe('settingsInventory', () => {
     const builders = buildersWith([], [{ type: 'toggle', displayName: 'Static entry', key: staticKey, default: false }]);
 
     expect(settingsInventory(builders)).toEqual(
-      expect.arrayContaining([{ group: 'Calendar items', name: 'Static entry', keys: [staticKey] }]),
+      expect.arrayContaining([expect.objectContaining({ group: 'Calendar items', name: 'Static entry', keys: [staticKey] })]),
     );
   });
 });
@@ -267,52 +284,17 @@ describe('checkSettingsCoverage', () => {
 });
 
 describe('parseSettingsHeadings', () => {
-  it('reads level-2 and level-3 headings and strips a trailing attribute list', () => {
-    const pages = [{ file: 'fields.md', markdown: '# Fields\n## A { #a }\n### B\n#### C\n' }];
-
-    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
-  });
-
-  it('ignores heading-shaped lines inside fenced code blocks', () => {
-    const pages = [{ file: 'fields.md', markdown: '## A\n```yaml\n## not a heading\n```\n~~~\n## nor this\n~~~\n## B\n' }];
-
-    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
-  });
-
-  it('keeps a longer fence open across a shorter fence it quotes', () => {
-    const pages = [{ file: 'fields.md', markdown: '## A\n````md\n```\n## quoted\n```\n````\n## B\n' }];
-
-    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
-  });
-
-  it('closes a shorter fence on a longer bare fence', () => {
-    const pages = [{ file: 'fields.md', markdown: '## A\n```\n## quoted\n````\n## B\n' }];
-
-    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
-  });
-
-  it('does not close a fence on a line carrying an info string', () => {
-    const pages = [{ file: 'fields.md', markdown: '## A\n```\n```js\n## quoted\n```\n## B\n' }];
-
-    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
-  });
-
-  it('stays inside a comment that closes and reopens on one line', () => {
-    const pages = [{ file: 'fields.md', markdown: '## A\n<!--\n--> x <!--\n## hidden\n-->\n## B\n' }];
-
-    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
-  });
-
-  it('ignores headings inside a multi-line HTML comment', () => {
-    const pages = [{ file: 'fields.md', markdown: '## A\n<!--\n## commented out\n-->\n## B\n' }];
-
-    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
-  });
-
-  it('keeps reading headings after a single-line HTML comment', () => {
-    const pages = [{ file: 'fields.md', markdown: '<!-- note -->\n## A\n' }];
-
-    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A']);
+  it.each([
+    ['reads level-2 and level-3 headings and strips a trailing attribute list', '# Fields\n## A { #a }\n### B\n#### C\n', ['A', 'B']],
+    ['ignores heading-shaped lines inside fenced code', '## A\n```yaml\n## no\n```\n~~~\n## nor this\n~~~\n## B\n', ['A', 'B']],
+    ['keeps a longer fence open across a shorter fence it quotes', '## A\n````md\n```\n## quoted\n```\n````\n## B\n', ['A', 'B']],
+    ['closes a shorter fence on a longer bare fence', '## A\n```\n## quoted\n````\n## B\n', ['A', 'B']],
+    ['does not close a fence on a line carrying an info string', '## A\n```\n```js\n## quoted\n```\n## B\n', ['A', 'B']],
+    ['ignores headings inside a multi-line HTML comment', '## A\n<!--\n## commented out\n-->\n## B\n', ['A', 'B']],
+    ['stays inside a comment that closes and reopens on one line', '## A\n<!--\n--> x <!--\n## hidden\n-->\n## B\n', ['A', 'B']],
+    ['keeps reading headings after a single-line HTML comment', '<!-- note -->\n## A\n', ['A']],
+  ])('%s', (_name, markdown, expected) => {
+    expect(parseSettingsHeadings([{ file: 'fields.md', markdown }]).map((heading) => heading.text)).toEqual(expected);
   });
 });
 

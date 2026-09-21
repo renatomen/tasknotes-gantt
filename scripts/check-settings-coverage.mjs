@@ -25,7 +25,7 @@ const SETTINGS_DIR = join(repoRoot, 'website', 'docs', 'settings');
 /**
  * @typedef {{ file: string, markdown: string }} SettingsPage
  * @typedef {{ file: string, text: string }} SettingsHeading
- * @typedef {{ group: string, name: string, keys: string[] }} ShippedControl
+ * @typedef {{ group: string, name: string, keys: string[], renderedInPanel?: number }} ShippedControl
  * @typedef {{ page: string, heading: string }} AllowedHeading
  * @typedef {{ id: string, name: string, enabled: boolean }} IcsFeed
  * @typedef {{ provider: string, id: string, name: string }} ProviderFeed
@@ -258,7 +258,8 @@ export function optionTriples(options) {
  * The shipped controls: the union over the argument matrix, minus the per-feed
  * toggles of the synthetic feeds (labelled with the user's own feed names),
  * plus the toolbar-persisted controls. Each control carries every key seen
- * under its label, so two controls sharing one label stay visible.
+ * under its label and the most times its label renders in one panel, so two
+ * controls sharing one label stay visible even when they share a key too.
  *
  * @param {SettingsBuilders} builders
  * @returns {ShippedControl[]}
@@ -270,19 +271,24 @@ export function settingsInventory(builders) {
   );
   /** @type {Map<string, ShippedControl>} */
   const seen = new Map();
-  const add = (group, name, key) => {
+  const add = (group, name, key, renderedInPanel) => {
     const id = `${group}\u0000${name}`;
-    const control = seen.get(id) ?? { group, name, keys: [] };
+    const control = seen.get(id) ?? { group, name, keys: [], renderedInPanel: 0 };
     if (!control.keys.includes(key)) control.keys.push(key);
+    control.renderedInPanel = Math.max(control.renderedInPanel, renderedInPanel);
     seen.set(id, control);
   };
   for (const cell of settingsArgumentMatrix()) {
+    const renders = new Map();
     for (const triple of optionTriples(composeRegisteredOptions(builders, { ...cell, feeds }))) {
-      if (!perFeedKeys.has(triple.key)) add(triple.group, triple.name, triple.key);
+      if (perFeedKeys.has(triple.key)) continue;
+      const id = `${triple.group}\u0000${triple.name}`;
+      renders.set(id, (renders.get(id) ?? 0) + 1);
+      add(triple.group, triple.name, triple.key, renders.get(id));
     }
   }
   for (const control of builders.TOOLBAR_PERSISTED_CONTROLS) {
-    add(control.group, control.docHeading, `toolbar:${control.uiLabel}`);
+    add(control.group, control.docHeading, `toolbar:${control.uiLabel}`, 1);
   }
   return [...seen.values()];
 }
@@ -295,10 +301,11 @@ export function settingsInventory(builders) {
  */
 function sharedLabelFindings(controls) {
   return controls
-    .filter((control) => control.keys.length > 1)
+    .map((control) => ({ control, count: Math.max(control.keys.length, control.renderedInPanel ?? 1) }))
+    .filter(({ count }) => count > 1)
     .map(
-      (control) =>
-        `shared label: ${control.group} › ${control.name} names ${control.keys.length} controls (${control.keys.join(', ')})`,
+      ({ control, count }) =>
+        `shared label: ${control.group} › ${control.name} names ${count} controls (${control.keys.join(', ')})`,
     );
 }
 
@@ -387,7 +394,7 @@ export function checkSettingsCoverage({ controls, pages, allowList = NON_CONTROL
 export function readSettingsPages() {
   return readdirSync(SETTINGS_DIR)
     .filter((file) => file.endsWith('.md'))
-    .sort()
+    .sort((a, b) => a.localeCompare(b))
     .map((file) => ({ file, markdown: readFileSync(join(SETTINGS_DIR, file), 'utf8') }));
 }
 

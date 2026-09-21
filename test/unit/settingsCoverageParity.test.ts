@@ -12,7 +12,7 @@ import {
 import { captureOptionsCallback } from '../helpers/captureOptionsCallback';
 import { SETTINGS_BUILDERS as BUILDERS } from '../helpers/settingsCoverageBuilders';
 import { sessionExternalCalendarDegradeSignal } from '../../src/bases/externalCalendarDegradeNotice';
-import { FIELD_MAPPING_KEYS } from '../../src/bases/fieldMappingConfig';
+import { FIELD_MAPPING_KEYS, readFieldMappings } from '../../src/bases/fieldMappingConfig';
 import { EXTERNAL_PROVIDER_ORDER, externalCalendarToggleKey } from '../../src/bases/calendarItemOptions';
 import { TOOLBAR_PERSISTED_CONTROLS } from '../../src/bases/themeResolver';
 
@@ -43,11 +43,24 @@ function taskNotesHandleServing(feeds: ExternalFeeds, degraded: boolean): Record
   };
 }
 
-function viewConfig(hasProgressProperty: boolean): BasesViewConfig {
+/** A view config answering only the Progress Property, recording every key it is asked for into `reads`. */
+function viewConfig(hasProgressProperty: boolean, reads: Set<string> = new Set()): BasesViewConfig {
   return {
-    get: (key: string) =>
-      hasProgressProperty && key === FIELD_MAPPING_KEYS.progress ? 'note.progress' : undefined,
+    get: (key: string) => {
+      reads.add(key);
+      return hasProgressProperty && key === FIELD_MAPPING_KEYS.progress ? 'note.progress' : undefined;
+    },
   } as unknown as BasesViewConfig;
+}
+
+/** The config keys the field-mapping reader consults: the only config the matrix accounts for. */
+function fieldMappingKeys(): string[] {
+  const reads = new Set<string>();
+  readFieldMappings((key) => {
+    reads.add(key);
+    return undefined;
+  });
+  return [...reads].sort((a, b) => a.localeCompare(b));
 }
 
 /** The session degrade flag is sticky, so every clear cell must run before the first degraded one. */
@@ -91,6 +104,13 @@ describe('settings-coverage parity with the registered options callback', () => 
     }
   });
 
+  it('the callback reads no view config beyond the field mappings the matrix accounts for', () => {
+    const reads = new Set<string>();
+    captureOptionsCallback(taskNotesHandleServing(feeds, false))(viewConfig(true, reads));
+
+    expect([...reads].sort((a, b) => a.localeCompare(b))).toEqual(fieldMappingKeys());
+  });
+
   it('a composed cell with feeds carries a toggle for every provider', () => {
     const composed = composeRegisteredOptions(BUILDERS, {
       companionAvailable: true,
@@ -106,7 +126,11 @@ describe('settings-coverage parity with the registered options callback', () => 
   });
 });
 
-/** Source-shape pin: the labels GanttToolbar.svelte renders for its labelled control groups. */
+/**
+ * Source-shape pin: the labels GanttToolbar.svelte renders for its labelled
+ * control groups. It pins the constant to those groups only; a persisted
+ * toolbar control rendered any other way is outside what it can see.
+ */
 function renderedToolbarLabels(source: string): string[] {
   return [...source.matchAll(/class="og-toolbar-label">([^<]+)</g)].map((match) => match[1].trim());
 }
@@ -114,7 +138,7 @@ function renderedToolbarLabels(source: string): string[] {
 describe('toolbar-persisted controls', () => {
   const toolbar = readFileSync(resolve('src/bases/GanttToolbar.svelte'), 'utf8');
 
-  it('match the labels the toolbar renders', () => {
+  it('match the labelled control groups the toolbar renders', () => {
     const rendered = renderedToolbarLabels(toolbar);
 
     expect(rendered.length).toBeGreaterThan(0);
