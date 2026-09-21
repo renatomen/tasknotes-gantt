@@ -193,7 +193,8 @@ describe('settings-coverage parity with the registered options callback', () => 
  * destructuring typed exactly `Props` and binding exactly its members; and
  * every member is the `changeProp` of a TOOLBAR_PERSISTED_CONTROLS entry or
  * declared here as persisting nothing, whatever its type, name or markup.
- * Globals such as storage or DOM events are not pinned.
+ * Runtime side effects (dynamic imports, globals, storage, DOM events) are not
+ * pinned: toolbar completeness is guarded by these pins, not proven by them.
  */
 const TOOLBAR_PROPS_PERSISTING_NOTHING: Record<string, string> = {
   mode: 'input: the current theme mode, displayed',
