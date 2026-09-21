@@ -63,18 +63,14 @@ behaviour as it is; documentation never becomes the fix". The gap is disclosed u
 
 ### P2 — Blank mappings do not resolve when TaskNotes field discovery degrades (2026-09-21)
 
-**The documentation half is fixed** (PR #491): `fields.md` and `troubleshooting.md` now qualify
-the claim on TaskNotes' field configuration being readable, and tell the user to map the property
-explicitly when it is not. What remains open is the **product** half — the plugin degrades
-silently. The settings and
-troubleshooting pages say a blank Status/Priority Property resolves to TaskNotes' own configured
-property in companion mode, which is true whenever `getFieldConfig()` returns a config. When
+**Open: the product half only — the plugin degrades silently.** The documentation is done
+(PR #491): `fields.md` and `troubleshooting.md` say a blank Status/Priority Property resolves only
+for a field TaskNotes reports, and to map the property explicitly otherwise. When
 `TaskNotesSource.getFieldConfig()` returns `null` — `api.model.config()` absent, empty, or throwing —
-`applyFieldMappingDefaults` leaves the mappings blank and status/priority colours and icons lose
-their values, while the troubleshooting page rules the blank mapping out as a cause. Narrow
-(degraded-API only) and non-blocking under the repo's P2 rule; the honest fix is either to qualify
-the docs on field-config availability or to surface the degraded discovery to the user, which is a
-product change and so outside this documentation campaign's scope.
+`applyFieldMappingDefaults` leaves the mappings blank, so status/priority colours and icons lose
+their values and nothing tells the user why. The fix is to surface the degraded discovery to the
+user: a product change, outside the documentation campaign's scope. Narrow (degraded-API only)
+and non-blocking under the repo's P2 rule.
 
 ### P1 — Schedule validation (errors & warnings), with swapped dates as the first slice (2026-08-10)
 Per-task validation with two severities, surfaced as a badge **left of the gantt bar**

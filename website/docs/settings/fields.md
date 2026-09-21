@@ -65,6 +65,11 @@ how a task gets its working time — the days it may be scheduled across.
 **Leave blank** for no calendar; the task then has no non-working days of its
 own, so *Working days* and *Split segments* do nothing for it. Optional.
 
+Nothing flags **the task** when its value does not reach a usable calendar — a
+link to a deleted note, a note that is not a calendar or calendar set, an
+invalid calendar note, or a value that is not a link at all. That task
+schedules exactly as if this property were blank.
+
 **Stretching and shading are read from different places.** A task's own
 association — this property — is what decides whether *that task* stretches or
 splits. Shading depends on whether you have used **Select calendars…**:
