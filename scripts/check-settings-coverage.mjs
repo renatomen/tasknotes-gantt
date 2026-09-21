@@ -61,7 +61,12 @@ export const NON_CONTROL_HEADINGS = [
   { page: 'calendar-items.md', heading: 'Related' },
 ];
 
-const ATTRIBUTE_LIST = /\s*\{[^}]*\}\s*$/;
+/**
+ * One trailing attribute list, shaped as Python-Markdown's attr_list strips it
+ * from a heading. Only the last brace group is removed; a heading still
+ * carrying a brace afterwards is refused, not guessed at.
+ */
+const ATTRIBUTE_LIST = / +\{:?[ ]*[^}\n ][^}\n]*\}[ ]*$/;
 /**
  * The one heading form the guard reads: level 2 or 3 at column 0, a space,
  * then text not ending in `#`. The site's renderer (Python-Markdown) always
@@ -104,10 +109,22 @@ export function settingsPageForGroup(group) {
 export function parseSettingsHeadings(pages) {
   return pages.flatMap((page) =>
     page.markdown.split(/\r?\n/).flatMap((line) => {
-      const match = HEADING.exec(line);
-      return match ? [{ file: page.file, text: match[2].replace(ATTRIBUTE_LIST, '').trim() }] : [];
+      const text = headingText(line);
+      return text === null ? [] : [{ file: page.file, text }];
     }),
   );
+}
+
+/**
+ * The text of a canonical level-2/3 heading line, its attribute list removed;
+ * null for any other line.
+ *
+ * @param {string} line
+ * @returns {string | null}
+ */
+function headingText(line) {
+  const match = HEADING.exec(line);
+  return match ? match[2].replace(ATTRIBUTE_LIST, '').trim() : null;
 }
 
 /**
@@ -123,6 +140,7 @@ function isUnmodelled(lines, index) {
   const line = lines[index];
   if (UNMODELLED_MARKDOWN.test(line)) return true;
   if (NONCANONICAL_HASH.test(line) && !CANONICAL_ATX.test(line)) return true;
+  if (/[{}]/.test(headingText(line) ?? '')) return true;
   if (index === 0) return FRONT_MATTER.test(line);
   const above = lines[index - 1];
   return SETEXT_UNDERLINE.test(line) && above.trim() !== '' && !CANONICAL_ATX.test(above);

@@ -336,6 +336,9 @@ describe('unmodelledMarkdownFindings', () => {
     ['an indented hash line, a paragraph or a nested heading', '    ## Inside', 'unsupported markdown: fields.md:2: ## Inside'],
     ['a hash line with no space', '##unspaced', 'unsupported markdown: fields.md:2: ##unspaced'],
     ['a heading closed with hashes', '## Closed ##', 'unsupported markdown: fields.md:2: ## Closed ##'],
+    ['a brace group the renderer keeps (no space before it)', '## Foo{: .x}', 'unsupported markdown: fields.md:2: ## Foo{: .x}'],
+    ['an empty brace group', '## Foo {}', 'unsupported markdown: fields.md:2: ## Foo {}'],
+    ['two brace groups', '## X {: #a } {: .b }', 'unsupported markdown: fields.md:2: ## X {: #a } {: .b }'],
   ])('reports %s, which could hide a heading from the reader', (_name, line, finding) => {
     const pages = [{ file: 'fields.md', markdown: `## A\n${line}\n` }];
 
