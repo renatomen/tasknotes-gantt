@@ -79,9 +79,10 @@ const ATX_OPENING = /^(#{1,6})[ \t]/;
 /**
  * A fence, a raw HTML block or a blockquote at any indentation (a container
  * body can nest one), a footnote definition (its body may follow the colon
- * unspaced), or an HTML comment starting anywhere on the line.
+ * unspaced), or raw HTML anywhere on the line (an inline `<h2>` renders a
+ * heading; a comment can hide one).
  */
-const UNMODELLED_MARKDOWN = /(?:^[ \t]*(?:`{3,}|~{3,}|<|>))|(?:^ {0,3}\[\^[^\]]*\]:)|(?:<!--)/;
+const UNMODELLED_MARKDOWN = /(?:^[ \t]*(?:`{3,}|~{3,}|<|>))|(?:^ {0,3}\[\^[^\]]*\]:)|(?:<[A-Za-z/!?])/;
 /** Any control character but a tab: the renderer may normalize it into structure the guard does not see. */
 const CONTROL_CHARACTER = /[^\P{Cc}\t]/u;
 /** A Markdown link target, where a `#` is a URL fragment and never a heading. */

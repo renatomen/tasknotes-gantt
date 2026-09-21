@@ -359,6 +359,7 @@ describe('unmodelledMarkdownFindings', () => {
     ['any footnote definition', '[^note]: Plain text.', 'unsupported markdown: fields.md:2: [^note]: Plain text.'],
     ['an indented blockquote inside a container body', '    >## Removed Option', 'unsupported markdown: fields.md:2: >## Removed Option'],
     ['a hash after any other character', 'x)## Removed Option', 'unsupported markdown: fields.md:2: x)## Removed Option'],
+    ['an inline HTML heading in prose', 'Text <h2>Removed Option</h2>', 'unsupported markdown: fields.md:2: Text <h2>Removed Option</h2>'],
   ])('reports %s, which could hide a heading from the reader', (_name, line, finding) => {
     const pages = [{ file: 'fields.md', markdown: `## A\n${line}\n` }];
 
