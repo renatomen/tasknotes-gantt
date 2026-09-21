@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -88,6 +88,19 @@ describe('settingsInventory', () => {
     expect(checkSettingsCoverage({ controls: settingsInventory(builders), pages, allowList: [] }).findings).toEqual([
       'shared label: Timeline › Knob names 2 controls (tngantt_knobA, tngantt_knobB)',
     ]);
+  });
+
+  it('reports an option that shares its label with a toolbar-persisted control', () => {
+    const builders = {
+      ...buildersWith([{ type: 'toggle', displayName: 'Theme mode', key: 'tngantt_themeModeToggle', default: false }]),
+      TOOLBAR_PERSISTED_CONTROLS: [{ uiLabel: 'Theme', docHeading: 'Theme mode', group: 'Timeline' }],
+    };
+
+    expect(settingsInventory(builders)).toEqual(
+      expect.arrayContaining([
+        { group: 'Timeline', name: 'Theme mode', keys: ['tngantt_themeModeToggle', 'toolbar:Theme'] },
+      ]),
+    );
   });
 
   it('inventories a static entry whose key merely starts like a per-feed toggle', () => {
@@ -272,6 +285,24 @@ describe('parseSettingsHeadings', () => {
     expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
   });
 
+  it('closes a shorter fence on a longer bare fence', () => {
+    const pages = [{ file: 'fields.md', markdown: '## A\n```\n## quoted\n````\n## B\n' }];
+
+    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
+  });
+
+  it('does not close a fence on a line carrying an info string', () => {
+    const pages = [{ file: 'fields.md', markdown: '## A\n```\n```js\n## quoted\n```\n## B\n' }];
+
+    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
+  });
+
+  it('stays inside a comment that closes and reopens on one line', () => {
+    const pages = [{ file: 'fields.md', markdown: '## A\n<!--\n--> x <!--\n## hidden\n-->\n## B\n' }];
+
+    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
+  });
+
   it('ignores headings inside a multi-line HTML comment', () => {
     const pages = [{ file: 'fields.md', markdown: '## A\n<!--\n## commented out\n-->\n## B\n' }];
 
@@ -287,34 +318,78 @@ describe('parseSettingsHeadings', () => {
 
 describe('check-settings-coverage CLI', () => {
   const script = resolve('scripts/check-settings-coverage.mjs');
+  const scriptName = 'check-settings-coverage.mjs';
   // Each case starts a node process that loads Vite; start-up alone can pass jest's 5s default.
   jest.setTimeout(30_000);
 
-  it('exits 0 on the committed tree', () => {
-    const run = spawnSync(process.execPath, [script], { encoding: 'utf8' });
+  let scratch: string;
+  let links: string[];
+  beforeEach(() => {
+    scratch = mkdtempSync(join(tmpdir(), 'settings-coverage-'));
+    links = [];
+  });
+  afterEach(() => {
+    // Unlink first: the links point at the real src/, scripts/ and node_modules/,
+    // and a recursive delete must never be trusted not to follow them.
+    for (const link of links) unlinkSync(link);
+    rmSync(scratch, { recursive: true, force: true });
+  });
 
-    expect({ status: run.status, stdout: run.stdout }).toEqual({
-      status: 0,
-      stdout: expect.stringContaining('each documented once'),
-    });
+  function link(target: string, path: string): void {
+    symlinkSync(resolve(target), path, 'junction');
+    links.push(path);
+  }
+
+  function runScript(path: string): { status: number | null; stdout: string; stderr: string } {
+    const run = spawnSync(process.execPath, [path], { encoding: 'utf8' });
+    return { status: run.status, stdout: run.stdout, stderr: run.stderr };
+  }
+
+  /** A throwaway checkout: a copy of the script and the settings pages, with the real sources and modules linked in. */
+  function stageCheckout(mutatePage: (file: string, markdown: string) => string): string {
+    mkdirSync(join(scratch, 'scripts'));
+    copyFileSync(script, join(scratch, 'scripts', scriptName));
+    link('node_modules', join(scratch, 'node_modules'));
+    link('src', join(scratch, 'src'));
+    const settings = join(scratch, 'website', 'docs', 'settings');
+    mkdirSync(settings, { recursive: true });
+    for (const page of readSettingsPages()) {
+      writeFileSync(join(settings, page.file), mutatePage(page.file, page.markdown));
+    }
+    return join(scratch, 'scripts', scriptName);
+  }
+
+  it('exits 0 on the committed tree', () => {
+    expect(runScript(script)).toEqual(
+      expect.objectContaining({ status: 0, stdout: expect.stringContaining('each documented once') }),
+    );
+  });
+
+  it('exits 1 and names the finding when a page is wrong', () => {
+    const staged = stageCheckout((file, markdown) =>
+      file === 'timeline.md' ? markdown.replace('## Default Scale', '## Scale') : markdown,
+    );
+
+    expect(runScript(staged)).toEqual(
+      expect.objectContaining({ status: 1, stderr: expect.stringContaining('undocumented: Timeline › Default Scale') }),
+    );
+  });
+
+  it('runs, rather than exiting 0 unrun, when invoked through a junction', () => {
+    link('scripts', join(scratch, 'linked-scripts'));
+
+    expect(runScript(join(scratch, 'linked-scripts', scriptName))).toEqual(
+      expect.objectContaining({ status: 0, stdout: expect.stringContaining('each documented once') }),
+    );
   });
 
   it('exits 2, not 0, when it cannot load the builders', () => {
-    const outside = mkdtempSync(join(tmpdir(), 'settings-coverage-'));
-    try {
-      mkdirSync(join(outside, 'scripts'));
-      copyFileSync(script, join(outside, 'scripts', 'check-settings-coverage.mjs'));
-      const run = spawnSync(process.execPath, [join(outside, 'scripts', 'check-settings-coverage.mjs')], {
-        encoding: 'utf8',
-      });
+    mkdirSync(join(scratch, 'scripts'));
+    copyFileSync(script, join(scratch, 'scripts', scriptName));
 
-      expect({ status: run.status, stderr: run.stderr }).toEqual({
-        status: 2,
-        stderr: expect.stringContaining('could not run'),
-      });
-    } finally {
-      rmSync(outside, { recursive: true, force: true });
-    }
+    expect(runScript(join(scratch, 'scripts', scriptName))).toEqual(
+      expect.objectContaining({ status: 2, stderr: expect.stringContaining('could not run') }),
+    );
   });
 });
 

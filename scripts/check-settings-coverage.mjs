@@ -15,9 +15,9 @@
  * Usage: node scripts/check-settings-coverage.mjs
  * Exit codes: 0 covered, 1 findings, 2 the guard could not run.
  */
-import { readdirSync, readFileSync } from 'node:fs';
+import { readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const SETTINGS_DIR = join(repoRoot, 'website', 'docs', 'settings');
@@ -39,7 +39,7 @@ const SETTINGS_DIR = join(repoRoot, 'website', 'docs', 'settings');
  *   externalCalendarDegradedEntry: () => any,
  *   externalCalendarToggleKey: (kind: any, id: string) => string,
  *   EXTERNAL_PROVIDER_ORDER: readonly string[],
- *   TOOLBAR_PERSISTED_CONTROLS: readonly { docHeading: string, group: string }[],
+ *   TOOLBAR_PERSISTED_CONTROLS: readonly { uiLabel: string, docHeading: string, group: string }[],
  * }} SettingsBuilders
  */
 
@@ -63,7 +63,8 @@ export const NON_CONTROL_HEADINGS = [
 
 const ATTRIBUTE_LIST = /\s*\{[^}]*\}\s*$/;
 const HEADING = /^(#{2,3})\s+(.+?)\s*$/;
-const FENCE = /^\s*(`{3,}|~{3,})/;
+const FENCE = /^ {0,3}(`{3,}|~{3,})/;
+const CLOSING_FENCE = /^ {0,3}(`{3,}|~{3,})\s*$/;
 
 /**
  * The page documenting a group: its display name in kebab case.
@@ -87,20 +88,29 @@ export function parseSettingsHeadings(pages) {
 }
 
 /**
- * A fence closes only on a run of the same character at least as long as the
- * one that opened it, so a longer fence can quote a shorter one.
+ * A fence closes only on a bare run (no info string) of the same character at
+ * least as long as the one that opened it, so a longer fence can quote a
+ * shorter one.
  *
  * @param {string} line
  * @param {string} openFence
  */
 function closesFence(line, openFence) {
-  return FENCE.exec(line)?.[1].startsWith(openFence) === true;
+  return CLOSING_FENCE.exec(line)?.[1].startsWith(openFence) === true;
 }
 
-/** @param {string} line */
-function opensComment(line) {
-  const start = line.lastIndexOf('<!--');
-  return start !== -1 && !line.includes('-->', start);
+/**
+ * Whether a comment is still open at the end of `line`, given whether one was
+ * open at its start: the last `<!--` or `-->` on the line decides.
+ *
+ * @param {string} line
+ * @param {boolean} openAtStart
+ */
+function commentOpenAfter(line, openAtStart) {
+  const lastOpen = line.lastIndexOf('<!--');
+  const lastClose = line.lastIndexOf('-->');
+  if (lastOpen === -1 && lastClose === -1) return openAtStart;
+  return lastOpen > lastClose;
 }
 
 /**
@@ -117,11 +127,11 @@ function visibleHeading(state, line) {
     return null;
   }
   if (state.inComment) {
-    state.inComment = !line.includes('-->');
+    state.inComment = commentOpenAfter(line, true);
     return null;
   }
   state.openFence = FENCE.exec(line)?.[1] ?? null;
-  state.inComment = state.openFence === null && opensComment(line);
+  state.inComment = state.openFence === null && commentOpenAfter(line, false);
   if (state.openFence !== null || state.inComment) return null;
   const match = HEADING.exec(line);
   return match ? match[2].replace(ATTRIBUTE_LIST, '').trim() : null;
@@ -263,7 +273,7 @@ export function settingsInventory(builders) {
   const add = (group, name, key) => {
     const id = `${group}\u0000${name}`;
     const control = seen.get(id) ?? { group, name, keys: [] };
-    if (key !== undefined && !control.keys.includes(key)) control.keys.push(key);
+    if (!control.keys.includes(key)) control.keys.push(key);
     seen.set(id, control);
   };
   for (const cell of settingsArgumentMatrix()) {
@@ -271,7 +281,9 @@ export function settingsInventory(builders) {
       if (!perFeedKeys.has(triple.key)) add(triple.group, triple.name, triple.key);
     }
   }
-  for (const control of builders.TOOLBAR_PERSISTED_CONTROLS) add(control.group, control.docHeading, undefined);
+  for (const control of builders.TOOLBAR_PERSISTED_CONTROLS) {
+    add(control.group, control.docHeading, `toolbar:${control.uiLabel}`);
+  }
   return [...seen.values()];
 }
 
@@ -416,7 +428,12 @@ async function main() {
   return 0;
 }
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+// Node reports this module at its real path while argv keeps any symlink or
+// junction the caller used, so compare real paths or the gate exits 0 unrun.
+const isDirectRun =
+  process.argv[1] !== undefined && realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+
+if (isDirectRun) {
   main().then(
     (code) => process.exit(code),
     (error) => {
