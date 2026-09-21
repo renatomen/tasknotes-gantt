@@ -187,11 +187,13 @@ describe('settings-coverage parity with the registered options callback', () => 
 });
 
 /**
- * Source-shape pins on GanttToolbar.svelte. Its imports are type-only and it
- * neither binds props nor dispatches events or shares context, so the only way
- * a value leaves it is through a prop. Every prop is therefore the
- * `changeProp` of a TOOLBAR_PERSISTED_CONTROLS entry, or declared here as
- * persisting nothing, whatever its type, name or markup.
+ * Source-shape pins on GanttToolbar.svelte. They pin the Svelte channels a
+ * component hands values out through: value imports, bindable props, event
+ * dispatch and context are absent, and every member of `interface Props` is
+ * the `changeProp` of a TOOLBAR_PERSISTED_CONTROLS entry or declared here as
+ * persisting nothing, whatever its type, name or markup. Props declared
+ * outside that interface, and globals such as storage or DOM events, are not
+ * pinned.
  */
 const TOOLBAR_PROPS_PERSISTING_NOTHING: Record<string, string> = {
   mode: 'input: the current theme mode, displayed',

@@ -355,6 +355,8 @@ describe('unmodelledMarkdownFindings', () => {
     ['a heading inside a footnote', '[^1]: ## Default Scale', 'unsupported markdown: fields.md:2: [^1]: ## Default Scale'],
     ['a heading inside a lettered footnote', '[^x]: ## Default Scale', 'unsupported markdown: fields.md:2: [^x]: ## Default Scale'],
     ['an unspaced heading inside a list item', '- ##x', 'unsupported markdown: fields.md:2: - ##x'],
+    ['a footnote definition with an unspaced heading', '[^1]:## Removed Option', 'unsupported markdown: fields.md:2: [^1]:## Removed Option'],
+    ['any footnote definition', '[^note]: Plain text.', 'unsupported markdown: fields.md:2: [^note]: Plain text.'],
   ])('reports %s, which could hide a heading from the reader', (_name, line, finding) => {
     const pages = [{ file: 'fields.md', markdown: `## A\n${line}\n` }];
 
