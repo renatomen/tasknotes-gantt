@@ -71,6 +71,21 @@ for the numbers).
     this heading. The primary signal is a one-time notice on load; see
     [Features → External calendars](../features/calendar-items.md#external-calendars).
 
+### ICS calendars
+
+Heads the ICS subscriptions, one toggle each. Its gray text is the ICS sync
+window. Shown only when at least one subscription is enabled in TaskNotes.
+
+### Google calendars
+
+Heads the connected Google calendars, one toggle each. Its gray text is the
+Google sync window.
+
+### Microsoft calendars
+
+Heads the connected Microsoft calendars, one toggle each. Its gray text is the
+Microsoft sync window.
+
 ## Not a view setting: the quick source switcher
 
 The switcher that hides/shows active sources instantly is **session state**,
