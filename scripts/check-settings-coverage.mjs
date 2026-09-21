@@ -30,7 +30,7 @@ const SETTINGS_DIR = join(repoRoot, 'website', 'docs', 'settings');
  * @typedef {{ id: string, name: string, enabled: boolean }} IcsFeed
  * @typedef {{ provider: string, id: string, name: string }} ProviderFeed
  * @typedef {{ subscriptions: IcsFeed[], calendars: ProviderFeed[] }} ExternalFeeds
- * @typedef {{ companionAvailable: boolean, hasProgressProperty: boolean, degraded: boolean, feedsPerProvider: number }} SettingsMatrixCell
+ * @typedef {{ companionAvailable: boolean, hasProgressProperty: boolean, degraded: boolean, feedCounts: Record<string, number> }} SettingsMatrixCell
  * @typedef {{ displayName?: string, key?: string, type?: string, items?: OptionEntry[] }} OptionEntry
  * @typedef {{
  *   ganttViewOptions: (companionAvailable: boolean, hasProgressProperty: boolean) => any[],
@@ -63,8 +63,8 @@ export const NON_CONTROL_HEADINGS = [
 
 const ATTRIBUTE_LIST = /\s*\{[^}]*\}\s*$/;
 const HEADING = /^(#{2,3})\s+(.+?)\s*$/;
-const FENCE = /^ {0,3}(`{3,}|~{3,})/;
-const CLOSING_FENCE = /^ {0,3}(`{3,}|~{3,})\s*$/;
+/** A fence, a raw HTML block, or an HTML comment starting anywhere on the line. */
+const UNMODELLED_MARKDOWN = /^ {0,3}(`{3,}|~{3,}|<)|<!--/;
 
 /**
  * The page documenting a group: its display name in kebab case.
@@ -76,79 +76,39 @@ export function settingsPageForGroup(group) {
 }
 
 /**
- * Level-2 and level-3 headings outside fenced code and HTML comments, with a
- * trailing MkDocs attribute list stripped. Nothing else is normalized:
- * matching is exact. A commented-out heading documents nothing.
+ * Level-2 and level-3 ATX headings, with a trailing MkDocs attribute list
+ * stripped. Nothing else is normalized: matching is exact. This is not a
+ * Markdown parser: pages carrying anything that could hide a heading from the
+ * reader are refused by {@link unmodelledMarkdownFindings} instead.
  *
  * @param {SettingsPage[]} pages
  * @returns {SettingsHeading[]}
  */
 export function parseSettingsHeadings(pages) {
-  return pages.flatMap(headingsOnPage);
+  return pages.flatMap((page) =>
+    page.markdown.split(/\r?\n/).flatMap((line) => {
+      const match = HEADING.exec(line);
+      return match ? [{ file: page.file, text: match[2].replace(ATTRIBUTE_LIST, '').trim() }] : [];
+    }),
+  );
 }
 
 /**
- * A fence closes only on a bare run (no info string) of the same character at
- * least as long as the one that opened it, so a longer fence can quote a
- * shorter one.
+ * Inside a fence, an HTML comment or a raw HTML block a heading-shaped line
+ * may not render as a heading, so the guard cannot tell whether it documents
+ * anything. Settings pages are headings and prose; each such line is a finding.
  *
- * @param {string} line
- * @param {string} openFence
+ * @param {SettingsPage[]} pages
+ * @returns {string[]}
  */
-function closesFence(line, openFence) {
-  return CLOSING_FENCE.exec(line)?.[1].startsWith(openFence) === true;
-}
-
-/**
- * Whether a comment is still open at the end of `line`, given whether one was
- * open at its start: the last `<!--` or `-->` on the line decides.
- *
- * @param {string} line
- * @param {boolean} openAtStart
- */
-function commentOpenAfter(line, openAtStart) {
-  const lastOpen = line.lastIndexOf('<!--');
-  const lastClose = line.lastIndexOf('-->');
-  if (lastOpen === -1 && lastClose === -1) return openAtStart;
-  return lastOpen > lastClose;
-}
-
-/**
- * Advance the fence/comment state by one line; the heading text on that line
- * when it is visible, otherwise null.
- *
- * @param {{ openFence: string | null, inComment: boolean }} state
- * @param {string} line
- * @returns {string | null}
- */
-function visibleHeading(state, line) {
-  if (state.openFence !== null) {
-    if (closesFence(line, state.openFence)) state.openFence = null;
-    return null;
-  }
-  if (state.inComment) {
-    state.inComment = commentOpenAfter(line, true);
-    return null;
-  }
-  state.openFence = FENCE.exec(line)?.[1] ?? null;
-  state.inComment = state.openFence === null && commentOpenAfter(line, false);
-  if (state.openFence !== null || state.inComment) return null;
-  const match = HEADING.exec(line);
-  return match ? match[2].replace(ATTRIBUTE_LIST, '').trim() : null;
-}
-
-/**
- * @param {SettingsPage} page
- * @returns {SettingsHeading[]}
- */
-function headingsOnPage(page) {
-  const state = { openFence: null, inComment: false };
-  const headings = [];
-  for (const line of page.markdown.split(/\r?\n/)) {
-    const text = visibleHeading(state, line);
-    if (text !== null) headings.push({ file: page.file, text });
-  }
-  return headings;
+export function unmodelledMarkdownFindings(pages) {
+  return pages.flatMap((page) =>
+    page.markdown
+      .split(/\r?\n/)
+      .flatMap((line, index) =>
+        UNMODELLED_MARKDOWN.test(line) ? [`unsupported markdown: ${page.file}:${index + 1}: ${line.trim()}`] : [],
+      ),
+  );
 }
 
 /**
@@ -185,17 +145,16 @@ function coverageFeedId(kind, index) {
 }
 
 /**
- * `count` synthetic feeds per provider. ICS feeds are subscriptions; every
- * other provider serves calendars.
+ * Synthetic feeds, `feedCounts[kind]` of them for each provider. ICS feeds are
+ * subscriptions; every other provider serves calendars.
  *
- * @param {readonly string[]} providerOrder
- * @param {number} count
+ * @param {Record<string, number>} feedCounts
  * @returns {ExternalFeeds}
  */
-export function feedsPerProvider(providerOrder, count) {
+export function syntheticFeeds(feedCounts) {
   /** @type {ExternalFeeds} */
   const feeds = { subscriptions: [], calendars: [] };
-  for (const kind of providerOrder) {
+  for (const [kind, count] of Object.entries(feedCounts)) {
     for (let index = 0; index < count; index++) {
       const feed = { id: coverageFeedId(kind, index), name: `${kind} coverage feed ${index}` };
       if (kind === 'ics') feeds.subscriptions.push({ ...feed, enabled: true });
@@ -206,19 +165,38 @@ export function feedsPerProvider(providerOrder, count) {
 }
 
 /**
+ * Every assignment of none, one or many feeds to each provider independently.
+ *
+ * @param {readonly string[]} providerOrder
+ * @returns {Record<string, number>[]}
+ */
+function everyFeedCount(providerOrder) {
+  /** @type {Record<string, number>[]} */
+  let assignments = [{}];
+  for (const kind of providerOrder) {
+    assignments = assignments.flatMap((assignment) =>
+      Array.from({ length: MAX_FEEDS_PER_PROVIDER + 1 }, (_, count) => ({ ...assignment, [kind]: count })),
+    );
+  }
+  return assignments;
+}
+
+/**
  * Every combination of the callback's inputs: TaskNotes present or not, a
  * Progress Property mapped or not, the session's external-calendar degrade
- * flag set or clear, and none, one or many feeds per provider.
+ * flag set or clear, and none, one or many feeds for each provider
+ * independently.
  *
+ * @param {readonly string[]} providerOrder
  * @returns {SettingsMatrixCell[]}
  */
-export function settingsArgumentMatrix() {
+export function settingsArgumentMatrix(providerOrder) {
   const cells = [];
   for (const companionAvailable of [true, false]) {
     for (const hasProgressProperty of [true, false]) {
       for (const degraded of [false, true]) {
-        for (let feedCount = 0; feedCount <= MAX_FEEDS_PER_PROVIDER; feedCount++) {
-          cells.push({ companionAvailable, hasProgressProperty, degraded, feedsPerProvider: feedCount });
+        for (const feedCounts of everyFeedCount(providerOrder)) {
+          cells.push({ companionAvailable, hasProgressProperty, degraded, feedCounts });
         }
       }
     }
@@ -236,7 +214,7 @@ export function settingsArgumentMatrix() {
 export function composeRegisteredOptions(builders, cell) {
   const calendarItems = builders.calendarItemOptionsGroup();
   if (cell.companionAvailable) {
-    const feeds = feedsPerProvider(builders.EXTERNAL_PROVIDER_ORDER, cell.feedsPerProvider);
+    const feeds = syntheticFeeds(cell.feedCounts);
     calendarItems.items.push(...builders.externalCalendarOptionEntries(feeds.subscriptions, feeds.calendars));
     if (cell.degraded) calendarItems.items.push(builders.externalCalendarDegradedEntry());
   }
@@ -292,7 +270,7 @@ export function settingsInventory(builders) {
     control.renderedInPanel = Math.max(control.renderedInPanel, renderedInPanel);
     seen.set(id, control);
   };
-  for (const cell of settingsArgumentMatrix()) {
+  for (const cell of settingsArgumentMatrix(builders.EXTERNAL_PROVIDER_ORDER)) {
     const renders = new Map();
     for (const triple of optionTriples(composeRegisteredOptions(builders, cell))) {
       if (perFeedKeys.has(triple.key)) continue;
@@ -405,6 +383,7 @@ export function checkSettingsCoverage({ controls, pages, allowList = NON_CONTROL
   );
   return {
     findings: [
+      ...unmodelledMarkdownFindings(pages),
       ...missingPageFindings(controls, pages),
       ...sharedLabelFindings(controls),
       ...controls.flatMap((control) => placementFindings(control, controlHeadings, controls)),

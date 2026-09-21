@@ -10,6 +10,7 @@ import {
   readSettingsPages,
   settingsInventory,
   settingsPageForGroup,
+  unmodelledMarkdownFindings,
   type SettingsPage,
 } from '../../scripts/check-settings-coverage.mjs';
 import { EXTERNAL_PROVIDER_ORDER, externalCalendarToggleKey } from '../../src/bases/calendarItemOptions';
@@ -313,17 +314,39 @@ describe('checkSettingsCoverage', () => {
 });
 
 describe('parseSettingsHeadings', () => {
+  it('reads level-2 and level-3 headings and strips a trailing attribute list', () => {
+    const pages = [{ file: 'fields.md', markdown: '# Fields\n## A { #a }\n### B\n#### C\n' }];
+
+    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
+  });
+});
+
+describe('unmodelledMarkdownFindings', () => {
   it.each([
-    ['reads level-2 and level-3 headings and strips a trailing attribute list', '# Fields\n## A { #a }\n### B\n#### C\n', ['A', 'B']],
-    ['ignores heading-shaped lines inside fenced code', '## A\n```yaml\n## no\n```\n~~~\n## nor this\n~~~\n## B\n', ['A', 'B']],
-    ['keeps a longer fence open across a shorter fence it quotes', '## A\n````md\n```\n## quoted\n```\n````\n## B\n', ['A', 'B']],
-    ['closes a shorter fence on a longer bare fence', '## A\n```\n## quoted\n````\n## B\n', ['A', 'B']],
-    ['does not close a fence on a line carrying an info string', '## A\n```\n```js\n## quoted\n```\n## B\n', ['A', 'B']],
-    ['ignores headings inside a multi-line HTML comment', '## A\n<!--\n## commented out\n-->\n## B\n', ['A', 'B']],
-    ['stays inside a comment that closes and reopens on one line', '## A\n<!--\n--> x <!--\n## hidden\n-->\n## B\n', ['A', 'B']],
-    ['keeps reading headings after a single-line HTML comment', '<!-- note -->\n## A\n', ['A']],
-  ])('%s', (_name, markdown, expected) => {
-    expect(parseSettingsHeadings([{ file: 'fields.md', markdown }]).map((heading) => heading.text)).toEqual(expected);
+    ['a backtick fence', '```yaml', 'unsupported markdown: fields.md:2: ```yaml'],
+    ['a tilde fence', '~~~', 'unsupported markdown: fields.md:2: ~~~'],
+    ['a raw HTML block', '<pre>', 'unsupported markdown: fields.md:2: <pre>'],
+    ['an HTML comment opening mid-line', 'Some prose <!-- hidden', 'unsupported markdown: fields.md:2: Some prose <!-- hidden'],
+  ])('reports %s, which could hide a heading from the reader', (_name, line, finding) => {
+    const pages = [{ file: 'fields.md', markdown: `## A\n${line}\n` }];
+
+    expect(unmodelledMarkdownFindings(pages)).toEqual([finding]);
+  });
+
+  it('leaves headings, prose and admonitions alone', () => {
+    const markdown = '## A\n\nProse with `a < b` and a [link](x.md).\n\n!!! note "N"\n\n    Indented text.\n';
+
+    expect(unmodelledMarkdownFindings([{ file: 'fields.md', markdown }])).toEqual([]);
+  });
+
+  it('turns a control heading hidden in a raw HTML block into a finding', () => {
+    const control = { group: 'Timeline', name: 'Default Scale', keys: ['tngantt_defaultScale'] };
+    const pages = [{ file: 'timeline.md', markdown: '<pre>\n## Default Scale\n</pre>\n' }];
+
+    expect(checkSettingsCoverage({ controls: [control], pages, allowList: [] }).findings).toEqual([
+      'unsupported markdown: timeline.md:1: <pre>',
+      'unsupported markdown: timeline.md:3: </pre>',
+    ]);
   });
 });
 

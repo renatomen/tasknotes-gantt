@@ -3,9 +3,9 @@ import { resolve } from 'node:path';
 import type { BasesViewConfig } from 'obsidian';
 import {
   composeRegisteredOptions,
-  feedsPerProvider,
   optionTriples,
   settingsArgumentMatrix,
+  syntheticFeeds,
   type ExternalFeeds,
   type SettingsMatrixCell,
 } from '../../scripts/check-settings-coverage.mjs';
@@ -91,46 +91,76 @@ function fieldMappingKeys(): string[] {
   return [...reads].sort((a, b) => a.localeCompare(b));
 }
 
-/** The session degrade flag is sticky, so every clear cell must run before the first degraded one. */
-function clearCellsFirst(cells: SettingsMatrixCell[]): SettingsMatrixCell[] {
-  return [...cells.filter((cell) => !cell.degraded), ...cells.filter((cell) => cell.degraded)];
+const ONE_FEED_EACH = Object.fromEntries(EXTERNAL_PROVIDER_ORDER.map((kind) => [kind, 1]));
+
+interface ParityCase {
+  cell: SettingsMatrixCell;
+  mappings: Set<string>[];
+}
+
+/**
+ * Every matrix cell with the other field mappings all unset and all set, and
+ * every subset of those mappings in each companion/progress/degraded cell with
+ * one feed per provider. A control gated jointly on a mixed mapping subset and
+ * an uneven feed count is between the two walks; the parity test detects drift
+ * in the callback, and the backlog's extraction of its assembly is what would
+ * prevent it.
+ */
+function parityCases(): ParityCase[] {
+  const subsets = everyMappingSubset();
+  const noneAndAll = [subsets[0], subsets[subsets.length - 1]];
+  const matrix = settingsArgumentMatrix(EXTERNAL_PROVIDER_ORDER);
+  const everyCell = matrix.map((cell) => ({ cell, mappings: noneAndAll }));
+  const baseCells = matrix
+    .filter((cell) => EXTERNAL_PROVIDER_ORDER.every((kind) => cell.feedCounts[kind] === 1))
+    .map((cell) => ({ cell, mappings: subsets }));
+  const cases = [...everyCell, ...baseCells];
+  // The session degrade flag is sticky: every clear case must run before the first degraded one.
+  return [...cases.filter(({ cell }) => !cell.degraded), ...cases.filter(({ cell }) => cell.degraded)];
 }
 
 function cellName(cell: SettingsMatrixCell): string {
   return (
     `companion=${cell.companionAvailable} progress=${cell.hasProgressProperty} ` +
-    `degraded=${cell.degraded} feedsPerProvider=${cell.feedsPerProvider}`
+    `degraded=${cell.degraded} feeds=${JSON.stringify(cell.feedCounts)}`
   );
 }
 
 describe('settings-coverage parity with the registered options callback', () => {
-  it('covers companion, progress property, degraded session, and none, one or many feeds', () => {
-    const cells = settingsArgumentMatrix();
+  it('assigns none, one or many feeds to each provider independently', () => {
+    const cells = settingsArgumentMatrix(EXTERNAL_PROVIDER_ORDER);
+    const perProvider = 3 ** EXTERNAL_PROVIDER_ORDER.length;
 
-    expect(cells).toHaveLength(24);
-    expect([...new Set(cells.map((cell) => cell.feedsPerProvider))]).toEqual([0, 1, 2]);
+    expect(cells).toHaveLength(8 * perProvider);
+    expect(cells).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ feedCounts: Object.fromEntries(EXTERNAL_PROVIDER_ORDER.map((kind, i) => [kind, i % 3])) }),
+      ]),
+    );
   });
 
-  it('serves the requested number of feeds to every registered provider', () => {
-    const feeds = feedsPerProvider(EXTERNAL_PROVIDER_ORDER, 2);
+  it('serves the requested number of feeds to each provider', () => {
+    const counts = Object.fromEntries(EXTERNAL_PROVIDER_ORDER.map((kind, i) => [kind, i % 3]));
+    const feeds = syntheticFeeds(counts);
     const served = [...feeds.subscriptions.map(() => 'ics'), ...feeds.calendars.map((calendar) => calendar.provider)];
+    const expected = EXTERNAL_PROVIDER_ORDER.flatMap((kind) => Array.from({ length: counts[kind] }, () => kind));
 
-    expect([...served].sort()).toEqual([...EXTERNAL_PROVIDER_ORDER, ...EXTERNAL_PROVIDER_ORDER].sort());
+    expect([...served].sort()).toEqual([...expected].sort());
   });
 
   // Both claims are checked in one pass because the session degrade flag is
-  // sticky: only this ordered walk visits every cell in its real state. It
-  // calls the real callback 24 x 512 times, so it outgrows jest's 5s default.
-  it('the registered callback emits the composed controls, reading no config beyond the field mappings, in every cell', () => {
+  // sticky: only this ordered walk visits every case in its real state. It
+  // calls the real callback thousands of times, so it outgrows jest's 5s default.
+  it('the registered callback emits the composed controls, reading no config beyond the field mappings, in every case', () => {
     const reads = new Set<string>();
-    for (const cell of clearCellsFirst(settingsArgumentMatrix())) {
+    for (const { cell, mappings } of parityCases()) {
       if (!cell.degraded) {
         expect(sessionExternalCalendarDegradeSignal.wasDegradedThisSession()).toBe(false);
       }
       const composed = optionTriples(composeRegisteredOptions(BUILDERS, cell));
-      const feeds = feedsPerProvider(EXTERNAL_PROVIDER_ORDER, cell.feedsPerProvider);
+      const feeds = syntheticFeeds(cell.feedCounts);
       const options = captureOptionsCallback(cell.companionAvailable ? taskNotesHandleServing(feeds, cell.degraded) : null);
-      for (const mapped of everyMappingSubset()) {
+      for (const mapped of mappings) {
         const registered = optionTriples(options(viewConfig(cell.hasProgressProperty, mapped, reads)));
         const name = `${cellName(cell)} mapped=[${[...mapped].join(', ')}]`;
 
@@ -146,7 +176,7 @@ describe('settings-coverage parity with the registered options callback', () => 
       companionAvailable: true,
       hasProgressProperty: false,
       degraded: false,
-      feedsPerProvider: 1,
+      feedCounts: ONE_FEED_EACH,
     });
     const keys = optionTriples(composed).map((triple) => triple.key);
 
