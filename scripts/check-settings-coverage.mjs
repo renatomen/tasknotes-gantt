@@ -311,7 +311,7 @@ export function checkSettingsCoverage({ controls, pages, allowList = NON_CONTROL
 }
 
 /** @returns {SettingsPage[]} */
-function readSettingsPages() {
+export function readSettingsPages() {
   return readdirSync(SETTINGS_DIR)
     .filter((file) => file.endsWith('.md'))
     .sort()

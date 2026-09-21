@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import type { BasesAllOptions, BasesViewConfig, Plugin } from 'obsidian';
+import type { BasesViewConfig } from 'obsidian';
 import {
   composeRegisteredOptions,
   oneFeedPerProvider,
@@ -9,7 +9,7 @@ import {
   type ExternalFeeds,
   type SettingsMatrixCell,
 } from '../../scripts/check-settings-coverage.mjs';
-import { registerBasesGantt } from '../../src/bases/register';
+import { captureOptionsCallback } from '../helpers/captureOptionsCallback';
 import { sessionExternalCalendarDegradeSignal } from '../../src/bases/externalCalendarDegradeNotice';
 import { ganttViewOptions } from '../../src/bases/viewOptions';
 import { FIELD_MAPPING_KEYS } from '../../src/bases/fieldMappingConfig';
@@ -21,7 +21,6 @@ import {
   externalCalendarToggleKey,
 } from '../../src/bases/calendarItemOptions';
 import { TOOLBAR_PERSISTED_CONTROLS } from '../../src/bases/themeResolver';
-import type { PluginLifetime } from '../../src/bases/createCalendarNote';
 
 /**
  * The coverage script cannot see register.ts's options callback: it recomposes
@@ -39,37 +38,6 @@ const BUILDERS = {
   EXTERNAL_PROVIDER_ORDER,
   TOOLBAR_PERSISTED_CONTROLS,
 };
-
-type OptionsCallback = (config: BasesViewConfig) => BasesAllOptions[];
-
-/** Capture the registered options callback over an app whose TaskNotes lookup returns `taskNotesHandle`. */
-function captureOptionsCallback(taskNotesHandle: Record<string, unknown> | null): OptionsCallback {
-  const app = {
-    plugins: { getPlugin: (id: string) => (id === 'tasknotes' ? taskNotesHandle : null) },
-  };
-  let captured: { options?: OptionsCallback } | null = null;
-  const plugin = {
-    app,
-    registerBasesView: (_id: string, opts: { options?: OptionsCallback }) => {
-      captured = opts;
-      return true;
-    },
-  } as unknown as Plugin;
-  const calendarLifetime: PluginLifetime = {
-    isActive: () => true,
-    scope: () => ({
-      own: (source, subscribe) => {
-        subscribe(source);
-      },
-      defer: () => {},
-      close: () => {},
-    }),
-  };
-  registerBasesGantt(plugin, calendarLifetime);
-  const options = (captured as { options?: OptionsCallback } | null)?.options;
-  if (!options) throw new Error('options callback was not captured');
-  return options;
-}
 
 /** A TaskNotes handle serving `feeds`; `degraded` adds a malformed provider the guarded read rejects. */
 function taskNotesHandleServing(feeds: ExternalFeeds, degraded: boolean): Record<string, unknown> {

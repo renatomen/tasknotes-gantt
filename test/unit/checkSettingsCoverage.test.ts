@@ -1,10 +1,9 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
 import {
   checkSettingsCoverage,
   expandHeading,
   NON_CONTROL_HEADINGS,
   parseSettingsHeadings,
+  readSettingsPages,
   settingsInventory,
   settingsPageForGroup,
   type SettingsPage,
@@ -24,8 +23,6 @@ import { TOOLBAR_PERSISTED_CONTROLS } from '../../src/bases/themeResolver';
  * settings pages in memory and must produce a finding. A case that stays green
  * means the guard cannot see that class of drift.
  */
-const SETTINGS_DIR = resolve('website/docs/settings');
-
 const BUILDERS = {
   ganttViewOptions,
   calendarItemOptionsGroup,
@@ -35,12 +32,6 @@ const BUILDERS = {
   EXTERNAL_PROVIDER_ORDER,
   TOOLBAR_PERSISTED_CONTROLS,
 };
-
-function readRealPages(): SettingsPage[] {
-  return readdirSync(SETTINGS_DIR)
-    .filter((file) => file.endsWith('.md'))
-    .map((file) => ({ file, markdown: readFileSync(join(SETTINGS_DIR, file), 'utf8') }));
-}
 
 function replaceOnPage(pages: SettingsPage[], file: string, from: string, to: string): SettingsPage[] {
   return pages.map((page) => {
@@ -60,7 +51,7 @@ function findingsFor(pages: SettingsPage[]): string[] {
 
 describe('check-settings-coverage on the real tree', () => {
   it('reports no findings for the shipped controls against the committed pages', () => {
-    expect(findingsFor(readRealPages())).toEqual([]);
+    expect(findingsFor(readSettingsPages())).toEqual([]);
   });
 
   it('inventories the companion-gated, per-provider and degraded controls', () => {
@@ -87,7 +78,7 @@ describe('check-settings-coverage on the real tree', () => {
 
 describe('check-settings-coverage mutation set', () => {
   it('(1) a removed static heading is reported undocumented', () => {
-    const pages = replaceOnPage(readRealPages(), 'calendar-items.md', '## Show recurring tasks', '## Recurring tasks');
+    const pages = replaceOnPage(readSettingsPages(), 'calendar-items.md', '## Show recurring tasks', '## Recurring tasks');
 
     expect(findingsFor(pages)).toEqual(
       expect.arrayContaining([expect.stringContaining('undocumented: Calendar items › Show recurring tasks')]),
@@ -96,7 +87,7 @@ describe('check-settings-coverage mutation set', () => {
 
   it('(2) a heading carrying an attribute list still has to match exactly', () => {
     const pages = replaceOnPage(
-      readRealPages(),
+      readSettingsPages(),
       'fields.md',
       '## Time Estimate Property { #time-estimate-property }',
       '## Time Estimate { #time-estimate-property }',
@@ -109,7 +100,7 @@ describe('check-settings-coverage mutation set', () => {
 
   it('(3) a collapsed heading that drops one of its controls reports that control', () => {
     const pages = replaceOnPage(
-      readRealPages(),
+      readSettingsPages(),
       'calendar-items.md',
       '### Event start / end / title property',
       '### Event start / end property',
@@ -122,7 +113,7 @@ describe('check-settings-coverage mutation set', () => {
 
   it('(4) a removed companion-gated heading is reported undocumented', () => {
     const pages = replaceOnPage(
-      readRealPages(),
+      readSettingsPages(),
       'relationships.md',
       '## Expanded relationships',
       '## Expanded relations',
@@ -134,7 +125,7 @@ describe('check-settings-coverage mutation set', () => {
   });
 
   it('(6) a heading moved to another group page is reported misfiled', () => {
-    const moved = replaceOnPage(readRealPages(), 'timeline.md', '## Estimate meaning\n', '## Estimate meaning moved\n');
+    const moved = replaceOnPage(readSettingsPages(), 'timeline.md', '## Estimate meaning\n', '## Estimate meaning moved\n');
     const pages = appendToPage(moved, 'appearance.md', '## Estimate meaning');
 
     expect(findingsFor(pages)).toEqual(
@@ -145,7 +136,7 @@ describe('check-settings-coverage mutation set', () => {
   });
 
   it('(7) a heading duplicated onto a second page is reported duplicated', () => {
-    const pages = appendToPage(readRealPages(), 'appearance.md', '## Estimate meaning');
+    const pages = appendToPage(readSettingsPages(), 'appearance.md', '## Estimate meaning');
 
     expect(findingsFor(pages)).toEqual([
       expect.stringContaining('duplicated: Timeline › Estimate meaning has 2 headings'),
@@ -153,7 +144,7 @@ describe('check-settings-coverage mutation set', () => {
   });
 
   it('a removed toolbar-persisted heading is reported undocumented', () => {
-    const pages = replaceOnPage(readRealPages(), 'appearance.md', '## Theme mode', '## Theme');
+    const pages = replaceOnPage(readSettingsPages(), 'appearance.md', '## Theme mode', '## Theme');
 
     expect(findingsFor(pages)).toEqual(
       expect.arrayContaining([expect.stringContaining('undocumented: Appearance › Theme mode')]),
@@ -229,7 +220,7 @@ describe('checkSettingsCoverage', () => {
   });
 
   it('allow-lists only real headings on the committed pages', () => {
-    const pages = readRealPages();
+    const pages = readSettingsPages();
 
     for (const entry of NON_CONTROL_HEADINGS) {
       const headings = parseSettingsHeadings(pages).filter((heading) => heading.file === entry.page);
