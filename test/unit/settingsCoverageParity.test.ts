@@ -43,12 +43,19 @@ function taskNotesHandleServing(feeds: ExternalFeeds, degraded: boolean): Record
   };
 }
 
-/** A view config answering only the Progress Property, recording every key it is asked for into `reads`. */
-function viewConfig(hasProgressProperty: boolean, reads: Set<string> = new Set()): BasesViewConfig {
+/**
+ * A view config recording every key it is asked for into `reads`. The
+ * Progress Property follows the matrix cell; every other field mapping is
+ * either all unset or all set, since the composition must not depend on them.
+ */
+function viewConfig(hasProgressProperty: boolean, otherMappingsSet: boolean, reads: Set<string>): BasesViewConfig {
+  const otherMappingKeys = new Set<string>(Object.values(FIELD_MAPPING_KEYS));
+  otherMappingKeys.delete(FIELD_MAPPING_KEYS.progress);
   return {
     get: (key: string) => {
       reads.add(key);
-      return hasProgressProperty && key === FIELD_MAPPING_KEYS.progress ? 'note.progress' : undefined;
+      if (key === FIELD_MAPPING_KEYS.progress) return hasProgressProperty ? 'note.progress' : undefined;
+      return otherMappingsSet && otherMappingKeys.has(key) ? `note.${key}` : undefined;
     },
   } as unknown as BasesViewConfig;
 }
@@ -88,25 +95,24 @@ describe('settings-coverage parity with the registered options callback', () => 
     expect([...served].sort()).toEqual([...EXTERNAL_PROVIDER_ORDER].sort());
   });
 
-  it('the registered callback emits exactly the composed controls in every matrix cell', () => {
+  // Both claims are checked in one pass because the session degrade flag is
+  // sticky: only this ordered walk visits every cell in its real state.
+  it('the registered callback emits the composed controls, reading no config beyond the field mappings, in every cell', () => {
+    const reads = new Set<string>();
     for (const cell of clearCellsFirst(settingsArgumentMatrix())) {
       if (!cell.degraded) {
         expect(sessionExternalCalendarDegradeSignal.wasDegradedThisSession()).toBe(false);
       }
-      const handle = cell.companionAvailable ? taskNotesHandleServing(feeds, cell.degraded) : null;
-      const registered = captureOptionsCallback(handle)(viewConfig(cell.hasProgressProperty));
-      const composed = composeRegisteredOptions(BUILDERS, { ...cell, feeds });
+      const composed = optionTriples(composeRegisteredOptions(BUILDERS, { ...cell, feeds }));
+      for (const otherMappingsSet of [false, true]) {
+        const handle = cell.companionAvailable ? taskNotesHandleServing(feeds, cell.degraded) : null;
+        const config = viewConfig(cell.hasProgressProperty, otherMappingsSet, reads);
+        const registered = optionTriples(captureOptionsCallback(handle)(config));
+        const name = `${cellName(cell)} otherMappingsSet=${otherMappingsSet}`;
 
-      expect({ cell: cellName(cell), triples: optionTriples(registered) }).toEqual({
-        cell: cellName(cell),
-        triples: optionTriples(composed),
-      });
+        expect({ cell: name, triples: registered }).toEqual({ cell: name, triples: composed });
+      }
     }
-  });
-
-  it('the callback reads no view config beyond the field mappings the matrix accounts for', () => {
-    const reads = new Set<string>();
-    captureOptionsCallback(taskNotesHandleServing(feeds, false))(viewConfig(true, reads));
 
     expect([...reads].sort((a, b) => a.localeCompare(b))).toEqual(fieldMappingKeys());
   });
