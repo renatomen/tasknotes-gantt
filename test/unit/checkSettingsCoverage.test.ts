@@ -320,10 +320,10 @@ describe('parseSettingsHeadings', () => {
     expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
   });
 
-  it('reads a heading indented up to three spaces or carrying closing hashes', () => {
-    const pages = [{ file: 'fields.md', markdown: '   ## A\n## B ##\n    ## indented code\n' }];
+  it('reads only the canonical form: column 0, a space, no closing hashes', () => {
+    const pages = [{ file: 'fields.md', markdown: '## A\n   ## indented\n##unspaced\n## closed ##\n' }];
 
-    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
+    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A']);
   });
 });
 
@@ -333,6 +333,9 @@ describe('unmodelledMarkdownFindings', () => {
     ['a tilde fence', '~~~', 'unsupported markdown: fields.md:2: ~~~'],
     ['a raw HTML block', '<pre>', 'unsupported markdown: fields.md:2: <pre>'],
     ['an HTML comment opening mid-line', 'Some prose <!-- hidden', 'unsupported markdown: fields.md:2: Some prose <!-- hidden'],
+    ['an indented hash line, a paragraph or a nested heading', '    ## Inside', 'unsupported markdown: fields.md:2: ## Inside'],
+    ['a hash line with no space', '##unspaced', 'unsupported markdown: fields.md:2: ##unspaced'],
+    ['a heading closed with hashes', '## Closed ##', 'unsupported markdown: fields.md:2: ## Closed ##'],
   ])('reports %s, which could hide a heading from the reader', (_name, line, finding) => {
     const pages = [{ file: 'fields.md', markdown: `## A\n${line}\n` }];
 

@@ -62,12 +62,21 @@ export const NON_CONTROL_HEADINGS = [
 ];
 
 const ATTRIBUTE_LIST = /\s*\{[^}]*\}\s*$/;
-/** An ATX heading of level 2 or 3: up to three spaces of indent, optional closing hashes. */
-const HEADING = /^ {0,3}(#{2,3})[ \t]+(.+?)(?:[ \t]+#+)?[ \t]*$/;
+/**
+ * The one heading form the guard reads: level 2 or 3 at column 0, a space,
+ * then text not ending in `#`. The site's renderer (Python-Markdown) always
+ * renders it as a heading; every other hash- or underline-shaped line is
+ * refused by {@link unmodelledMarkdownFindings} rather than interpreted.
+ */
+const HEADING = /^(#{2,3})[ \t]+(.*[^#\s])[ \t]*$/;
+/** Any canonical ATX heading, of any level. */
+const CANONICAL_ATX = /^#{1,6}[ \t]+.*[^#\s][ \t]*$/;
 /** A fence, a raw HTML block, or an HTML comment starting anywhere on the line. */
 const UNMODELLED_MARKDOWN = /^ {0,3}(`{3,}|~{3,}|<)|<!--/;
-/** A setext underline; directly under a line of text it turns that line into a heading. */
-const SETEXT_UNDERLINE = /^ {0,3}(=+|-+)[ \t]*$/;
+/** A hash-shaped line that is not a canonical heading: indented, unspaced, or closed with hashes. */
+const NONCANONICAL_HASH = /^[ \t]*#/;
+/** A setext underline; under a line of text it can turn that line into a heading. */
+const SETEXT_UNDERLINE = /^[ \t]*(=+|-+)[ \t]*$/;
 /**
  * YAML front matter, which MkDocs strips before rendering: it can only open a
  * page, after an optional byte-order mark (MkDocs reads pages as utf-8-sig).
@@ -113,9 +122,10 @@ export function parseSettingsHeadings(pages) {
 function isUnmodelled(lines, index) {
   const line = lines[index];
   if (UNMODELLED_MARKDOWN.test(line)) return true;
+  if (NONCANONICAL_HASH.test(line) && !CANONICAL_ATX.test(line)) return true;
   if (index === 0) return FRONT_MATTER.test(line);
   const above = lines[index - 1];
-  return SETEXT_UNDERLINE.test(line) && above.trim() !== '' && !HEADING.test(above);
+  return SETEXT_UNDERLINE.test(line) && above.trim() !== '' && !CANONICAL_ATX.test(above);
 }
 
 /**
