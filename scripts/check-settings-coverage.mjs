@@ -66,25 +66,18 @@ export const NON_CONTROL_HEADINGS = [
  * (optionally `{: #id }`), which attr_list always removes from a heading.
  * A heading carrying any other brace group is refused, not guessed at.
  */
-const ATTRIBUTE_LIST = / +\{:? *#[\w-]+ *\}[ ]*$/;
+const ATTRIBUTE_LIST = / +\{:? *#[\w-]+ *\} *$/;
 /**
  * Inline syntax the renderer would transform (braces, emphasis, code, links,
- * HTML, entities, escapes, mark/keys/emoji extensions) or control characters:
- * a heading carrying any of it does not render as the literal text the guard
- * reads, so it is refused.
+ * HTML, entities, escapes, mark/keys/emoji extensions), control or format
+ * characters, or whitespace other than a plain space: a heading carrying any
+ * of it does not render as the literal text the guard reads, so it is refused.
  */
-const INLINE_SYNTAX = /[{}*_`[\]<>&\\~^\p{Cc}\p{Zl}\p{Zp}]|==|\+\+|:\w[\w+-]*:/u;
-/**
- * The one heading form the guard reads: level 2 or 3 at column 0, a space,
- * then text not ending in `#`. The site's renderer (Python-Markdown) always
- * renders it as a heading; every other hash- or underline-shaped line is
- * refused by {@link unmodelledMarkdownFindings} rather than interpreted.
- */
-const HEADING = /^(#{2,3})[ \t]+(.*[^#\s])[ \t]*$/;
-/** Any canonical ATX heading, of any level. */
-const CANONICAL_ATX = /^#{1,6}[ \t]+.*[^#\s][ \t]*$/;
+const INLINE_SYNTAX = /[{}*_`[\]<>&\\~^\p{Cc}\p{Cf}]|[^\S ]|==|\+\+|:[+\-\w]+:/u;
+/** The opening of an ATX heading at column 0: one to six hashes, then a space or tab. */
+const ATX_OPENING = /^(#{1,6})[ \t]/;
 /** A fence, a raw HTML block, or an HTML comment starting anywhere on the line. */
-const UNMODELLED_MARKDOWN = /^ {0,3}(`{3,}|~{3,}|<)|<!--/;
+const UNMODELLED_MARKDOWN = /(?:^ {0,3}(?:`{3,}|~{3,}|<))|(?:<!--)/;
 /** A hash-shaped line that is not a canonical heading: indented, unspaced, or closed with hashes. */
 const NONCANONICAL_HASH = /^[ \t]*#/;
 /** A setext underline; under a line of text it can turn that line into a heading. */
@@ -123,6 +116,37 @@ export function parseSettingsHeadings(pages) {
 }
 
 /**
+ * Strip spaces and tabs only: String#trim also removes format characters such
+ * as U+FEFF, which the refusal must still see.
+ *
+ * @param {string} text
+ */
+function trimBlanks(text) {
+  let start = 0;
+  let end = text.length;
+  while (start < end && (text[start] === ' ' || text[start] === '\t')) start++;
+  while (end > start && (text[end - 1] === ' ' || text[end - 1] === '\t')) end--;
+  return text.slice(start, end);
+}
+
+/**
+ * A canonical ATX heading: column 0, one to six hashes, a space, then text
+ * not ending in `#`. The site's renderer (Python-Markdown) always renders it
+ * as a heading; every other hash- or underline-shaped line is refused by
+ * {@link unmodelledMarkdownFindings} rather than interpreted.
+ *
+ * @param {string} line
+ * @returns {{ level: number, text: string } | null}
+ */
+function canonicalAtx(line) {
+  const opening = ATX_OPENING.exec(line);
+  if (!opening) return null;
+  const text = trimBlanks(line.slice(opening[0].length));
+  if (text === '' || text.endsWith('#')) return null;
+  return { level: opening[1].length, text };
+}
+
+/**
  * The text of a canonical level-2/3 heading line, its attribute list removed;
  * null for any other line.
  *
@@ -130,8 +154,9 @@ export function parseSettingsHeadings(pages) {
  * @returns {string | null}
  */
 function headingText(line) {
-  const match = HEADING.exec(line);
-  return match ? match[2].replace(ATTRIBUTE_LIST, '').trim() : null;
+  const heading = canonicalAtx(line);
+  if (heading === null || heading.level < 2 || heading.level > 3) return null;
+  return trimBlanks(heading.text.replace(ATTRIBUTE_LIST, ''));
 }
 
 /**
@@ -146,11 +171,11 @@ function headingText(line) {
 function isUnmodelled(lines, index) {
   const line = lines[index];
   if (UNMODELLED_MARKDOWN.test(line)) return true;
-  if (NONCANONICAL_HASH.test(line) && !CANONICAL_ATX.test(line)) return true;
+  if (NONCANONICAL_HASH.test(line) && canonicalAtx(line) === null) return true;
   if (INLINE_SYNTAX.test(headingText(line) ?? '')) return true;
   if (index === 0) return FRONT_MATTER.test(line);
   const above = lines[index - 1];
-  return SETEXT_UNDERLINE.test(line) && above.trim() !== '' && !CANONICAL_ATX.test(above);
+  return SETEXT_UNDERLINE.test(line) && above.trim() !== '' && canonicalAtx(above) === null;
 }
 
 /**
@@ -185,10 +210,10 @@ export function expandHeading(text) {
   const middle = segments.slice(1, -1);
   if (middle.some((segment) => segment.includes(' '))) return [text];
   const first = segments[0].split(' ');
-  const last = segments[segments.length - 1].split(' ');
+  const last = segments.at(-1).split(' ');
   const prefix = first.slice(0, -1);
   const suffix = last.slice(1);
-  const variants = [first[first.length - 1], ...middle, last[0]];
+  const variants = [first.at(-1), ...middle, last[0]];
   return variants.map((variant) => [...prefix, variant, ...suffix].join(' '));
 }
 
