@@ -339,6 +339,12 @@ describe('unmodelledMarkdownFindings', () => {
     expect(unmodelledMarkdownFindings(pages)).toEqual(['unsupported markdown: timeline.md:1: ---']);
   });
 
+  it('reports front matter behind a byte-order mark', () => {
+    const pages = [{ file: 'timeline.md', markdown: '\uFEFF---\ntitle: Timeline\n## Default Scale\n---\n' }];
+
+    expect(unmodelledMarkdownFindings(pages)).toEqual(['unsupported markdown: timeline.md:1: ---']);
+  });
+
   it('leaves a thematic break below the first line alone', () => {
     expect(unmodelledMarkdownFindings([{ file: 'fields.md', markdown: '## A\n\n---\n\n## B\n' }])).toEqual([]);
   });

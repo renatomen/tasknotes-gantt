@@ -65,8 +65,11 @@ const ATTRIBUTE_LIST = /\s*\{[^}]*\}\s*$/;
 const HEADING = /^(#{2,3})\s+(.+?)\s*$/;
 /** A fence, a raw HTML block, or an HTML comment starting anywhere on the line. */
 const UNMODELLED_MARKDOWN = /^ {0,3}(`{3,}|~{3,}|<)|<!--/;
-/** YAML front matter, which MkDocs strips before rendering: it can only open a page. */
-const FRONT_MATTER = /^---[ \t]*$/;
+/**
+ * YAML front matter, which MkDocs strips before rendering: it can only open a
+ * page, after an optional byte-order mark (MkDocs reads pages as utf-8-sig).
+ */
+const FRONT_MATTER = /^\uFEFF?---[ \t]*$/;
 
 /**
  * The page documenting a group: its display name in kebab case.
