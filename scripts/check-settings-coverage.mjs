@@ -30,7 +30,7 @@ const SETTINGS_DIR = join(repoRoot, 'website', 'docs', 'settings');
  * @typedef {{ id: string, name: string, enabled: boolean }} IcsFeed
  * @typedef {{ provider: string, id: string, name: string }} ProviderFeed
  * @typedef {{ subscriptions: IcsFeed[], calendars: ProviderFeed[] }} ExternalFeeds
- * @typedef {{ companionAvailable: boolean, hasProgressProperty: boolean, degraded: boolean }} SettingsMatrixCell
+ * @typedef {{ companionAvailable: boolean, hasProgressProperty: boolean, degraded: boolean, feedsPerProvider: number }} SettingsMatrixCell
  * @typedef {{ displayName?: string, key?: string, type?: string, items?: OptionEntry[] }} OptionEntry
  * @typedef {{
  *   ganttViewOptions: (companionAvailable: boolean, hasProgressProperty: boolean) => any[],
@@ -173,34 +173,42 @@ export function expandHeading(text) {
   return variants.map((variant) => [...prefix, variant, ...suffix].join(' '));
 }
 
-/** @param {string} kind */
-function coverageFeedId(kind) {
-  return `${kind}-coverage-feed`;
+/** The most synthetic feeds any cell gives one provider: none, one, and many. */
+const MAX_FEEDS_PER_PROVIDER = 2;
+
+/**
+ * @param {string} kind
+ * @param {number} index
+ */
+function coverageFeedId(kind, index) {
+  return `${kind}-coverage-feed-${index}`;
 }
 
 /**
- * One synthetic feed per provider, so every provider's section heading enters
- * the inventory. ICS feeds are subscriptions; every other provider serves
- * calendars.
+ * `count` synthetic feeds per provider. ICS feeds are subscriptions; every
+ * other provider serves calendars.
  *
  * @param {readonly string[]} providerOrder
+ * @param {number} count
  * @returns {ExternalFeeds}
  */
-export function oneFeedPerProvider(providerOrder) {
+export function feedsPerProvider(providerOrder, count) {
   /** @type {ExternalFeeds} */
   const feeds = { subscriptions: [], calendars: [] };
   for (const kind of providerOrder) {
-    const feed = { id: coverageFeedId(kind), name: `${kind} coverage feed` };
-    if (kind === 'ics') feeds.subscriptions.push({ ...feed, enabled: true });
-    else feeds.calendars.push({ ...feed, provider: kind });
+    for (let index = 0; index < count; index++) {
+      const feed = { id: coverageFeedId(kind, index), name: `${kind} coverage feed ${index}` };
+      if (kind === 'ics') feeds.subscriptions.push({ ...feed, enabled: true });
+      else feeds.calendars.push({ ...feed, provider: kind });
+    }
   }
   return feeds;
 }
 
 /**
  * Every combination of the callback's inputs: TaskNotes present or not, a
- * Progress Property mapped or not, and the session's external-calendar
- * degrade flag set or clear.
+ * Progress Property mapped or not, the session's external-calendar degrade
+ * flag set or clear, and none, one or many feeds per provider.
  *
  * @returns {SettingsMatrixCell[]}
  */
@@ -208,7 +216,11 @@ export function settingsArgumentMatrix() {
   const cells = [];
   for (const companionAvailable of [true, false]) {
     for (const hasProgressProperty of [true, false]) {
-      for (const degraded of [false, true]) cells.push({ companionAvailable, hasProgressProperty, degraded });
+      for (const degraded of [false, true]) {
+        for (let feedCount = 0; feedCount <= MAX_FEEDS_PER_PROVIDER; feedCount++) {
+          cells.push({ companionAvailable, hasProgressProperty, degraded, feedsPerProvider: feedCount });
+        }
+      }
     }
   }
   return cells;
@@ -219,14 +231,13 @@ export function settingsArgumentMatrix() {
  * assembled the way it assembles it.
  *
  * @param {SettingsBuilders} builders
- * @param {SettingsMatrixCell & { feeds: ExternalFeeds }} cell
+ * @param {SettingsMatrixCell} cell
  */
 export function composeRegisteredOptions(builders, cell) {
   const calendarItems = builders.calendarItemOptionsGroup();
   if (cell.companionAvailable) {
-    calendarItems.items.push(
-      ...builders.externalCalendarOptionEntries(cell.feeds.subscriptions, cell.feeds.calendars),
-    );
+    const feeds = feedsPerProvider(builders.EXTERNAL_PROVIDER_ORDER, cell.feedsPerProvider);
+    calendarItems.items.push(...builders.externalCalendarOptionEntries(feeds.subscriptions, feeds.calendars));
     if (cell.degraded) calendarItems.items.push(builders.externalCalendarDegradedEntry());
   }
   return [...builders.ganttViewOptions(cell.companionAvailable, cell.hasProgressProperty), calendarItems];
@@ -265,9 +276,12 @@ export function optionTriples(options) {
  * @returns {ShippedControl[]}
  */
 export function settingsInventory(builders) {
-  const feeds = oneFeedPerProvider(builders.EXTERNAL_PROVIDER_ORDER);
   const perFeedKeys = new Set(
-    builders.EXTERNAL_PROVIDER_ORDER.map((kind) => builders.externalCalendarToggleKey(kind, coverageFeedId(kind))),
+    builders.EXTERNAL_PROVIDER_ORDER.flatMap((kind) =>
+      Array.from({ length: MAX_FEEDS_PER_PROVIDER }, (_, index) =>
+        builders.externalCalendarToggleKey(kind, coverageFeedId(kind, index)),
+      ),
+    ),
   );
   /** @type {Map<string, ShippedControl>} */
   const seen = new Map();
@@ -280,7 +294,7 @@ export function settingsInventory(builders) {
   };
   for (const cell of settingsArgumentMatrix()) {
     const renders = new Map();
-    for (const triple of optionTriples(composeRegisteredOptions(builders, { ...cell, feeds }))) {
+    for (const triple of optionTriples(composeRegisteredOptions(builders, cell))) {
       if (perFeedKeys.has(triple.key)) continue;
       const id = `${triple.group}\u0000${triple.name}`;
       renders.set(id, (renders.get(id) ?? 0) + 1);

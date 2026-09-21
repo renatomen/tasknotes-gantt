@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import type { BasesViewConfig } from 'obsidian';
 import {
   composeRegisteredOptions,
-  oneFeedPerProvider,
+  feedsPerProvider,
   optionTriples,
   settingsArgumentMatrix,
   type ExternalFeeds,
@@ -97,34 +97,38 @@ function clearCellsFirst(cells: SettingsMatrixCell[]): SettingsMatrixCell[] {
 }
 
 function cellName(cell: SettingsMatrixCell): string {
-  return `companion=${cell.companionAvailable} progress=${cell.hasProgressProperty} degraded=${cell.degraded}`;
+  return (
+    `companion=${cell.companionAvailable} progress=${cell.hasProgressProperty} ` +
+    `degraded=${cell.degraded} feedsPerProvider=${cell.feedsPerProvider}`
+  );
 }
 
 describe('settings-coverage parity with the registered options callback', () => {
-  const feeds = oneFeedPerProvider(EXTERNAL_PROVIDER_ORDER);
+  it('covers companion, progress property, degraded session, and none, one or many feeds', () => {
+    const cells = settingsArgumentMatrix();
 
-  it('covers every combination of companion, progress property and degraded session', () => {
-    expect(settingsArgumentMatrix()).toHaveLength(8);
+    expect(cells).toHaveLength(24);
+    expect([...new Set(cells.map((cell) => cell.feedsPerProvider))]).toEqual([0, 1, 2]);
   });
 
-  it('serves one feed per registered provider', () => {
-    const served = [
-      ...feeds.subscriptions.map(() => 'ics'),
-      ...feeds.calendars.map((calendar) => calendar.provider),
-    ];
+  it('serves the requested number of feeds to every registered provider', () => {
+    const feeds = feedsPerProvider(EXTERNAL_PROVIDER_ORDER, 2);
+    const served = [...feeds.subscriptions.map(() => 'ics'), ...feeds.calendars.map((calendar) => calendar.provider)];
 
-    expect([...served].sort()).toEqual([...EXTERNAL_PROVIDER_ORDER].sort());
+    expect([...served].sort()).toEqual([...EXTERNAL_PROVIDER_ORDER, ...EXTERNAL_PROVIDER_ORDER].sort());
   });
 
   // Both claims are checked in one pass because the session degrade flag is
-  // sticky: only this ordered walk visits every cell in its real state.
+  // sticky: only this ordered walk visits every cell in its real state. It
+  // calls the real callback 24 x 512 times, so it outgrows jest's 5s default.
   it('the registered callback emits the composed controls, reading no config beyond the field mappings, in every cell', () => {
     const reads = new Set<string>();
     for (const cell of clearCellsFirst(settingsArgumentMatrix())) {
       if (!cell.degraded) {
         expect(sessionExternalCalendarDegradeSignal.wasDegradedThisSession()).toBe(false);
       }
-      const composed = optionTriples(composeRegisteredOptions(BUILDERS, { ...cell, feeds }));
+      const composed = optionTriples(composeRegisteredOptions(BUILDERS, cell));
+      const feeds = feedsPerProvider(EXTERNAL_PROVIDER_ORDER, cell.feedsPerProvider);
       const options = captureOptionsCallback(cell.companionAvailable ? taskNotesHandleServing(feeds, cell.degraded) : null);
       for (const mapped of everyMappingSubset()) {
         const registered = optionTriples(options(viewConfig(cell.hasProgressProperty, mapped, reads)));
@@ -135,14 +139,14 @@ describe('settings-coverage parity with the registered options callback', () => 
     }
 
     expect([...reads].sort((a, b) => a.localeCompare(b))).toEqual(fieldMappingKeys());
-  });
+  }, 60_000);
 
   it('a composed cell with feeds carries a toggle for every provider', () => {
     const composed = composeRegisteredOptions(BUILDERS, {
       companionAvailable: true,
       hasProgressProperty: false,
       degraded: false,
-      feeds,
+      feedsPerProvider: 1,
     });
     const keys = optionTriples(composed).map((triple) => triple.key);
 
@@ -153,33 +157,44 @@ describe('settings-coverage parity with the registered options callback', () => 
 });
 
 /**
- * Source-shape pin: the labels GanttToolbar.svelte renders for its labelled
- * control groups. It pins the constant to those groups only; a persisted
- * toolbar control rendered any other way is outside what it can see.
+ * Source-shape pins on GanttToolbar.svelte. The toolbar never writes config:
+ * a control it persists hands its value up through an `on…Change` prop, so
+ * those props are the persisted controls, however each one is marked up.
  */
-function renderedToolbarLabels(source: string): string[] {
-  return [...source.matchAll(/class="og-toolbar-label">([^<]+)</g)].map((match) => match[1].trim());
+function persistedChangeProps(source: string): string[] {
+  return [...source.matchAll(/^\s*(on\w+Change)\??\s*:/gm)].map((match) => match[1]);
 }
 
-describe('TOOLBAR_PERSISTED_CONTROLS against the toolbar labelled control groups', () => {
+/** The labels the toolbar renders for its labelled control groups. */
+function renderedToolbarLabels(source: string): string[] {
+  return [...source.matchAll(/<[^>]*\bog-toolbar-label\b[^>]*>([^<]+)</g)].map((match) => match[1].trim());
+}
+
+describe('TOOLBAR_PERSISTED_CONTROLS against the toolbar', () => {
   const toolbar = readFileSync(resolve('src/bases/GanttToolbar.svelte'), 'utf8');
 
-  it('match the labelled control groups the toolbar renders', () => {
-    const rendered = renderedToolbarLabels(toolbar);
-
-    expect(rendered.length).toBeGreaterThan(0);
-    expect(rendered).toEqual(TOOLBAR_PERSISTED_CONTROLS.map((control) => control.uiLabel));
+  it('has one entry per value the toolbar hands up to be persisted', () => {
+    expect(persistedChangeProps(toolbar)).toEqual(['onModeChange']);
+    expect(TOOLBAR_PERSISTED_CONTROLS).toHaveLength(persistedChangeProps(toolbar).length);
   });
 
-  it('the pin sees a labelled control added to the toolbar', () => {
+  it('carries the label the toolbar renders for each labelled control group', () => {
+    expect(renderedToolbarLabels(toolbar)).toEqual(TOOLBAR_PERSISTED_CONTROLS.map((control) => control.uiLabel));
+  });
+
+  it('the persistence pin sees a new change prop, whatever its markup', () => {
+    const anchor = '    onModeChange: (mode: ThemeMode) => void;';
+    expect(toolbar).toContain(anchor);
+    const planted = toolbar.replace(anchor, `${anchor}\n    onDensityChange?: (density: string) => void;`);
+
+    expect(persistedChangeProps(planted)).toEqual(['onModeChange', 'onDensityChange']);
+  });
+
+  it('the label pin sees a labelled group carrying extra attributes', () => {
     const anchor = '<span class="og-toolbar-label">Theme</span>';
     expect(toolbar).toContain(anchor);
-    const planted = toolbar.replace(anchor, `${anchor}<span class="og-toolbar-label">Density</span>`);
+    const planted = toolbar.replace(anchor, `${anchor}<span class="og-toolbar-label" title="Density">Density</span>`);
 
     expect(renderedToolbarLabels(planted)).toEqual(['Theme', 'Density']);
-  });
-
-  it('the pin finds nothing once the label markup it keys on changes', () => {
-    expect(renderedToolbarLabels(toolbar.split('og-toolbar-label').join('og-toolbar-caption'))).toEqual([]);
   });
 });
