@@ -333,6 +333,16 @@ describe('unmodelledMarkdownFindings', () => {
     expect(unmodelledMarkdownFindings(pages)).toEqual([finding]);
   });
 
+  it('reports front matter opening a page, which MkDocs strips before rendering', () => {
+    const pages = [{ file: 'timeline.md', markdown: '---\ntitle: Timeline\n## Default Scale\n---\n\nProse.\n' }];
+
+    expect(unmodelledMarkdownFindings(pages)).toEqual(['unsupported markdown: timeline.md:1: ---']);
+  });
+
+  it('leaves a thematic break below the first line alone', () => {
+    expect(unmodelledMarkdownFindings([{ file: 'fields.md', markdown: '## A\n\n---\n\n## B\n' }])).toEqual([]);
+  });
+
   it('leaves headings, prose and admonitions alone', () => {
     const markdown = '## A\n\nProse with `a < b` and a [link](x.md).\n\n!!! note "N"\n\n    Indented text.\n';
 

@@ -65,6 +65,8 @@ const ATTRIBUTE_LIST = /\s*\{[^}]*\}\s*$/;
 const HEADING = /^(#{2,3})\s+(.+?)\s*$/;
 /** A fence, a raw HTML block, or an HTML comment starting anywhere on the line. */
 const UNMODELLED_MARKDOWN = /^ {0,3}(`{3,}|~{3,}|<)|<!--/;
+/** YAML front matter, which MkDocs strips before rendering: it can only open a page. */
+const FRONT_MATTER = /^---[ \t]*$/;
 
 /**
  * The page documenting a group: its display name in kebab case.
@@ -94,9 +96,10 @@ export function parseSettingsHeadings(pages) {
 }
 
 /**
- * Inside a fence, an HTML comment or a raw HTML block a heading-shaped line
- * may not render as a heading, so the guard cannot tell whether it documents
- * anything. Settings pages are headings and prose; each such line is a finding.
+ * Inside a fence, an HTML comment, a raw HTML block or front matter a
+ * heading-shaped line may not render as a heading, so the guard cannot tell
+ * whether it documents anything. Settings pages are headings and prose; each
+ * such line is a finding.
  *
  * @param {SettingsPage[]} pages
  * @returns {string[]}
@@ -106,7 +109,9 @@ export function unmodelledMarkdownFindings(pages) {
     page.markdown
       .split(/\r?\n/)
       .flatMap((line, index) =>
-        UNMODELLED_MARKDOWN.test(line) ? [`unsupported markdown: ${page.file}:${index + 1}: ${line.trim()}`] : [],
+        UNMODELLED_MARKDOWN.test(line) || (index === 0 && FRONT_MATTER.test(line))
+          ? [`unsupported markdown: ${page.file}:${index + 1}: ${line.trim()}`]
+          : [],
       ),
   );
 }
