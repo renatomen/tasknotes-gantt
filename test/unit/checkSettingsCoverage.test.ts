@@ -357,6 +357,8 @@ describe('unmodelledMarkdownFindings', () => {
     ['an unspaced heading inside a list item', '- ##x', 'unsupported markdown: fields.md:2: - ##x'],
     ['a footnote definition with an unspaced heading', '[^1]:## Removed Option', 'unsupported markdown: fields.md:2: [^1]:## Removed Option'],
     ['any footnote definition', '[^note]: Plain text.', 'unsupported markdown: fields.md:2: [^note]: Plain text.'],
+    ['an indented blockquote inside a container body', '    >## Removed Option', 'unsupported markdown: fields.md:2: >## Removed Option'],
+    ['a hash after any other character', 'x)## Removed Option', 'unsupported markdown: fields.md:2: x)## Removed Option'],
   ])('reports %s, which could hide a heading from the reader', (_name, line, finding) => {
     const pages = [{ file: 'fields.md', markdown: `## A\n${line}\n` }];
 
@@ -413,6 +415,12 @@ describe('unmodelledMarkdownFindings', () => {
 
   it('leaves a thematic break below the first line alone', () => {
     expect(unmodelledMarkdownFindings([{ file: 'fields.md', markdown: '## A\n\n---\n\n## B\n' }])).toEqual([]);
+  });
+
+  it('leaves a URL fragment inside a link target alone', () => {
+    const markdown = '## A\n\nSee [Colors](../features/appearance.md#weekend-shading).\n';
+
+    expect(unmodelledMarkdownFindings([{ file: 'fields.md', markdown }])).toEqual([]);
   });
 
   it('leaves headings, prose and admonitions alone', () => {

@@ -77,19 +77,15 @@ const INLINE_SYNTAX = /[{}*_`[\]<>&\\~^\p{Cc}\p{Cf}]|[^\S ]|==|\+\+|:[+\-\w]+:/u
 /** The opening of an ATX heading at column 0: one to six hashes, then a space or tab. */
 const ATX_OPENING = /^(#{1,6})[ \t]/;
 /**
- * A fence, a raw HTML block, a blockquote, a footnote definition (its body may
- * follow the colon unspaced), or an HTML comment starting anywhere on the line.
+ * A fence, a raw HTML block or a blockquote at any indentation (a container
+ * body can nest one), a footnote definition (its body may follow the colon
+ * unspaced), or an HTML comment starting anywhere on the line.
  */
-const UNMODELLED_MARKDOWN = /(?:^ {0,3}(?:`{3,}|~{3,}|<|>|\[\^[^\]]*\]:))|(?:<!--)/;
+const UNMODELLED_MARKDOWN = /(?:^[ \t]*(?:`{3,}|~{3,}|<|>))|(?:^ {0,3}\[\^[^\]]*\]:)|(?:<!--)/;
 /** Any control character but a tab: the renderer may normalize it into structure the guard does not see. */
 const CONTROL_CHARACTER = /[^\P{Cc}\t]/u;
-/**
- * A word starting with a hash: whatever container marker precedes it (list,
- * blockquote, definition, footnote, with any label), Python-Markdown can
- * render it as a heading, spaced or not. With the canonical form excluded, a
- * heading the renderer may show that the guard does not read.
- */
-const NONCANONICAL_HASH = /(?:^|[\s:])#/;
+/** A Markdown link target, where a `#` is a URL fragment and never a heading. */
+const LINK_TARGET = /\]\([^)\s]*\)/g;
 /** A setext underline; under a line of text it can turn that line into a heading. */
 const SETEXT_UNDERLINE = /^[ \t]*(=+|-+)[ \t]*$/;
 /**
@@ -205,7 +201,9 @@ function stripAttributeList(text) {
 function isUnmodelled(lines, index) {
   const line = lines[index];
   if (UNMODELLED_MARKDOWN.test(line) || CONTROL_CHARACTER.test(line)) return true;
-  if (NONCANONICAL_HASH.test(line) && canonicalAtx(line) === null) return true;
+  // Outside a canonical heading, a `#` anywhere but a link target may be a
+  // heading the renderer shows from inside some container the guard does not read.
+  if (canonicalAtx(line) === null && line.replace(LINK_TARGET, '').includes('#')) return true;
   if (INLINE_SYNTAX.test(headingText(line) ?? '')) return true;
   if (index === 0) return FRONT_MATTER.test(line);
   const above = lines[index - 1];
