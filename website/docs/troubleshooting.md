@@ -45,8 +45,6 @@ down to field mappings or which [mode](core-concepts.md#the-two-modes) you're in
   blank mapping stays blank — map the property explicitly there.
 - **The task's own value is blank, or is not one the palette defines.** A
   healthy palette still colours nothing for a value it does not know.
-- **TaskNotes has not granted write access.** Colours and icons can work while
-  the inline pickers stay closed; the view is read-only without it.
 
 ## Weekend shading is missing
 

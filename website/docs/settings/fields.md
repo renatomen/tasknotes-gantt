@@ -47,9 +47,8 @@ mapping has nothing to resolve to and status coloring is off.
 
 A blank mapping resolves only for a field TaskNotes actually reports. Where it
 reports none, the mapping stays blank and behaves as though nothing were
-mapped; map the property explicitly in that case. Colouring, the icon and
-inline editing each have their own further requirements — see
-[No status or priority colors](../troubleshooting.md#no-status-or-priority-colors).
+mapped; map the property explicitly in that case. If bars still don't colour,
+see [No status or priority colors](../troubleshooting.md#no-status-or-priority-colors).
 Needs the TaskNotes companion palette to color; see
 [Appearance → Bar fill](appearance.md#bar-fill).
 

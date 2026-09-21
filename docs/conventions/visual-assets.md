@@ -39,16 +39,18 @@ markdown image syntax:
     changed. This is the opposite trade-off from release notes, which pin to
     their tag precisely so an old note keeps showing what that release looked
     like. State the property, never a remembered count — a count rots on the
-    next image added. This bash check must exit 0, including under
-    `set -eo pipefail`:
+    next image added. Run this as a bash script (it calls `exit`); it must exit
+    0, including under `set -eo pipefail`:
 
             # grep exits 1 when it matches nothing, which is a PASSING state here
-            # (no refs, or no unpinned refs). Only status 2+ is a failure, and only
-            # awk decides the verdict, because awk exits 0 on any count.
+            # (no refs). Only status 2+ is a failure, and only awk decides the
+            # verdict, because awk exits 0 on any count. A ref passes only when
+            # the ref segment itself is `main`, not when `/main/` appears later.
             rc=0
             refs=$(grep -rho 'https://raw.githubusercontent.com/renatomen/tasknotes-gantt/[^)]*' website/docs/) || rc=$?
             [ "$rc" -le 1 ] || { echo "grep failed with status $rc"; exit 1; }
-            offenders=$(awk 'NF && !/\/main\// {n++} END {print n+0}' <<<"$refs")
+            offenders=$(awk -v pinned='https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/' \
+                'NF && index($0, pinned) != 1 {n++} END {print n+0}' <<<"$refs")
             [ "$offenders" -eq 0 ] || { echo "$offenders site image refs are not pinned to main"; exit 1; }
 
 ## Permanence
