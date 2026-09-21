@@ -189,11 +189,11 @@ describe('settings-coverage parity with the registered options callback', () => 
 /**
  * Source-shape pins on GanttToolbar.svelte. They pin the Svelte channels a
  * component hands values out through: value imports, bindable props, event
- * dispatch and context are absent, and every member of `interface Props` is
- * the `changeProp` of a TOOLBAR_PERSISTED_CONTROLS entry or declared here as
- * persisting nothing, whatever its type, name or markup. Props declared
- * outside that interface, and globals such as storage or DOM events, are not
- * pinned.
+ * dispatch and context are absent; every prop enters through one `$props()`
+ * destructuring typed exactly `Props` and binding exactly its members; and
+ * every member is the `changeProp` of a TOOLBAR_PERSISTED_CONTROLS entry or
+ * declared here as persisting nothing, whatever its type, name or markup.
+ * Globals such as storage or DOM events are not pinned.
  */
 const TOOLBAR_PROPS_PERSISTING_NOTHING: Record<string, string> = {
   mode: 'input: the current theme mode, displayed',
@@ -205,6 +205,21 @@ const TOOLBAR_PROPS_PERSISTING_NOTHING: Record<string, string> = {
 function toolbarProps(source: string): string[] {
   const props = /interface Props \{([\s\S]*?)\n {2}\}/.exec(source)?.[1] ?? '';
   return [...props.matchAll(/^ {4}(\w+)\??\s*[:(]/gm)].map((match) => match[1]);
+}
+
+/**
+ * Where every prop enters a Svelte 5 component, however its type is declared:
+ * each `$props()` destructuring, with its type annotation and the names it binds.
+ */
+function propsDestructurings(source: string): { annotation: string; names: string[] }[] {
+  return [...source.matchAll(/let\s*\{([^}]*)\}\s*(?::\s*([^=]+?))?\s*=\s*\$props\(\)/g)].map((match) => ({
+    annotation: (match[2] ?? '').trim(),
+    names: match[1]
+      .split(',')
+      .map((binding) => binding.trim())
+      .filter((binding) => binding !== '')
+      .map((binding) => (binding.startsWith('...') ? binding : binding.split(/[\s=:]/)[0])),
+  }));
 }
 
 /** Every way besides a callback prop that a Svelte component can hand a value out. */
@@ -237,6 +252,35 @@ describe('TOOLBAR_PERSISTED_CONTROLS against the toolbar', () => {
     expect(props.length).toBeGreaterThan(0);
     expect([...props].sort((a, b) => a.localeCompare(b))).toEqual(
       [...persistedProps, ...Object.keys(TOOLBAR_PROPS_PERSISTING_NOTHING)].sort((a, b) => a.localeCompare(b)),
+    );
+  });
+
+  it('takes its props in one $props() destructuring, typed Props, binding exactly its members', () => {
+    const destructurings = propsDestructurings(toolbar);
+
+    expect(destructurings).toHaveLength(1);
+    expect(destructurings[0].annotation).toBe('Props');
+    expect([...destructurings[0].names].sort((a, b) => a.localeCompare(b))).toEqual(
+      [...toolbarProps(toolbar)].sort((a, b) => a.localeCompare(b)),
+    );
+  });
+
+  it('the destructuring pin sees props typed by an intersection', () => {
+    const anchor = ': Props = $props()';
+    expect(toolbar).toContain(anchor);
+
+    expect(propsDestructurings(toolbar.replace(anchor, ': Props & DensityProps = $props()'))[0].annotation).toBe(
+      'Props & DensityProps',
+    );
+  });
+
+  it('the destructuring pin sees an extra binding and a rest spread', () => {
+    const anchor = 'let { mode, ';
+    expect(toolbar).toContain(anchor);
+    const planted = toolbar.replace(anchor, 'let { onDensityChange, ...rest, mode, ');
+
+    expect(propsDestructurings(planted)[0].names).toEqual(
+      expect.arrayContaining(['onDensityChange', '...rest', 'mode']),
     );
   });
 
