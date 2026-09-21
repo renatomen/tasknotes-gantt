@@ -66,7 +66,7 @@ export const NON_CONTROL_HEADINGS = [
  * (optionally `{: #id }`), which attr_list always removes from a heading.
  * A heading carrying any other brace group is refused, not guessed at.
  */
-const ATTRIBUTE_LIST = / +\{:? *#[\w-]+ *\} *$/;
+const ATTRIBUTE_LIST_BODY = /^\{:? *#[\w-]+ *\}$/;
 /**
  * Inline syntax the renderer would transform (braces, emphasis, code, links,
  * HTML, entities, escapes, mark/keys/emoji extensions), control or format
@@ -78,6 +78,8 @@ const INLINE_SYNTAX = /[{}*_`[\]<>&\\~^\p{Cc}\p{Cf}]|[^\S ]|==|\+\+|:[+\-\w]+:/u
 const ATX_OPENING = /^(#{1,6})[ \t]/;
 /** A fence, a raw HTML block, or an HTML comment starting anywhere on the line. */
 const UNMODELLED_MARKDOWN = /(?:^ {0,3}(?:`{3,}|~{3,}|<))|(?:<!--)/;
+/** Any control character but a tab: the renderer may normalize it into structure the guard does not see. */
+const CONTROL_CHARACTER = /[^\P{Cc}\t]/u;
 /** A hash-shaped line that is not a canonical heading: indented, unspaced, or closed with hashes. */
 const NONCANONICAL_HASH = /^[ \t]*#/;
 /** A setext underline; under a line of text it can turn that line into a heading. */
@@ -98,6 +100,16 @@ export function settingsPageForGroup(group) {
 }
 
 /**
+ * Lines as the renderer sees them: Python-Markdown turns a lone CR, like CRLF,
+ * into a line break before it reads a block.
+ *
+ * @param {string} markdown
+ */
+function splitLines(markdown) {
+  return markdown.split(/\r\n|\r|\n/);
+}
+
+/**
  * Level-2 and level-3 ATX headings, with a trailing MkDocs attribute list
  * stripped. Nothing else is normalized: matching is exact. This is not a
  * Markdown parser: pages carrying anything that could hide a heading from the
@@ -108,7 +120,7 @@ export function settingsPageForGroup(group) {
  */
 export function parseSettingsHeadings(pages) {
   return pages.flatMap((page) =>
-    page.markdown.split(/\r?\n/).flatMap((line) => {
+    splitLines(page.markdown).flatMap((line) => {
       const text = headingText(line);
       return text === null ? [] : [{ file: page.file, text }];
     }),
@@ -156,7 +168,19 @@ function canonicalAtx(line) {
 function headingText(line) {
   const heading = canonicalAtx(line);
   if (heading === null || heading.level < 2 || heading.level > 3) return null;
-  return trimBlanks(heading.text.replace(ATTRIBUTE_LIST, ''));
+  return stripAttributeList(heading.text);
+}
+
+/**
+ * `text` without its trailing `{ #id }` attribute list, when it has exactly
+ * that one plain form; unchanged otherwise, so the refusal sees any brace.
+ *
+ * @param {string} text
+ */
+function stripAttributeList(text) {
+  const open = text.lastIndexOf(' {');
+  if (open === -1 || !ATTRIBUTE_LIST_BODY.test(text.slice(open + 1))) return text;
+  return trimBlanks(text.slice(0, open));
 }
 
 /**
@@ -170,7 +194,7 @@ function headingText(line) {
  */
 function isUnmodelled(lines, index) {
   const line = lines[index];
-  if (UNMODELLED_MARKDOWN.test(line)) return true;
+  if (UNMODELLED_MARKDOWN.test(line) || CONTROL_CHARACTER.test(line)) return true;
   if (NONCANONICAL_HASH.test(line) && canonicalAtx(line) === null) return true;
   if (INLINE_SYNTAX.test(headingText(line) ?? '')) return true;
   if (index === 0) return FRONT_MATTER.test(line);
@@ -188,7 +212,7 @@ function isUnmodelled(lines, index) {
  */
 export function unmodelledMarkdownFindings(pages) {
   return pages.flatMap((page) => {
-    const lines = page.markdown.split(/\r?\n/);
+    const lines = splitLines(page.markdown);
     return lines.flatMap((line, index) =>
       isUnmodelled(lines, index) ? [`unsupported markdown: ${page.file}:${index + 1}: ${line.trim()}`] : [],
     );

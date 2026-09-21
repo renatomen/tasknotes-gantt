@@ -353,6 +353,24 @@ describe('unmodelledMarkdownFindings', () => {
     expect(unmodelledMarkdownFindings(pages)).toEqual([finding]);
   });
 
+  it('reads a heading that follows a lone carriage return, as the renderer does', () => {
+    const pages = [{ file: 'fields.md', markdown: '## A\n\nPara\r## Hidden\n' }];
+
+    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'Hidden']);
+  });
+
+  it('reports a setext underline that follows a lone carriage return', () => {
+    const pages = [{ file: 'fields.md', markdown: '## A\n\nTitle\r-----\n' }];
+
+    expect(unmodelledMarkdownFindings(pages)).toEqual(['unsupported markdown: fields.md:4: -----']);
+  });
+
+  it('reports a line carrying a control character other than a tab', () => {
+    const pages = [{ file: 'fields.md', markdown: '## A\nPara\u000b## B\n' }];
+
+    expect(unmodelledMarkdownFindings(pages)).toEqual(['unsupported markdown: fields.md:2: Para\u000b## B']);
+  });
+
   it('reports front matter opening a page, which MkDocs strips before rendering', () => {
     const pages = [{ file: 'timeline.md', markdown: '---\ntitle: Timeline\n## Default Scale\n---\n\nProse.\n' }];
 
