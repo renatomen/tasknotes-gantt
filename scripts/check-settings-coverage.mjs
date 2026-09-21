@@ -24,7 +24,7 @@ const SETTINGS_DIR = join(repoRoot, 'website', 'docs', 'settings');
 
 /**
  * @typedef {{ file: string, markdown: string }} SettingsPage
- * @typedef {{ file: string, text: string }} SettingsHeading
+ * @typedef {{ file: string, text: string, level?: number }} SettingsHeading
  * @typedef {{ group: string, name: string, keys: string[], renderedInPanel?: number }} ShippedControl
  * @typedef {{ page: string, heading: string }} AllowedHeading
  * @typedef {{ id: string, name: string, enabled: boolean }} IcsFeed
@@ -39,7 +39,7 @@ const SETTINGS_DIR = join(repoRoot, 'website', 'docs', 'settings');
  *   externalCalendarDegradedEntry: () => any,
  *   externalCalendarToggleKey: (kind: any, id: string) => string,
  *   EXTERNAL_PROVIDER_ORDER: readonly string[],
- *   TOOLBAR_PERSISTED_CONTROLS: readonly { uiLabel: string, docHeading: string, group: string }[],
+ *   TOOLBAR_PERSISTED_CONTROLS: readonly { uiLabel: string, changeProp: string, docHeading: string, group: string }[],
  * }} SettingsBuilders
  */
 
@@ -51,6 +51,8 @@ const SETTINGS_DIR = join(repoRoot, 'website', 'docs', 'settings');
  * @type {readonly AllowedHeading[]}
  */
 export const NON_CONTROL_HEADINGS = [
+  // The settings overview's title; no option group owns that page.
+  { page: 'index.md', heading: 'Settings & View Options' },
   // Orientation: lists the option groups, one per settings page.
   { page: 'index.md', heading: 'The groups' },
   // Orientation: which controls need the TaskNotes companion.
@@ -115,21 +117,25 @@ function splitLines(markdown) {
 }
 
 /**
- * Level-2 and level-3 ATX headings, with a trailing MkDocs attribute list
- * stripped. Nothing else is normalized: matching is exact. This is not a
- * Markdown parser: pages carrying anything that could hide a heading from the
- * reader are refused by {@link unmodelledMarkdownFindings} instead.
+ * The page title and the level-2 and level-3 ATX headings, with a trailing
+ * MkDocs attribute list stripped. Nothing else is normalized: matching is
+ * exact. This is not a Markdown parser: pages carrying anything that could
+ * hide a heading from the reader are refused by
+ * {@link unmodelledMarkdownFindings} instead.
  *
  * @param {SettingsPage[]} pages
  * @returns {SettingsHeading[]}
  */
 export function parseSettingsHeadings(pages) {
-  return pages.flatMap((page) =>
-    splitLines(page.markdown).flatMap((line) => {
+  return pages.flatMap((page) => {
+    const lines = splitLines(page.markdown);
+    return lines.flatMap((line, index) => {
       const text = headingText(line);
-      return text === null ? [] : [{ file: page.file, text }];
-    }),
-  );
+      if (text !== null) return [{ file: page.file, text, level: canonicalAtx(line).level }];
+      const title = canonicalAtx(line);
+      return title?.level === 1 && isReadLevel(1, lines, index) ? [{ file: page.file, text: title.text, level: 1 }] : [];
+    });
+  });
 }
 
 /**
@@ -412,8 +418,11 @@ export function settingsInventory(builders) {
       add(triple.group, triple.name, triple.key, renders.get(id));
     }
   }
+  const toolbarRenders = new Map();
   for (const control of builders.TOOLBAR_PERSISTED_CONTROLS) {
-    add(control.group, control.docHeading, `toolbar:${control.uiLabel}`, 1);
+    const id = `${control.group}\u0000${control.docHeading}`;
+    toolbarRenders.set(id, (toolbarRenders.get(id) ?? 0) + 1);
+    add(control.group, control.docHeading, `toolbar:${control.changeProp}`, toolbarRenders.get(id));
   }
   return [...seen.values()];
 }
@@ -480,11 +489,14 @@ function placementFindings(control, controlHeadings, controls) {
  * @param {SettingsHeading[]} headings
  * @param {SettingsHeading[]} controlHeadings
  * @param {readonly AllowedHeading[]} allowList
+ * @param {ShippedControl[]} controls
  * @returns {string[]}
  */
-function unknownHeadingFindings(headings, controlHeadings, allowList) {
+function unknownHeadingFindings(headings, controlHeadings, allowList, controls) {
+  const groupTitles = new Set(controls.map((control) => `${settingsPageForGroup(control.group)}\u0000${control.group}`));
+  const isGroupTitle = (heading) => heading.level === 1 && groupTitles.has(`${heading.file}\u0000${heading.text}`);
   const isAllowed = (heading) =>
-    allowList.some((entry) => entry.page === heading.file && entry.heading === heading.text);
+    isGroupTitle(heading) || allowList.some((entry) => entry.page === heading.file && entry.heading === heading.text);
   return headings
     .filter((heading) => !controlHeadings.includes(heading) && !isAllowed(heading))
     .map((heading) => `unknown heading: ${heading.file}: ${heading.text}`);
@@ -520,7 +532,7 @@ export function checkSettingsCoverage({ controls, pages, allowList = NON_CONTROL
       ...missingPageFindings(controls, pages),
       ...sharedLabelFindings(controls),
       ...controls.flatMap((control) => placementFindings(control, controlHeadings, controls)),
-      ...unknownHeadingFindings(headings, controlHeadings, allowList),
+      ...unknownHeadingFindings(headings, controlHeadings, allowList, controls),
       ...staleAllowListFindings(headings, allowList),
     ],
   };

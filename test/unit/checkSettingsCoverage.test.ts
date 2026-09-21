@@ -94,7 +94,7 @@ describe('settingsInventory', () => {
   it('reports an option that shares its label with a toolbar-persisted control', () => {
     const builders = {
       ...buildersWith([{ type: 'toggle', displayName: 'Theme mode', key: 'tngantt_themeModeToggle', default: false }]),
-      TOOLBAR_PERSISTED_CONTROLS: [{ uiLabel: 'Theme', docHeading: 'Theme mode', group: 'Timeline' }],
+      TOOLBAR_PERSISTED_CONTROLS: [{ uiLabel: 'Theme', changeProp: 'onModeChange', docHeading: 'Theme mode', group: 'Timeline' }],
     };
 
     expect(settingsInventory(builders)).toEqual(
@@ -102,9 +102,28 @@ describe('settingsInventory', () => {
         expect.objectContaining({
           group: 'Timeline',
           name: 'Theme mode',
-          keys: ['tngantt_themeModeToggle', 'toolbar:Theme'],
+          keys: ['tngantt_themeModeToggle', 'toolbar:onModeChange'],
         }),
       ]),
+    );
+  });
+
+  it.each([
+    ['different change props', 'onModeChange', 'onDensityChange', 2],
+    ['the same change prop twice', 'onModeChange', 'onModeChange', 2],
+  ])('keeps two toolbar controls sharing one heading apart: %s', (_name, first, second, count) => {
+    const builders = {
+      ...buildersWith([]),
+      TOOLBAR_PERSISTED_CONTROLS: [
+        { uiLabel: 'Theme', changeProp: first, docHeading: 'Theme mode', group: 'Timeline' },
+        { uiLabel: 'Theme', changeProp: second, docHeading: 'Theme mode', group: 'Timeline' },
+      ],
+    };
+    const pages = [{ file: 'timeline.md', markdown: '## Theme mode\n' }];
+    const findings = checkSettingsCoverage({ controls: settingsInventory(builders), pages, allowList: [] }).findings;
+
+    expect(findings).toEqual(
+      expect.arrayContaining([expect.stringContaining(`shared label: Timeline › Theme mode names ${count} controls`)]),
     );
   });
 
@@ -314,10 +333,10 @@ describe('checkSettingsCoverage', () => {
 });
 
 describe('parseSettingsHeadings', () => {
-  it('reads level-2 and level-3 headings and strips a trailing attribute list', () => {
-    const pages = [{ file: 'fields.md', markdown: '# Fields\n## A { #a }\n### B\n#### C\n' }];
+  it('reads the title and level-2/3 headings and strips a trailing attribute list', () => {
+    const pages = [{ file: 'fields.md', markdown: '# Fields\n## A { #a }\n### B\n#### C\n# Second title\n' }];
 
-    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
+    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['Fields', 'A', 'B']);
   });
 
   it('reads only the canonical form: column 0, a space, no closing hashes', () => {
@@ -418,6 +437,26 @@ describe('unmodelledMarkdownFindings', () => {
 
   it('leaves a thematic break below the first line alone', () => {
     expect(unmodelledMarkdownFindings([{ file: 'fields.md', markdown: '## A\n\n---\n\n## B\n' }])).toEqual([]);
+  });
+
+  it('treats the page title as a heading: a title naming a control duplicates it', () => {
+    const control = { group: 'Appearance', name: 'Theme mode', keys: ['toolbar:onModeChange'] };
+    const pages = [{ file: 'appearance.md', markdown: '# Theme mode\n\n## Theme mode\n' }];
+
+    expect(checkSettingsCoverage({ controls: [control], pages, allowList: [] }).findings).toEqual([
+      'duplicated: Appearance › Theme mode has 2 headings (appearance.md, appearance.md)',
+    ]);
+  });
+
+  it('accepts a title naming the page owner and reports any other title', () => {
+    const control = { group: 'Appearance', name: 'Show toolbar', keys: ['tngantt_showToolbar'] };
+    const owned = [{ file: 'appearance.md', markdown: '# Appearance\n\n## Show toolbar\n' }];
+    const stray = [{ file: 'appearance.md', markdown: '# Something else\n\n## Show toolbar\n' }];
+
+    expect(checkSettingsCoverage({ controls: [control], pages: owned, allowList: [] }).findings).toEqual([]);
+    expect(checkSettingsCoverage({ controls: [control], pages: stray, allowList: [] }).findings).toEqual([
+      'unknown heading: appearance.md: Something else',
+    ]);
   });
 
   it('leaves a URL fragment inside a link target alone', () => {
