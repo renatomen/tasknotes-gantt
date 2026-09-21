@@ -44,20 +44,26 @@ function taskNotesHandleServing(feeds: ExternalFeeds, degraded: boolean): Record
 }
 
 /**
- * A view config recording every key it is asked for into `reads`. The
+ * A view config recording into `reads` every key passed to `get` and every
+ * other member touched at all, so no way of reading it goes unseen. The
  * Progress Property follows the matrix cell; every other field mapping is
  * either all unset or all set, since the composition must not depend on them.
  */
 function viewConfig(hasProgressProperty: boolean, otherMappingsSet: boolean, reads: Set<string>): BasesViewConfig {
   const otherMappingKeys = new Set<string>(Object.values(FIELD_MAPPING_KEYS));
   otherMappingKeys.delete(FIELD_MAPPING_KEYS.progress);
-  return {
-    get: (key: string) => {
-      reads.add(key);
-      if (key === FIELD_MAPPING_KEYS.progress) return hasProgressProperty ? 'note.progress' : undefined;
-      return otherMappingsSet && otherMappingKeys.has(key) ? `note.${key}` : undefined;
+  const get = (key: string): unknown => {
+    reads.add(key);
+    if (key === FIELD_MAPPING_KEYS.progress) return hasProgressProperty ? 'note.progress' : undefined;
+    return otherMappingsSet && otherMappingKeys.has(key) ? `note.${key}` : undefined;
+  };
+  return new Proxy({} as BasesViewConfig, {
+    get: (_target, member) => {
+      if (member === 'get') return get;
+      reads.add(`member:${String(member)}`);
+      return undefined;
     },
-  } as unknown as BasesViewConfig;
+  });
 }
 
 /** The config keys the field-mapping reader consults: the only config the matrix accounts for. */
