@@ -191,6 +191,20 @@ function stripAttributeList(text) {
 }
 
 /**
+ * Settings pages carry their title as the first line, at level 1, and every
+ * other heading at level 2 or 3. Any other level renders a heading the guard
+ * does not read, so it could hide a duplicate or a stale control.
+ *
+ * @param {number} level
+ * @param {string[]} lines
+ * @param {number} index
+ */
+function isReadLevel(level, lines, index) {
+  if (level === 2 || level === 3) return true;
+  return level === 1 && lines.slice(0, index).every((line) => trimBlanks(line) === '');
+}
+
+/**
  * Whether `line` is Markdown the guard does not read: inside a fence, an HTML
  * comment, a raw HTML block or front matter a heading-shaped line may not
  * render as a heading, and a setext underline makes a heading out of a line
@@ -202,9 +216,11 @@ function stripAttributeList(text) {
 function isUnmodelled(lines, index) {
   const line = lines[index];
   if (UNMODELLED_MARKDOWN.test(line) || CONTROL_CHARACTER.test(line)) return true;
+  const heading = canonicalAtx(line);
   // Outside a canonical heading, a `#` anywhere but a link target may be a
   // heading the renderer shows from inside some container the guard does not read.
-  if (canonicalAtx(line) === null && line.replace(LINK_TARGET, '').includes('#')) return true;
+  if (heading === null && line.replace(LINK_TARGET, '').includes('#')) return true;
+  if (heading !== null && !isReadLevel(heading.level, lines, index)) return true;
   if (INLINE_SYNTAX.test(headingText(line) ?? '')) return true;
   if (index === 0) return FRONT_MATTER.test(line);
   const above = lines[index - 1];
