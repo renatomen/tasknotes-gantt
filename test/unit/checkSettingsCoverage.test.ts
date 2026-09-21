@@ -263,6 +263,35 @@ describe('checkSettingsCoverage', () => {
     ]);
   });
 
+  it('accepts same-named controls in two groups, each documented on its own page', () => {
+    const controls = [
+      { group: 'Timeline', name: 'Mode', keys: ['tngantt_timelineMode'] },
+      { group: 'Appearance', name: 'Mode', keys: ['tngantt_appearanceMode'] },
+    ];
+    const pages = [
+      { file: 'timeline.md', markdown: '## Mode\n' },
+      { file: 'appearance.md', markdown: '## Mode\n' },
+    ];
+
+    expect(checkSettingsCoverage({ controls, pages, allowList: [] }).findings).toEqual([]);
+  });
+
+  it('still reports a same-named control whose own page lacks its heading', () => {
+    const controls = [
+      { group: 'Timeline', name: 'Mode', keys: ['tngantt_timelineMode'] },
+      { group: 'Appearance', name: 'Mode', keys: ['tngantt_appearanceMode'] },
+    ];
+    const pages = [
+      { file: 'timeline.md', markdown: '## Mode\n' },
+      { file: 'appearance.md', markdown: '## Other\n' },
+    ];
+
+    expect(checkSettingsCoverage({ controls, pages, allowList: [] }).findings).toEqual([
+      'undocumented: Appearance › Mode',
+      'unknown heading: appearance.md: Other',
+    ]);
+  });
+
   it('refuses an empty control inventory rather than passing vacuously', () => {
     const pages = [{ file: 'timeline.md', markdown: '## Default Scale\n' }];
 

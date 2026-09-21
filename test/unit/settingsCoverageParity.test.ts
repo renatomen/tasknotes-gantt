@@ -43,19 +43,34 @@ function taskNotesHandleServing(feeds: ExternalFeeds, degraded: boolean): Record
   };
 }
 
+const OTHER_MAPPING_KEYS: readonly string[] = Object.values(FIELD_MAPPING_KEYS).filter(
+  (key) => key !== FIELD_MAPPING_KEYS.progress,
+);
+
+/**
+ * Every subset of the non-progress field mappings, as the set of keys mapped.
+ * The composition must not depend on them, and presence is all a principled
+ * gate can test: gating on one specific property value would hardcode a
+ * property name.
+ */
+function everyMappingSubset(): Set<string>[] {
+  return Array.from(
+    { length: 2 ** OTHER_MAPPING_KEYS.length },
+    (_, mask) => new Set(OTHER_MAPPING_KEYS.filter((_key, bit) => (mask >> bit) & 1)),
+  );
+}
+
 /**
  * A view config recording into `reads` every key passed to `get` and every
  * other member touched at all, so no way of reading it goes unseen. The
- * Progress Property follows the matrix cell; every other field mapping is
- * either all unset or all set, since the composition must not depend on them.
+ * Progress Property follows the matrix cell; the other field mappings are
+ * mapped exactly when they are in `mapped`.
  */
-function viewConfig(hasProgressProperty: boolean, otherMappingsSet: boolean, reads: Set<string>): BasesViewConfig {
-  const otherMappingKeys = new Set<string>(Object.values(FIELD_MAPPING_KEYS));
-  otherMappingKeys.delete(FIELD_MAPPING_KEYS.progress);
+function viewConfig(hasProgressProperty: boolean, mapped: Set<string>, reads: Set<string>): BasesViewConfig {
   const get = (key: string): unknown => {
     reads.add(key);
     if (key === FIELD_MAPPING_KEYS.progress) return hasProgressProperty ? 'note.progress' : undefined;
-    return otherMappingsSet && otherMappingKeys.has(key) ? `note.${key}` : undefined;
+    return mapped.has(key) ? `note.${key}` : undefined;
   };
   return new Proxy({} as BasesViewConfig, {
     get: (_target, member) => {
@@ -110,11 +125,10 @@ describe('settings-coverage parity with the registered options callback', () => 
         expect(sessionExternalCalendarDegradeSignal.wasDegradedThisSession()).toBe(false);
       }
       const composed = optionTriples(composeRegisteredOptions(BUILDERS, { ...cell, feeds }));
-      for (const otherMappingsSet of [false, true]) {
-        const handle = cell.companionAvailable ? taskNotesHandleServing(feeds, cell.degraded) : null;
-        const config = viewConfig(cell.hasProgressProperty, otherMappingsSet, reads);
-        const registered = optionTriples(captureOptionsCallback(handle)(config));
-        const name = `${cellName(cell)} otherMappingsSet=${otherMappingsSet}`;
+      const options = captureOptionsCallback(cell.companionAvailable ? taskNotesHandleServing(feeds, cell.degraded) : null);
+      for (const mapped of everyMappingSubset()) {
+        const registered = optionTriples(options(viewConfig(cell.hasProgressProperty, mapped, reads)));
+        const name = `${cellName(cell)} mapped=[${[...mapped].join(', ')}]`;
 
         expect({ cell: name, triples: registered }).toEqual({ cell: name, triples: composed });
       }
@@ -147,7 +161,7 @@ function renderedToolbarLabels(source: string): string[] {
   return [...source.matchAll(/class="og-toolbar-label">([^<]+)</g)].map((match) => match[1].trim());
 }
 
-describe('toolbar-persisted controls', () => {
+describe('TOOLBAR_PERSISTED_CONTROLS against the toolbar labelled control groups', () => {
   const toolbar = readFileSync(resolve('src/bases/GanttToolbar.svelte'), 'utf8');
 
   it('match the labelled control groups the toolbar renders', () => {

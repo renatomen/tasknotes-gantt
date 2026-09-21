@@ -323,16 +323,26 @@ function missingPageFindings(controls, pages) {
 }
 
 /**
- * Exactly one heading, on the page of the control's own group.
+ * Exactly one heading, on the page of the control's own group. A heading on
+ * the page of another group that has a control of the same name belongs to
+ * that control, not this one.
  *
  * @param {ShippedControl} control
  * @param {SettingsHeading[]} controlHeadings
+ * @param {ShippedControl[]} controls
  * @returns {string[]}
  */
-function placementFindings(control, controlHeadings) {
+function placementFindings(control, controlHeadings, controls) {
   const label = `${control.group} › ${control.name}`;
   const expected = settingsPageForGroup(control.group);
-  const matches = controlHeadings.filter((heading) => expandHeading(heading.text).includes(control.name));
+  const namesakePages = new Set(
+    controls
+      .filter((other) => other.name === control.name && other.group !== control.group)
+      .map((other) => settingsPageForGroup(other.group)),
+  );
+  const matches = controlHeadings.filter(
+    (heading) => expandHeading(heading.text).includes(control.name) && !namesakePages.has(heading.file),
+  );
   if (matches.length === 0) return [`undocumented: ${label}`];
   if (matches.length > 1) {
     return [`duplicated: ${label} has ${matches.length} headings (${matches.map((m) => m.file).join(', ')})`];
@@ -383,7 +393,7 @@ export function checkSettingsCoverage({ controls, pages, allowList = NON_CONTROL
     findings: [
       ...missingPageFindings(controls, pages),
       ...sharedLabelFindings(controls),
-      ...controls.flatMap((control) => placementFindings(control, controlHeadings)),
+      ...controls.flatMap((control) => placementFindings(control, controlHeadings, controls)),
       ...unknownHeadingFindings(headings, controlHeadings, allowList),
       ...staleAllowListFindings(headings, allowList),
     ],
