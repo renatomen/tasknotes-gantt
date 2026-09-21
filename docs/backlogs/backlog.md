@@ -16,6 +16,62 @@ plausibly wanted. Lightweight alternative to opening GitHub issues prematurely (
 
 ## High priority
 
+### P1 — The cross-model peer gate refuses every change that adds an image (2026-09-20)
+`scripts/cross-model-peer-review.sh:285-287` refuses with exit 14 when the reviewed
+diff contains `Binary files ... differ`. The intent is right — a PNG's bytes never
+reach the reviewer, and a verdict on a diff nobody read is the accident the gate
+exists to catch. But it refuses the **whole** review rather than the binary part, so
+no change that adds a `docs/media/` asset can earn a peer receipt, and the pre-push
+hook requires that receipt. **Since the guard landed (`018cbb07`, #419, 2026-08-14)
+not one image has reached `main`** — newest is `b1045795` (#412, 2026-08-11) — which
+is why nobody hit it until now.
+
+This blocks the documentation campaign (`docs/plans/2026-09-20-002`): U1 through U6
+each ship screenshots, and U1's two captures were dropped from its PR for exactly
+this reason. Measured, not inferred:
+
+```bash
+git log --oneline --diff-filter=A --since=2026-08-14 origin/main -- docs/media/   # empty
+bash scripts/cross-model-peer-review.sh origin/main /tmp/x.md --record            # exit 14
+```
+
+**Recommendation:** exclude binary paths from the text handed to the reviewer while
+still listing them as changed, so the reviewer knows an asset moved without being
+asked to review bytes it cannot see. The plan already assigns image review to a
+separate visual pass ("Screenshot review is visual, by a human or an agent opening
+the file"), so the gate is not the right place for it. Needs its own unit carrying
+the ranked-file contract: the wrapper is **ranked-defect entry 7**
+(`docs/reports/2026-08-15-001-maintainability-rediagnosis.md`), and
+`docs/solutions/workflow-issues/bound-work-on-the-review-tool-itself.md` bounds
+work on the gate — this is a finding about the accident the tool exists to catch,
+so it is in the "worth fixing" class, but not inside a docs unit.
+
+### P2 — A task's broken Calendar Property suspends its scheduling silently (2026-09-21)
+
+`resolveTaskCalendar` computes `flags` and `schedulingSuspended` for every task association
+(`src/controller/calendar/resolveCalendars.ts:173,204`), and **nothing in `src/` consumes them**.
+`resolveAssociatedCalendarFacts` (`src/bases/calendarShading.ts:328-346`) returns only
+`calendarBySource` and `associatedCalendars`, dropping both; `computeTaskBlocking`
+(`derivation.ts:321`) simply `continue`s over a suspended association. The unresolved-calendar
+banner counts only explicit display-selection entries (`flaggedCount = display?.flagged.length ?? 0`,
+`calendarShading.ts:228`). So a task whose Calendar Property points at a deleted or non-calendar
+note schedules as though it had no calendar, with nothing said anywhere. Surfaced by the
+cross-model peer during `docs/plans/2026-09-20-002` U1 and **documented rather than fixed** — that
+campaign's scope boundary is "a unit that finds a defect files it and documents the shipped
+behaviour as it is; documentation never becomes the fix". The gap is disclosed under R9 in
+`website/docs/settings/fields.md` and `docs/releases/0.1.0-beta.11.md`.
+
+### P2 — Blank mappings do not resolve when TaskNotes field discovery degrades (2026-09-21)
+
+**Open: the product half only — the plugin degrades silently.** The documentation is done
+(PR #491): `fields.md` and `troubleshooting.md` say a blank Status/Priority Property resolves only
+for a field TaskNotes reports, and to map the property explicitly otherwise. When
+`TaskNotesSource.getFieldConfig()` returns `null` — `api.model.config()` absent, empty, or throwing —
+`applyFieldMappingDefaults` leaves the mappings blank, so status/priority colours and icons lose
+their values and nothing tells the user why. The fix is to surface the degraded discovery to the
+user: a product change, outside the documentation campaign's scope. Narrow (degraded-API only)
+and non-blocking under the repo's P2 rule.
+
 ### P1 — Schedule validation (errors & warnings), with swapped dates as the first slice (2026-08-10)
 Per-task validation with two severities, surfaced as a badge **left of the gantt bar**
 (hover for a description naming what's wrong). Example warnings: subtask ends beyond
@@ -476,6 +532,23 @@ into view** → **highlight** (navigation only, no note activation). Date-less/p
   unit-testable without SVAR/Obsidian. e2e mirrors `gantt-fullscreen.e2e.ts`.
 - Source: focus-on-task brainstorm session (2026-06-29).
 
+### Visual assets — the two U1 view-option panels, captured but unlandable (2026-09-20)
+The Appearance and Timeline view-option panels were captured for plan
+`2026-09-20-002` U1, from the committed `test/vaults/gantt-calendar` fixture, opened
+and reviewed by eye — then **removed from the PR** because the peer gate refuses any
+diff containing a binary file (see the P1 above). The text corrections landed without
+them. Re-add both once that gate is fixed; nothing needs re-deciding, only re-running.
+
+Recipe, measured and working: a gitignored `_local-*` probe drives the Bases toolbar's
+view-name button, clicks the active entry's `.bases-toolbar-menu-item-icon` chevron to
+open `.bases-toolbar-menu-form.view-config-menu`, expands one `.input-group` by its
+`.input-group-header-text`, and takes an **element** screenshot of `.bases-toolbar-menu`
+(a whole-window shot times out the renderer). Scope rows to `.input-group-container`,
+not `.input-group` — the content is a sibling of the header, not a child. Run it as
+`OBSIDIAN_TEST_VAULT="$(pwd)/.wdio-vault" npm run e2e:local -- --spec <spec>`; the
+`--spec` flag lifts the `_local-*` exclusion in `test/wdio/wdio.conf.mts`. Name the
+files without a theme suffix (`visual-assets.md`: single-theme assets omit it).
+
 ### Visual assets — capture for shipped features
 These features shipped without a convention-compliant `docs/media/` asset; capture each via
 `/tng-demo` against its e2e fixture and drop the pinned `![]()` into the release notes for the
@@ -492,6 +565,46 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   chips with the `[[` suggester; read-mode count badge. Fixture: `gantt-inline-edit.e2e.ts`. Source: PR #236.
 - **Visual assets — capture for Time Estimate ⇄ duration sync (0.1.0-beta.8)** — an estimate driving a
   dateless bar's length, and a resize writing the span back. Source: PR #221.
+- **Visual assets — capture for working-time calendars (0.1.0-beta.11)** — non-working days shaded
+  behind the chart, and a worked-out bar stretching over them. Fixture:
+  `test/specs/gantt-calendar-stretch.e2e.ts` (stages exactly that behaviour; the shading-only scene
+  is `gantt-calendar-shading.e2e.ts`). Source: PRs #271, #272.
+- **Visual assets — capture for the calendar-note editor (0.1.0-beta.11)** — the working-pattern
+  builder with its year-grid / week / Gantt-strip preview tabs. Fixture: a **new**
+  `test/specs/gantt-calendar-editor-shots.e2e.ts` over the existing `test/vaults/gantt-calendar`.
+  Do **not** append to `test/specs/gantt-calendar-editor.e2e.ts`: it is ranked-defect entry 6
+  (`docs/reports/2026-08-15-001-maintainability-rediagnosis.md:234`) and growing it is a P1 under
+  the AGENTS.md invariant. Source: PRs #289–#298.
+- **Visual assets — capture for calendar items in the timeline (0.1.0-beta.11)** — a recurring task's
+  authored row with its occupancy pieces, and the source switcher. Source: PR #386.
+- **Visual assets — capture for independent Fill / Strip / Icon channels (0.1.0-beta.11)** — one view
+  filled by status while striped by priority. Source: PR #312.
+- **Visual assets — capture for the inferred-edge drag prompt (0.1.0-beta.11)** — dragging an
+  estimate-derived bar and choosing grow-estimate vs write-dates. Fixture:
+  `test/specs/gantt-inferred-drag-write.e2e.ts`. Source: PR #314.
+- **Visual assets — RE-CAPTURE the context-aware legend (0.1.0-beta.11)** — `gantt-legend-right.png`
+  and `gantt-legend-bottom.png` are STALE: captured 2026-08-08 (PR #391), they show a "Date border —
+  A red border marks a task…" legend row that PRs #402 and #412 retired on 2026-08-10/11. They were
+  pulled from the 0.1.0-beta.11 notes for that reason and must not be referenced by any release until
+  re-captured. Fixture: `test/specs/gantt-legend.e2e.ts`. The committed bytes stay in place — older
+  releases pin to their own tags (`docs/conventions/visual-assets.md`), so a re-capture lands under a
+  new filename rather than overwriting these.
+- **Extract the view-options assembly out of `register.ts` (ranked entry 2)** — `register.ts:1849-1875`
+  assembles the registered option set by calling `calendarItemOptionsGroup()` and then mutating it with
+  `externalCalendarOptionEntries(...)` / `externalCalendarDegradedEntry()` before returning it beside
+  `ganttViewOptions(...)`. `scripts/check-settings-coverage.mjs` (added by `docs/plans/2026-09-20-002`
+  U1) must mirror that assembly order from outside, so the two can drift. Extracting it into its own
+  module is ranked entry 2's own prescribed remedy ("the ~20 option readers and the calendar/picker
+  cluster are clean extract candidates", `docs/reports/2026-08-15-001-maintainability-rediagnosis.md:230`).
+  Needs its own unit carrying the full ranked-file contract: ranking citation, touch argument, and a
+  Definition of Done stating no ranked-file metric regresses. The coverage script then walks the
+  extracted builder instead of re-composing.
+- **Visual assets — README still renders the two stale legend PNGs (0.1.0-beta.11)** — `README.md:45`
+  references both `gantt-legend-right.png` and `gantt-legend-bottom.png` pinned to `792e961f`, with
+  alt text naming the retired *date-border* semantic that #402/#412 removed. The README is out of
+  scope for the calendar-documentation campaign (`docs/plans/2026-09-20-002`, § Scope boundaries), so
+  its campaign DoD is scoped to `website/docs/**` and `docs/releases/**` and this reference is parked
+  here instead. Fix it when the legend is re-captured under its new filenames, above.
 
 ---
 

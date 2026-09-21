@@ -8,14 +8,15 @@ modes; status/priority coloring needs TaskNotes.
 Bars can be colored in a few ways, set per view under
 [Settings → Appearance](../settings/appearance.md):
 
-- **[Bar color source](../settings/appearance.md#bar-color-source)** — the
-  default hierarchy palette (green parents / blue children), **By status**, **By
-  priority**, or **Obsidian theme**. *By status* and *By priority* need the
-  TaskNotes companion palette; standalone they fall back to **Default**.
-- **[Bar color mode](../settings/appearance.md#bar-color-mode)** — a full
-  **Fill** or a left-edge **Strip** that leaves the bar body neutral.
+- **[Bar fill](../settings/appearance.md#bar-fill)** — what colors the bar's
+  body: the default hierarchy palette (green parents / blue children), **By
+  status**, **By priority**, **By calendar**, **Obsidian theme**, or **None**.
+  *By status* and *By priority* need the TaskNotes companion palette; standalone
+  they fall back to **Default**.
+- **[Bar strip](../settings/appearance.md#bar-strip)** — the same choice again
+  for a left-edge strip, set independently of the fill. Ships as **None**.
 
-The same kitchen-remodel tasks under different **source × mode** combinations
+The same kitchen-remodel tasks under different **fill × strip** combinations
 (click any image to zoom):
 
 === "Strip · by status"
@@ -42,8 +43,9 @@ The same kitchen-remodel tasks under different **source × mode** combinations
     | :---: | :---: |
     | ![Bars fully filled with their status colour, light theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bars-fill-status-light.png) | ![The same, dark theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/bars-fill-status-dark.png) |
 
-    **Fill** mode floods the whole bar with the **status** colour instead of a
-    thin strip — bolder, when colour is the main signal you want.
+    Setting **Bar fill** to *By status* floods the whole bar with the status
+    colour instead of leaving it to a thin strip — bolder, when colour is the
+    main signal you want.
 
 === "Obsidian theme"
 
@@ -76,9 +78,15 @@ source that color differently:
   higher-contrast tone of the same hue — so a yellow accent gives yellow bars, and
   changing your accent or theme re-tints them live.
 
-Hierarchy coloring applies **only** to these two sources. Under **By status** and
-**By priority**, every bar is colored by its own value — parents and children
-alike.
+Under **By status** and **By priority**, a bar is colored by its own value —
+parents and children alike, with no hierarchy coloring. Only values the
+TaskNotes palette defines get a colour; a task whose status or priority is blank
+or unrecognised takes none from that channel.
+
+**By calendar** is the mixed case. A task whose calendar sets a colour takes that
+colour. A task with no calendar, or one whose calendar note defines no colour,
+keeps the hierarchy treatment instead — green parents, blue children — so both
+appear side by side in one chart.
 
 | Light theme | Dark theme |
 | :---: | :---: |
