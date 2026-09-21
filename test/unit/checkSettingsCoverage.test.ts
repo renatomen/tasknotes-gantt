@@ -1,3 +1,7 @@
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
 import {
   checkSettingsCoverage,
   expandHeading,
@@ -8,30 +12,14 @@ import {
   settingsPageForGroup,
   type SettingsPage,
 } from '../../scripts/check-settings-coverage.mjs';
-import { ganttViewOptions } from '../../src/bases/viewOptions';
-import {
-  calendarItemOptionsGroup,
-  EXTERNAL_PROVIDER_ORDER,
-  externalCalendarDegradedEntry,
-  externalCalendarOptionEntries,
-  externalCalendarToggleKey,
-} from '../../src/bases/calendarItemOptions';
-import { TOOLBAR_PERSISTED_CONTROLS } from '../../src/bases/themeResolver';
+import { EXTERNAL_PROVIDER_ORDER, externalCalendarToggleKey } from '../../src/bases/calendarItemOptions';
+import { SETTINGS_BUILDERS as BUILDERS } from '../helpers/settingsCoverageBuilders';
 
 /**
  * The guard is proven by the plan's mutation set: each case edits the REAL
  * settings pages in memory and must produce a finding. A case that stays green
  * means the guard cannot see that class of drift.
  */
-const BUILDERS = {
-  ganttViewOptions,
-  calendarItemOptionsGroup,
-  externalCalendarOptionEntries,
-  externalCalendarDegradedEntry,
-  externalCalendarToggleKey,
-  EXTERNAL_PROVIDER_ORDER,
-  TOOLBAR_PERSISTED_CONTROLS,
-};
 
 function replaceOnPage(pages: SettingsPage[], file: string, from: string, to: string): SettingsPage[] {
   return pages.map((page) => {
@@ -70,9 +58,45 @@ describe('check-settings-coverage on the real tree', () => {
 
   it('exempts every per-feed toggle, whose label is the user feed name', () => {
     const prefixes = EXTERNAL_PROVIDER_ORDER.map((kind) => externalCalendarToggleKey(kind, ''));
-    const keys = settingsInventory(BUILDERS).map((control) => control.key ?? '');
+    const keys = settingsInventory(BUILDERS).flatMap((control) => control.keys);
 
     expect(keys.filter((key) => prefixes.some((prefix) => key.startsWith(prefix)))).toEqual([]);
+  });
+});
+
+/** The real builders with the Timeline and Calendar items groups replaced by `timeline` / `calendarItems`. */
+function buildersWith(timeline: object[], calendarItems: object[] = []): typeof BUILDERS {
+  return {
+    ...BUILDERS,
+    ganttViewOptions: () => [{ type: 'group', displayName: 'Timeline', items: timeline }],
+    calendarItemOptionsGroup: () => ({ type: 'group', displayName: 'Calendar items', items: [...calendarItems] }),
+    TOOLBAR_PERSISTED_CONTROLS: [],
+  } as unknown as typeof BUILDERS;
+}
+
+describe('settingsInventory', () => {
+  it('keeps two controls that share one label visible as a shared-label finding', () => {
+    const builders = buildersWith([
+      { type: 'toggle', displayName: 'Knob', key: 'tngantt_knobA', default: false },
+      { type: 'toggle', displayName: 'Knob', key: 'tngantt_knobB', default: false },
+    ]);
+    const pages = [
+      { file: 'timeline.md', markdown: '## Knob\n' },
+      { file: 'calendar-items.md', markdown: '### ICS calendars\n### Google calendars\n### Microsoft calendars\n## External calendars\n' },
+    ];
+
+    expect(checkSettingsCoverage({ controls: settingsInventory(builders), pages, allowList: [] }).findings).toEqual([
+      'shared label: Timeline › Knob names 2 controls (tngantt_knobA, tngantt_knobB)',
+    ]);
+  });
+
+  it('inventories a static entry whose key merely starts like a per-feed toggle', () => {
+    const staticKey = externalCalendarToggleKey(EXTERNAL_PROVIDER_ORDER[0], 'static-entry');
+    const builders = buildersWith([], [{ type: 'toggle', displayName: 'Static entry', key: staticKey, default: false }]);
+
+    expect(settingsInventory(builders)).toEqual(
+      expect.arrayContaining([{ group: 'Calendar items', name: 'Static entry', keys: [staticKey] }]),
+    );
   });
 });
 
@@ -153,7 +177,7 @@ describe('check-settings-coverage mutation set', () => {
 });
 
 describe('checkSettingsCoverage', () => {
-  const control = { group: 'Timeline', name: 'Default Scale' };
+  const control = { group: 'Timeline', name: 'Default Scale', keys: ['tngantt_defaultScale'] };
 
   it('reports a heading that is neither a control nor allow-listed', () => {
     const pages = [{ file: 'timeline.md', markdown: '## Default Scale\n\n## Something new\n' }];
@@ -191,7 +215,7 @@ describe('checkSettingsCoverage', () => {
 
   it('reports a group with no settings page instead of skipping it', () => {
     const pages = [{ file: 'timeline.md', markdown: '## Default Scale\n' }];
-    const orphan = { group: 'Brand new group', name: 'Knob' };
+    const orphan = { group: 'Brand new group', name: 'Knob', keys: ['tngantt_knob'] };
 
     expect(checkSettingsCoverage({ controls: [control, orphan], pages, allowList: [] }).findings).toEqual([
       'no settings page for group "Brand new group" (expected brand-new-group.md)',
@@ -240,6 +264,57 @@ describe('parseSettingsHeadings', () => {
     const pages = [{ file: 'fields.md', markdown: '## A\n```yaml\n## not a heading\n```\n~~~\n## nor this\n~~~\n## B\n' }];
 
     expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
+  });
+
+  it('keeps a longer fence open across a shorter fence it quotes', () => {
+    const pages = [{ file: 'fields.md', markdown: '## A\n````md\n```\n## quoted\n```\n````\n## B\n' }];
+
+    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
+  });
+
+  it('ignores headings inside a multi-line HTML comment', () => {
+    const pages = [{ file: 'fields.md', markdown: '## A\n<!--\n## commented out\n-->\n## B\n' }];
+
+    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A', 'B']);
+  });
+
+  it('keeps reading headings after a single-line HTML comment', () => {
+    const pages = [{ file: 'fields.md', markdown: '<!-- note -->\n## A\n' }];
+
+    expect(parseSettingsHeadings(pages).map((heading) => heading.text)).toEqual(['A']);
+  });
+});
+
+describe('check-settings-coverage CLI', () => {
+  const script = resolve('scripts/check-settings-coverage.mjs');
+  // Each case starts a node process that loads Vite; start-up alone can pass jest's 5s default.
+  jest.setTimeout(30_000);
+
+  it('exits 0 on the committed tree', () => {
+    const run = spawnSync(process.execPath, [script], { encoding: 'utf8' });
+
+    expect({ status: run.status, stdout: run.stdout }).toEqual({
+      status: 0,
+      stdout: expect.stringContaining('each documented once'),
+    });
+  });
+
+  it('exits 2, not 0, when it cannot load the builders', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'settings-coverage-'));
+    try {
+      mkdirSync(join(outside, 'scripts'));
+      copyFileSync(script, join(outside, 'scripts', 'check-settings-coverage.mjs'));
+      const run = spawnSync(process.execPath, [join(outside, 'scripts', 'check-settings-coverage.mjs')], {
+        encoding: 'utf8',
+      });
+
+      expect({ status: run.status, stderr: run.stderr }).toEqual({
+        status: 2,
+        stderr: expect.stringContaining('could not run'),
+      });
+    } finally {
+      rmSync(outside, { recursive: true, force: true });
+    }
   });
 });
 

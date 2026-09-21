@@ -10,16 +10,10 @@ import {
   type SettingsMatrixCell,
 } from '../../scripts/check-settings-coverage.mjs';
 import { captureOptionsCallback } from '../helpers/captureOptionsCallback';
+import { SETTINGS_BUILDERS as BUILDERS } from '../helpers/settingsCoverageBuilders';
 import { sessionExternalCalendarDegradeSignal } from '../../src/bases/externalCalendarDegradeNotice';
-import { ganttViewOptions } from '../../src/bases/viewOptions';
 import { FIELD_MAPPING_KEYS } from '../../src/bases/fieldMappingConfig';
-import {
-  calendarItemOptionsGroup,
-  EXTERNAL_PROVIDER_ORDER,
-  externalCalendarDegradedEntry,
-  externalCalendarOptionEntries,
-  externalCalendarToggleKey,
-} from '../../src/bases/calendarItemOptions';
+import { EXTERNAL_PROVIDER_ORDER, externalCalendarToggleKey } from '../../src/bases/calendarItemOptions';
 import { TOOLBAR_PERSISTED_CONTROLS } from '../../src/bases/themeResolver';
 
 /**
@@ -29,15 +23,6 @@ import { TOOLBAR_PERSISTED_CONTROLS } from '../../src/bases/themeResolver';
  * argument matrix, so a control added to the callback directly — or moved,
  * duplicated or reordered there — fails here instead of escaping the guard.
  */
-const BUILDERS = {
-  ganttViewOptions,
-  calendarItemOptionsGroup,
-  externalCalendarOptionEntries,
-  externalCalendarDegradedEntry,
-  externalCalendarToggleKey,
-  EXTERNAL_PROVIDER_ORDER,
-  TOOLBAR_PERSISTED_CONTROLS,
-};
 
 /** A TaskNotes handle serving `feeds`; `degraded` adds a malformed provider the guarded read rejects. */
 function taskNotesHandleServing(feeds: ExternalFeeds, degraded: boolean): Record<string, unknown> {
@@ -121,12 +106,30 @@ describe('settings-coverage parity with the registered options callback', () => 
   });
 });
 
+/** Source-shape pin: the labels GanttToolbar.svelte renders for its labelled control groups. */
+function renderedToolbarLabels(source: string): string[] {
+  return [...source.matchAll(/class="og-toolbar-label">([^<]+)</g)].map((match) => match[1].trim());
+}
+
 describe('toolbar-persisted controls', () => {
+  const toolbar = readFileSync(resolve('src/bases/GanttToolbar.svelte'), 'utf8');
+
   it('match the labels the toolbar renders', () => {
-    const toolbar = readFileSync(resolve('src/bases/GanttToolbar.svelte'), 'utf8');
-    const rendered = [...toolbar.matchAll(/class="og-toolbar-label">([^<]+)</g)].map((match) => match[1].trim());
+    const rendered = renderedToolbarLabels(toolbar);
 
     expect(rendered.length).toBeGreaterThan(0);
     expect(rendered).toEqual(TOOLBAR_PERSISTED_CONTROLS.map((control) => control.uiLabel));
+  });
+
+  it('the pin sees a labelled control added to the toolbar', () => {
+    const anchor = '<span class="og-toolbar-label">Theme</span>';
+    expect(toolbar).toContain(anchor);
+    const planted = toolbar.replace(anchor, `${anchor}<span class="og-toolbar-label">Density</span>`);
+
+    expect(renderedToolbarLabels(planted)).toEqual(['Theme', 'Density']);
+  });
+
+  it('the pin finds nothing once the label markup it keys on changes', () => {
+    expect(renderedToolbarLabels(toolbar.split('og-toolbar-label').join('og-toolbar-caption'))).toEqual([]);
   });
 });

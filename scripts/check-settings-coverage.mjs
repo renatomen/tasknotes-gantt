@@ -25,7 +25,7 @@ const SETTINGS_DIR = join(repoRoot, 'website', 'docs', 'settings');
 /**
  * @typedef {{ file: string, markdown: string }} SettingsPage
  * @typedef {{ file: string, text: string }} SettingsHeading
- * @typedef {{ group: string, name: string, key?: string }} ShippedControl
+ * @typedef {{ group: string, name: string, keys: string[] }} ShippedControl
  * @typedef {{ page: string, heading: string }} AllowedHeading
  * @typedef {{ id: string, name: string, enabled: boolean }} IcsFeed
  * @typedef {{ provider: string, id: string, name: string }} ProviderFeed
@@ -63,7 +63,7 @@ export const NON_CONTROL_HEADINGS = [
 
 const ATTRIBUTE_LIST = /\s*\{[^}]*\}\s*$/;
 const HEADING = /^(#{2,3})\s+(.+?)\s*$/;
-const FENCE = /^\s*(```|~~~)/;
+const FENCE = /^\s*(`{3,}|~{3,})/;
 
 /**
  * The page documenting a group: its display name in kebab case.
@@ -75,8 +75,9 @@ export function settingsPageForGroup(group) {
 }
 
 /**
- * Level-2 and level-3 headings outside fenced code, with a trailing MkDocs
- * attribute list stripped. Nothing else is normalized: matching is exact.
+ * Level-2 and level-3 headings outside fenced code and HTML comments, with a
+ * trailing MkDocs attribute list stripped. Nothing else is normalized:
+ * matching is exact. A commented-out heading documents nothing.
  *
  * @param {SettingsPage[]} pages
  * @returns {SettingsHeading[]}
@@ -86,21 +87,56 @@ export function parseSettingsHeadings(pages) {
 }
 
 /**
+ * A fence closes only on a run of the same character at least as long as the
+ * one that opened it, so a longer fence can quote a shorter one.
+ *
+ * @param {string} line
+ * @param {string} openFence
+ */
+function closesFence(line, openFence) {
+  return FENCE.exec(line)?.[1].startsWith(openFence) === true;
+}
+
+/** @param {string} line */
+function opensComment(line) {
+  const start = line.lastIndexOf('<!--');
+  return start !== -1 && !line.includes('-->', start);
+}
+
+/**
+ * Advance the fence/comment state by one line; the heading text on that line
+ * when it is visible, otherwise null.
+ *
+ * @param {{ openFence: string | null, inComment: boolean }} state
+ * @param {string} line
+ * @returns {string | null}
+ */
+function visibleHeading(state, line) {
+  if (state.openFence !== null) {
+    if (closesFence(line, state.openFence)) state.openFence = null;
+    return null;
+  }
+  if (state.inComment) {
+    state.inComment = !line.includes('-->');
+    return null;
+  }
+  state.openFence = FENCE.exec(line)?.[1] ?? null;
+  state.inComment = state.openFence === null && opensComment(line);
+  if (state.openFence !== null || state.inComment) return null;
+  const match = HEADING.exec(line);
+  return match ? match[2].replace(ATTRIBUTE_LIST, '').trim() : null;
+}
+
+/**
  * @param {SettingsPage} page
  * @returns {SettingsHeading[]}
  */
 function headingsOnPage(page) {
+  const state = { openFence: null, inComment: false };
   const headings = [];
-  let openFence = null;
   for (const line of page.markdown.split(/\r?\n/)) {
-    const fence = FENCE.exec(line)?.[1];
-    if (fence !== undefined) {
-      if (openFence === null) openFence = fence;
-      else if (openFence === fence) openFence = null;
-      continue;
-    }
-    const match = openFence === null ? HEADING.exec(line) : null;
-    if (match) headings.push({ file: page.file, text: match[2].replace(ATTRIBUTE_LIST, '').trim() });
+    const text = visibleHeading(state, line);
+    if (text !== null) headings.push({ file: page.file, text });
   }
   return headings;
 }
@@ -127,6 +163,11 @@ export function expandHeading(text) {
   return variants.map((variant) => [...prefix, variant, ...suffix].join(' '));
 }
 
+/** @param {string} kind */
+function coverageFeedId(kind) {
+  return `${kind}-coverage-feed`;
+}
+
 /**
  * One synthetic feed per provider, so every provider's section heading enters
  * the inventory. ICS feeds are subscriptions; every other provider serves
@@ -139,7 +180,7 @@ export function oneFeedPerProvider(providerOrder) {
   /** @type {ExternalFeeds} */
   const feeds = { subscriptions: [], calendars: [] };
   for (const kind of providerOrder) {
-    const feed = { id: `${kind}-coverage-feed`, name: `${kind} coverage feed` };
+    const feed = { id: coverageFeedId(kind), name: `${kind} coverage feed` };
     if (kind === 'ics') feeds.subscriptions.push({ ...feed, enabled: true });
     else feeds.calendars.push({ ...feed, provider: kind });
   }
@@ -204,30 +245,49 @@ export function optionTriples(options) {
 }
 
 /**
- * The shipped controls: the union over the argument matrix, minus per-feed
- * toggles (labelled with the user's own feed names, identified by key prefix),
- * plus the toolbar-persisted controls.
+ * The shipped controls: the union over the argument matrix, minus the per-feed
+ * toggles of the synthetic feeds (labelled with the user's own feed names),
+ * plus the toolbar-persisted controls. Each control carries every key seen
+ * under its label, so two controls sharing one label stay visible.
  *
  * @param {SettingsBuilders} builders
  * @returns {ShippedControl[]}
  */
 export function settingsInventory(builders) {
   const feeds = oneFeedPerProvider(builders.EXTERNAL_PROVIDER_ORDER);
-  const perFeedPrefixes = builders.EXTERNAL_PROVIDER_ORDER.map((kind) => builders.externalCalendarToggleKey(kind, ''));
-  if (perFeedPrefixes.some((prefix) => prefix === '')) {
-    throw new Error('a provider has an empty per-feed toggle key prefix; per-feed toggles cannot be told apart');
-  }
+  const perFeedKeys = new Set(
+    builders.EXTERNAL_PROVIDER_ORDER.map((kind) => builders.externalCalendarToggleKey(kind, coverageFeedId(kind))),
+  );
+  /** @type {Map<string, ShippedControl>} */
   const seen = new Map();
+  const add = (group, name, key) => {
+    const id = `${group}\u0000${name}`;
+    const control = seen.get(id) ?? { group, name, keys: [] };
+    if (key !== undefined && !control.keys.includes(key)) control.keys.push(key);
+    seen.set(id, control);
+  };
   for (const cell of settingsArgumentMatrix()) {
     for (const triple of optionTriples(composeRegisteredOptions(builders, { ...cell, feeds }))) {
-      if (perFeedPrefixes.some((prefix) => triple.key.startsWith(prefix))) continue;
-      seen.set(`${triple.group}\u0000${triple.name}`, triple);
+      if (!perFeedKeys.has(triple.key)) add(triple.group, triple.name, triple.key);
     }
   }
-  for (const control of builders.TOOLBAR_PERSISTED_CONTROLS) {
-    seen.set(`${control.group}\u0000${control.docHeading}`, { group: control.group, name: control.docHeading });
-  }
+  for (const control of builders.TOOLBAR_PERSISTED_CONTROLS) add(control.group, control.docHeading, undefined);
   return [...seen.values()];
+}
+
+/**
+ * One label, one control: a heading cannot tell two same-labelled controls apart.
+ *
+ * @param {ShippedControl[]} controls
+ * @returns {string[]}
+ */
+function sharedLabelFindings(controls) {
+  return controls
+    .filter((control) => control.keys.length > 1)
+    .map(
+      (control) =>
+        `shared label: ${control.group} › ${control.name} names ${control.keys.length} controls (${control.keys.join(', ')})`,
+    );
 }
 
 /**
@@ -303,6 +363,7 @@ export function checkSettingsCoverage({ controls, pages, allowList = NON_CONTROL
   return {
     findings: [
       ...missingPageFindings(controls, pages),
+      ...sharedLabelFindings(controls),
       ...controls.flatMap((control) => placementFindings(control, controlHeadings)),
       ...unknownHeadingFindings(headings, controlHeadings, allowList),
       ...staleAllowListFindings(headings, allowList),
@@ -318,11 +379,15 @@ export function readSettingsPages() {
     .map((file) => ({ file, markdown: readFileSync(join(SETTINGS_DIR, file), 'utf8') }));
 }
 
-/** @returns {Promise<SettingsBuilders>} */
+/**
+ * Load the builders from TypeScript source through Vite's module runner; the
+ * repo's Vite config is not loaded, so the build's vault-install hook never runs.
+ *
+ * @returns {Promise<SettingsBuilders>}
+ */
 async function loadBuilders() {
-  const { register } = await import('tsx/esm/api');
-  register();
-  const source = (path) => import(pathToFileURL(join(repoRoot, path)).href);
+  const { runnerImport } = await import('vite');
+  const source = async (path) => (await runnerImport(join(repoRoot, path), { configFile: false })).module;
   const [viewOptions, calendarItemOptions, themeResolver] = await Promise.all([
     source('src/bases/viewOptions.ts'),
     source('src/bases/calendarItemOptions.ts'),
