@@ -312,6 +312,25 @@ describe('checkSettingsCoverage', () => {
     ]);
   });
 
+  it('reports an allow-listed heading that names a shipped control', () => {
+    const related = { group: 'Calendar items', name: 'Related', keys: ['tngantt_related'] };
+    const pages = [{ file: 'calendar-items.md', markdown: '## Related\n' }];
+    const allowList = [{ page: 'calendar-items.md', heading: 'Related' }];
+
+    expect(checkSettingsCoverage({ controls: [related], pages, allowList }).findings).toEqual([
+      'allow-listed heading names a control: calendar-items.md: Related',
+    ]);
+  });
+
+  it('reports a group whose page title would name one of its controls', () => {
+    const control = { group: 'Timeline', name: 'Timeline', keys: ['tngantt_timeline'] };
+    const pages = [{ file: 'timeline.md', markdown: '# Timeline\n' }];
+
+    expect(checkSettingsCoverage({ controls: [control], pages, allowList: [] }).findings).toEqual([
+      'page title names a control: timeline.md: Timeline',
+    ]);
+  });
+
   it('refuses an empty control inventory rather than passing vacuously', () => {
     const pages = [{ file: 'timeline.md', markdown: '## Default Scale\n' }];
 
@@ -479,6 +498,27 @@ describe('unmodelledMarkdownFindings', () => {
       'unsupported markdown: timeline.md:1: <pre>',
       'unsupported markdown: timeline.md:3: </pre>',
     ]);
+  });
+});
+
+describe('readSettingsPages', () => {
+  it('reads every page MkDocs renders, at any depth and with any Markdown extension', () => {
+    const root = mkdtempSync(join(tmpdir(), 'settings-pages-'));
+    try {
+      mkdirSync(join(root, 'advanced'));
+      writeFileSync(join(root, 'timeline.md'), '# Timeline\n');
+      writeFileSync(join(root, 'advanced', 'defaults.md'), '## Default Scale\n');
+      writeFileSync(join(root, 'extra.markdown'), '## A\n');
+      writeFileSync(join(root, 'notes.txt'), '## Not a page\n');
+
+      expect(readSettingsPages(root).map((page) => page.file)).toEqual([
+        'advanced/defaults.md',
+        'extra.markdown',
+        'timeline.md',
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 });
 

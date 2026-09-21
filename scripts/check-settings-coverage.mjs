@@ -514,6 +514,28 @@ function staleAllowListFindings(headings, allowList) {
 }
 
 /**
+ * A heading accepted as a non-control (an allow-list entry, or a page title
+ * naming its group) must not also name a shipped control: it would document
+ * that control without anyone writing its section.
+ *
+ * @param {ShippedControl[]} controls
+ * @param {readonly AllowedHeading[]} allowList
+ * @returns {string[]}
+ */
+function nonControlCollisionFindings(controls, allowList) {
+  const controlNames = new Set(controls.map((control) => control.name));
+  const groups = [...new Set(controls.map((control) => control.group))];
+  return [
+    ...allowList
+      .filter((entry) => controlNames.has(entry.heading))
+      .map((entry) => `allow-listed heading names a control: ${entry.page}: ${entry.heading}`),
+    ...groups
+      .filter((group) => controlNames.has(group))
+      .map((group) => `page title names a control: ${settingsPageForGroup(group)}: ${group}`),
+  ];
+}
+
+/**
  * @param {{ controls: ShippedControl[], pages: SettingsPage[], allowList?: readonly AllowedHeading[] }} input
  * @returns {{ findings: string[] }}
  */
@@ -531,6 +553,7 @@ export function checkSettingsCoverage({ controls, pages, allowList = NON_CONTROL
       ...unmodelledMarkdownFindings(pages),
       ...missingPageFindings(controls, pages),
       ...sharedLabelFindings(controls),
+      ...nonControlCollisionFindings(controls, allowList),
       ...controls.flatMap((control) => placementFindings(control, controlHeadings, controls)),
       ...unknownHeadingFindings(headings, controlHeadings, allowList, controls),
       ...staleAllowListFindings(headings, allowList),
@@ -538,12 +561,22 @@ export function checkSettingsCoverage({ controls, pages, allowList = NON_CONTROL
   };
 }
 
-/** @returns {SettingsPage[]} */
-export function readSettingsPages() {
-  return readdirSync(SETTINGS_DIR)
-    .filter((file) => file.endsWith('.md'))
+/** The file extensions MkDocs renders as Markdown pages. */
+const MARKDOWN_EXTENSIONS = ['.md', '.markdown', '.mdown', '.mkdn', '.mkd'];
+
+/**
+ * Every page MkDocs would render under a settings directory, at any depth,
+ * named by its path relative to that directory.
+ *
+ * @param {string} [directory]
+ * @returns {SettingsPage[]}
+ */
+export function readSettingsPages(directory = SETTINGS_DIR) {
+  return readdirSync(directory, { recursive: true, encoding: 'utf8' })
+    .map((file) => file.split('\\').join('/'))
+    .filter((file) => MARKDOWN_EXTENSIONS.some((extension) => file.toLowerCase().endsWith(extension)))
     .sort((a, b) => a.localeCompare(b))
-    .map((file) => ({ file, markdown: readFileSync(join(SETTINGS_DIR, file), 'utf8') }));
+    .map((file) => ({ file, markdown: readFileSync(join(directory, file), 'utf8') }));
 }
 
 /**
