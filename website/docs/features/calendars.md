@@ -174,8 +174,9 @@ is not a single day, so nothing is shaded there.
 - **A date you wrote down never moves**, even when it falls on a day off. In the
   example, *Task Stretch* still starts on the holiday. That day uses up none of
   the estimate, and under Split segments it is drawn as a ghost.
-- **A task with both dates** keeps them exactly. So does a task whose start comes
-  after its due date.
+- **A task with both dates** is never stretched: working days change neither
+  date. If its start comes after its due date, the chart draws the bar from the
+  due date to the start, exactly as it does without a calendar.
 - **A task with no dates at all** is placed at today as a placeholder and does not
   stretch.
 - **A task with no calendar** never stretches. This includes a task whose Calendar
@@ -193,8 +194,10 @@ One task can differ from the view through
 **[Non-working-day rendering](../settings/timeline.md#non-working-day-rendering)
 → Split segments** *adds* segments on top of the shading. It does not replace it.
 Each bar's non-working days are drawn as a faint ghost and its working days as
-solid pieces. This works on any dated bar, including one whose dates were both
-written down, so it shows the gaps without moving anything.
+solid pieces. This works on any bar with dates, including one whose dates were
+both written down, so it shows the gaps without moving anything. Like the shading,
+it appears only at the **Days** and **Hours** scales; at **Weeks** and **Months**
+the bar is drawn continuous.
 
 A bar whose span is **entirely** non-working stays one continuous bar. A one-day
 task that lands on a Saturday has no working day to contrast with, so it is not
