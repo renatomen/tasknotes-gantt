@@ -163,6 +163,11 @@ other days stay shaded.
 Shading appears only at the **Days** and **Hours** scales. A week or month column
 is not a single day, so nothing is shaded there.
 
+Calendar shading is drawn **around your tasks**: from 62 days before the
+earliest bar to 62 days after the latest. A chart with no tasks shows no
+calendar shading and no markers, even for a calendar you selected. The locale
+weekend is not limited this way.
+
 ## Working days: which dates move
 
 **[Estimate meaning](../settings/timeline.md#estimate-meaning)** ships as
