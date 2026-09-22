@@ -299,6 +299,8 @@ describe("calendar editor, as the documentation shows it", () => {
   });
 
   it("flags unsaved edits in the sticky header", async () => {
+    await expect($(".og-cal-unsaved")).not.toBeExisting();
+    await expect($(".og-cal-header .mod-cta")).toBeDisabled();
     const description = await $(".og-cal-form textarea");
     await description.setValue("Auckland product team, edited");
     await expect($(".og-cal-unsaved")).toHaveText("Unsaved changes");

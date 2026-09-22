@@ -55,7 +55,7 @@ Further down, the **Exceptions** group holds the calendar's days off and events:
 | **Description** | `description` | A line saying what the calendar is for. |
 | **Colour** | `color` | A CSS3 colour name or a hex value. Empty uses the theme's colour. |
 | **Working pattern** | `pattern` | The working days, built with the [pattern builder](#the-working-pattern-builder). |
-| **Anchor date** | `pattern_start` | The date the calendar's recurrence rules count from. The form asks for one when the working pattern uses `INTERVAL`, `COUNT` or `UNTIL`, and the builder adds `INTERVAL` when the pattern repeats every 2 or more days, weeks or months. |
+| **Anchor date** | `pattern_start` | A date. The form asks for one when the working pattern uses `INTERVAL`, `COUNT` or `UNTIL`. |
 | **Working hours** | `working_hours` | One or more `HH:MM-HH:MM` ranges, such as `09:00-17:00`. **+ Add hours** adds a range. |
 | **Timezone** | `timezone` | An IANA zone name. See [Timezone](#timezone). |
 | **Non-working days** | `non_working` | A date and an optional name for each day off. **+ Add non-working day** adds one. |

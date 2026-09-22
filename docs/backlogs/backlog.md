@@ -154,7 +154,11 @@ matches `INTERVAL|COUNT|UNTIL`. Recurring events are evaluated against the same 
 (`calendarDayFacts.ts` `eventDays`, `calendarShading.ts`), and `patternWindow.ts` also rejects
 an anchorless rule that pins no days of its own (such as `FREQ=WEEKLY` with no `BYDAY`, typed as
 text). Emptying Anchor date in either case saves without a flag, and the event's days or the
-pattern then silently stop applying. Fix direction: derive the anchor requirement from the same
+pattern then silently stop applying. Availability blocks are the opposite case: their patterns
+are evaluated with no anchor at all (`workingDayRules` passes `anchor: undefined`, and the Week
+tab validates each block with `validatePattern(block.pattern, undefined)`), so a block that needs
+an anchor cannot be fixed by setting Anchor date, and the Week tab's error asks for an anchor the
+note already has. Fix direction: derive the anchor requirement from the same
 evaluator the chart uses (every rule the calendar evaluates against `pattern_start`), with a
 state test per case. Surfaced by the adversarial reviewer during U3 of
 `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page states only
