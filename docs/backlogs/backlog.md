@@ -72,6 +72,49 @@ their values and nothing tells the user why. The fix is to surface the degraded 
 user: a product change, outside the documentation campaign's scope. Narrow (degraded-API only)
 and non-blocking under the repo's P2 rule.
 
+### P2 — A working-days stretch that gives up is flagged, and nothing shows the flag (2026-09-22)
+
+`applyWorkingTimeStretch` (`src/controller/calendar/stretch.ts`) falls back to the plain
+calendar-day span when its scan ceiling is hit (a calendar that blocks every day within
+reach) and returns `flagged: true`. Its module comment promises "the task is flagged —
+fail-visible, never a hang". The flag travels as `stretchFlagged` through
+`GanttController.ts`, `ganttSync.ts` and `dragCommitPlan.ts`, and **no CSS rule, Svelte
+markup or legend entry reads it** (`grep -rn stretchFlagged src/` finds only carriers). The
+never-a-hang half holds, but the fail-visible half does not: such a bar shows calendar days
+under *Working days* with no cue, and `ghostRunsFor` (`derivation.ts`) also drops its *Split
+segments* ghosts because the span is flagged, so the bar looks like an ordinary unsplit one. Surfaced while writing U2 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`, which documents the
+fallback without claiming a cue ("documentation never becomes the fix").
+
+### P2 — The Default calendar row describes weekend shading as per task (2026-09-22)
+
+`CalendarPickerModal.ts` labels the **Default calendar** row "Weekend shading for tasks with no
+calendar". The row is the same switch as **Highlight weekends** (`calendarSelection.ts`), and
+the locale-weekend class is stamped on every locale-weekend day/hour cell regardless of any task's
+calendar (`calendarCellClass` in `src/controller/availability.ts`). A calendar that works Sundays
+therefore still shows Sunday shaded while the row is on, whatever tasks are linked to it. The
+description should say what the row does (chart-wide locale-weekend shading). Found during
+the same U2; the page documents the behaviour as shipped.
+
+### P2 — Highlight weekends off also clears a calendar's days off that fall on a weekend (2026-09-22)
+
+`calendarShading.ts` paints calendar shading with `!important` so that it "must survive" the
+weekends-off toggle, and `calendarShading.test.ts` names that guarantee ("paints with !important so
+calendar shading survives the weekends-off toggle") while asserting only the `!important` substring.
+It does not hold. The weekends-off reset in `GanttContainer.css`
+(`.og-bases-gantt.og-weekends-off :global(.wx-weekend)`, `background:transparent !important`) is
+Svelte-scoped to four classes, and the calendar rule (`<scope> .wx-gantt-holidays .og-d-<date>`) has
+three, so on a cell carrying both `wx-weekend` and a calendar date class the reset wins. Measured on
+2026-09-22 in real Obsidian with the `test/vaults/gantt-calendar` fixture (`Calendar.base`, root
+class `og-weekends-off` added): Saturday 2026-04-11, blocked by the calendar's Mon–Fri pattern, went
+from the holiday background to `rgba(0, 0, 0, 0)`; the Friday 2026-04-10 holiday stayed shaded. So
+a calendar whose days off include the locale weekend loses that shading when a user turns weekend
+highlighting off. Fix direction: raise the calendar rule above the reset's specificity and replace
+the substring test with one asserting the computed background of a weekend calendar cell with
+weekends off. Surfaced by the correctness reviewer during U2 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page documents the
+shipped behaviour.
+
 ### P1 — Schedule validation (errors & warnings), with swapped dates as the first slice (2026-08-10)
 Per-task validation with two severities, surfaced as a badge **left of the gantt bar**
 (hover for a description naming what's wrong). Example warnings: subtask ends beyond

@@ -131,6 +131,11 @@ about dates and can stack on top of either:
 The timeline shades **weekend day-columns** so a multi-day bar doesn't read as if
 the whole span were working time. Weekend days follow your locale.
 
+Weekends are the built-in default. To shade your own days off, such as holidays,
+a four-day week or a Sunday-to-Thursday week, give your tasks a calendar. See
+[Calendars and working time](calendars.md). A calendar adds shading on top of
+the weekend and never removes it.
+
 ![A day-scale timeline with weekend columns shaded](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/weekend-shading.png)
 
 Controlled by **[Highlight weekends](../settings/timeline.md#highlight-weekends)**
