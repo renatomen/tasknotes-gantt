@@ -120,13 +120,38 @@ shipped behaviour.
 `WorkingPatternEditor.svelte` opens an empty `pattern` in the visual builder with
 `defaultPattern()` (Weekly, Mon–Fri) selected, but writes nothing back until a control is
 changed: `parsePattern('')` returns null, the empty value keeps `raw` false, and the bound
-value stays `''`. So a hand-written calendar with no `pattern` (a holidays-only calendar, which
-`workingDays.ts` treats as working every day) opens showing five weekdays selected while the
-Week tab beside it shows all seven working, and saving an unrelated field keeps the note
-pattern-less. The builder displays a rule the note does not have. Fix direction: represent "no
+value stays `''`. So a hand-written calendar with no `pattern` and no availability blocks (a
+holidays-only calendar, which `workingDays.ts` treats as working every day) opens showing five
+weekdays selected while the Week tab beside it shows all seven working, and saving an unrelated
+field keeps the note pattern-less. **Edit as text** then writes that unseen default into the
+field (`editAsText` calls `formatPattern(model)`), so merely opening the text view changes the
+calendar. The builder displays a rule the note does not have. Fix direction: represent "no
 pattern" in the builder (an explicit empty state, or commit the default on mount only after the
 user confirms), and pin it with a component test that opens an empty value and asserts the
 rendered weekday state matches the saved one. Surfaced while writing U3 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page documents the
+shipped behaviour.
+
+### P2 — The calendar editor loses or splits unsaved edits outside the close guard (2026-09-23)
+
+The unsaved-changes guard (`registerCalendarEditor.ts`) patches only `WorkspaceLeaf.detach`, so
+it fires when a tab closes and nowhere else. Three paths escape it:
+
+- **Replacing the view drops the edits silently.** `openAsMarkdown()` (`CalendarEditorView.ts`),
+  the marker-removed heal, `revertOpenEditors` on plugin unload, and opening another note in the
+  same leaf all go through `setViewState`, which unmounts the form with no prompt.
+- **A rename collision splits the save.** `save()` in `CalendarEditorForm.svelte` awaits
+  `onSave` (frontmatter written) before `onRename`, which throws on a name collision, so the
+  frontmatter lands while the rename is refused and the form stays dirty against a baseline
+  that no longer matches disk.
+- **Saving over an external change leaves the form stale.** The save writes only changed keys
+  onto the fresh file and sets `lastContent` to the result, so the metadata listener sees no
+  external change and the form keeps showing its pre-change values for the other keys until the
+  note is reopened.
+
+Fix direction: route every view replacement through the same confirm path, check a rename
+collision before writing frontmatter, and re-seed the form from disk after a save that followed
+an external change. Surfaced by review during U3 of
 `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page documents the
 shipped behaviour.
 

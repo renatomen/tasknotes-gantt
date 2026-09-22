@@ -35,7 +35,8 @@ ordinary Markdown.
 To see the raw frontmatter of the note you are editing, run **Open calendar note
 as markdown**, or choose **Open as markdown** from the tab's **More options** (⋯)
 menu. To return, choose **View as calendar** from the same menu on the Markdown
-tab.
+tab. Switching to Markdown does not ask about unsaved changes, so save first (see
+[Saving and closing](#saving-and-closing)).
 
 ## The form
 
@@ -54,15 +55,15 @@ Further down, the **Exceptions** group holds the calendar's days off and events:
 | **Description** | `description` | A line saying what the calendar is for. |
 | **Colour** | `color` | A CSS colour name or a hex value. Empty uses the theme's colour. |
 | **Working pattern** | `pattern` | The working days, built with the [pattern builder](#the-working-pattern-builder). |
-| **Anchor date** | `pattern_start` | The date a pattern counts from. Needed when the pattern repeats every 2 or more days, weeks or months, or uses `COUNT` or `UNTIL`. |
+| **Anchor date** | `pattern_start` | The date a pattern counts from. Needed when the pattern uses `INTERVAL`, `COUNT` or `UNTIL`. The builder adds `INTERVAL` when the pattern repeats every 2 or more days, weeks or months. |
 | **Working hours** | `working_hours` | One or more `HH:MM-HH:MM` ranges, such as `09:00-17:00`. **+ Add hours** adds a range. |
 | **Timezone** | `timezone` | An IANA zone name. See [Timezone](#timezone). |
 | **Non-working days** | `non_working` | A date and an optional name for each day off. **+ Add non-working day** adds one. |
 | **Events** | `events` | A date and an optional name for each event. Tick **Marker** to draw the event as a line on the chart instead of shading its day. **+ Add event** adds one. |
 
-Each list entry has a **Remove** button. Clearing a text field and saving removes
-its key from the frontmatter. Removing every entry from a list saves it as an
-empty list.
+Each entry the form can edit has a **Remove** button. Emptying **Description**,
+**Colour**, **Anchor date** or **Timezone** and saving removes that key from the
+frontmatter. Removing every entry from a list saves it as an empty list.
 
 A field the note cannot save shows its problem in red, for example a working-hours
 range whose start is not before its end, or an entry with no date. While any field
@@ -72,7 +73,7 @@ stays disabled.
 ### What the form cannot edit yet
 
 Two kinds of entry stay in Markdown. The form shows where they are and keeps them
-when it saves:
+when it saves, and you change or remove them in Markdown:
 
 - A non-working day or event that is not a single date, such as a date range
   (`start`/`end`) or a recurring entry, appears as **Advanced entry — edit as
@@ -85,8 +86,9 @@ when it saves:
 
 Type a new name into **Name** and save. The note is renamed in its own folder, so
 Obsidian treats it like any other rename. A name cannot be empty or contain
-`\ / : * ? " < > |`, and a save that would collide with another note in the same
-folder is refused with a notice.
+`\ / : * ? " < > |`. If another note in the same folder already has the name, the
+rename is refused with a notice, but the other changes in that save are still
+written.
 
 ## The working pattern builder
 
@@ -105,7 +107,8 @@ Repeating every 2 or more weeks (or days, or months) needs an **Anchor date**,
 so the calendar knows which week to start counting from.
 
 On a calendar that has no `pattern` yet, the builder starts on Monday to Friday,
-but nothing is saved until you change it. Until then the note still has no
+but nothing is written until you change it or choose **Edit as text**, which puts
+that Monday-to-Friday rule into the field. Until then the note still has no
 `pattern`, and the **Week** tab shows what that means.
 
 **Edit as text** switches to a plain text field holding the rule. **Use the
@@ -191,8 +194,9 @@ a `[[wikilink]]` to a calendar note, and typing `[[` suggests notes from the vau
 
 ![The editor for a calendar set: a status line reporting days in conflict, then Name, Description, Colour and two member calendars written as wikilinks](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/calendar-editor-set.png)
 
-For a set, the preview tabs show the member calendars combined, and a day where
-one member works and another does not is marked **Conflict**. A status line under
+For a set, the preview tabs show the member calendars combined. A day that one
+member has off while another member's pattern or availability blocks make it a
+working day is marked **Conflict**. A status line under
 the header summarises the set on every tab, including member links that do not
 lead to a usable calendar.
 
@@ -220,7 +224,10 @@ This team works Monday to Friday and also an on-call Saturday. A block's days
 are **added** to the days the `pattern` covers, so a day off belongs in
 `non_working`, never in a block. A `non_working` date is a day off even when a
 block covers it. A calendar with blocks but no `pattern` works only on the days
-its blocks cover. The Week tab shows each block's hours on the days it covers,
+its blocks cover. A block has no anchor date of its own, so a block whose pattern
+needs one adds no working days, for example one that repeats every 2 or more
+weeks or uses `COUNT` or `UNTIL`.
+The Week tab shows each block's hours on the days it covers,
 as in the Saturday above.
 
 ## Saving and closing
@@ -243,10 +250,16 @@ Closing an editor tab with unsaved changes asks first:
   finishing.
 - **Save** saves, then closes. It is disabled while a field is flagged.
 
+The question is asked only when you close the tab. Anything else that replaces the
+editor drops unsaved changes without asking, for example **Open calendar note as
+markdown**, deleting the `tngantt` line, disabling the plugin or opening another
+note in the same tab. Save first.
+
 If the note changes on disk while you have unsaved changes, for example through
 sync or another editor, a banner says **This note changed on disk while you were
 editing.** **Reload and discard my changes** loads the new version. If you save
-instead, only the keys you changed are written into the new version. With no
+instead, only the keys you changed are written into the new version, and the form
+keeps showing its own values for the rest until you reopen the note. With no
 unsaved changes, the form simply refreshes.
 
 ### Comments in the frontmatter

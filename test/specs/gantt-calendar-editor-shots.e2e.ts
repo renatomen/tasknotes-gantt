@@ -6,9 +6,9 @@ import * as os from "node:os";
 import { fileURLToPath } from "node:url";
 
 /**
- * The calendar editor as the documentation site shows it: every surface
- * `website/docs/features/calendar-editor.md` names is staged here and asserted to
- * render, so a page describing a control that no longer ships fails a spec.
+ * The calendar editor scenes that `website/docs/features/calendar-editor.md`
+ * shows in its screenshots: each scene is staged here and asserted to render the
+ * controls and text the page's image of it depicts.
  *
  * Captures are opt-in. With `OG_SHOTS_DIR` set, each scene also saves an element
  * screenshot there (light, plus dark for the colour-carrying previews); without
@@ -275,6 +275,8 @@ describe("calendar editor, as the documentation shows it", () => {
   it("opens the colour picker from the collapsed colour field", async () => {
     await (await $(".og-color-summary")).click();
     await expect($(".og-color-panel")).toBeDisplayed();
+    await expect($(".og-color-clear")).toHaveText(expect.stringContaining("Default (theme colour)"));
+    await expect($('.og-color-panel input[type="color"]')).toBeExisting();
     await capture(".og-color", "calendar-editor-colour.png");
     await (await $(".og-color-summary")).click();
     await expect($(".og-color-panel")).not.toBeExisting();
@@ -295,6 +297,8 @@ describe("calendar editor, as the documentation shows it", () => {
     const modal = await $(".modal");
     await modal.waitForDisplayed({ timeout: 10000, timeoutMsg: "close guard never opened" });
     await expect(modal).toHaveText(expect.stringContaining("Unsaved calendar changes"));
+    await expect(modal.$("button=Discard")).toBeEnabled();
+    await expect(modal.$("button=Save")).toBeEnabled();
     await capture(".modal", "calendar-editor-close-guard.png");
     const goBack = await $("button=Go back");
     await goBack.click();
@@ -346,7 +350,7 @@ describe("calendar editor, as the documentation shows it", () => {
       Array.from(document.querySelectorAll<HTMLInputElement>(".og-cal-entry-member input")).map((el) => el.value),
     );
     expect(members).toEqual(["[[NZ Holidays]]", "[[Sun Thu]]"]);
-    await expect($(".og-cal-status")).toBeDisplayed();
+    await expect($(".og-cal-status")).toHaveText(expect.stringMatching(/days? in conflict/));
     await capture(".og-cal-form", "calendar-editor-set.png");
   });
 });
