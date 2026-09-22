@@ -850,6 +850,24 @@ describe('cross-model peer review wrapper', () => {
     expect(run.stderr).toContain('submodule pointer');
   });
 
+  it('refuses a submodule pointer move outside the subdirectory it runs from under diff.relative', () => {
+    commitFile('docs/notes.md', 'a place to run from\n', 'docs');
+    const nested = join(repo, 'vendor', 'lib');
+    mkdirSync(nested, { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main', nested], { env: childEnv });
+    writeFileSync(join(nested, 'code.txt'), 'submodule content\n');
+    git(['add', 'code.txt'], nested);
+    git(['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-q', '--no-verify', '-m', 'nested'], nested);
+    git(['add', 'vendor/lib']);
+    git(['commit', '-q', '--no-verify', '-m', 'add submodule pointer']);
+    git(['config', 'diff.relative', 'true']);
+
+    const run = runExpectingRefusal(CLEAN, { record: true, cwd: join(repo, 'docs') });
+
+    expect(run.status).toBe(14);
+    expect(run.stderr).toContain('submodule pointer');
+  });
+
   it('allows an ordinary path that merely contains the submodule mode digits', () => {
     // Unanchored, the gitlink match also hit `docs/160000-notes.md` and refused
     // an innocent change — the same class of failure as the exit-17 bug.
@@ -1185,7 +1203,7 @@ describe('cross-model peer review wrapper', () => {
       }
 
       it.each([
-        ['the binary scan', '--no-renames'],
+        ['the binary scan', '-z'],
         ['the declaration lookup', 'check-attr'],
         ['the per-side content check', '--literal-pathspecs'],
       ])('refuses when %s fails', (_step, failOn) => {
