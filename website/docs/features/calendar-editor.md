@@ -196,9 +196,8 @@ a `[[wikilink]]` to a calendar note, and typing `[[` suggests notes from the vau
 
 For a set, the preview tabs show the member calendars combined. A day that one
 member has off while another member's pattern or availability blocks make it a
-working day is marked **Conflict**. When the set combines two or more calendars,
-or has conflicts or member links that do not lead to a usable calendar, a status
-line under the header says so on every tab.
+working day is marked **Conflict**. A status line under the header can report the
+set's conflicts and member links that do not lead to a usable calendar.
 
 ## Availability blocks
 
@@ -244,7 +243,8 @@ Closing an editor tab with unsaved changes asks first:
   chooses it too.
 - **Discard** closes without saving. It is disabled while a save is still
   finishing.
-- **Save** saves, then closes. It is disabled while a field is flagged.
+- **Save** saves, then closes. It is disabled while a field is flagged. If the
+  save fails, the editor stays open.
 
 The question is asked only when you close the tab. Anything else that replaces the
 editor drops unsaved changes without asking, for example **Open calendar note as
