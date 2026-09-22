@@ -70,8 +70,8 @@ events:
 | `pattern` | The **working days**, as a recurrence rule. Every day that neither this rule nor an `availability` block covers is a non-working day. |
 | `non_working` | Individual days off: a bare date, `{date, name}`, or a `{start, end}` range (both days included). Dates only, no recurrence rules here. |
 | `availability` | Extra working days, each block with its own `pattern`. A Monday-to-Friday pattern plus a Saturday block works Monday to Saturday. A `non_working` date is still a day off even when a block covers it. |
-| `events` | Named days to show on the chart. An event is **shaded but does not block**: a task schedules straight through it. Set `marker: true` on a single-date event to draw it as a line instead. |
-| `color` | The calendar's colour. It appears beside the calendar in Select calendars… and on its markers, and it colours bars when **Bar fill** or **Bar strip** is set to **By calendar**. |
+| `events` | Named days to show on the chart. An event is **shaded but never holds a task back** by itself. Set `marker: true` on a single-date event to draw it as a line instead. |
+| `color` | The calendar's colour. It appears beside the calendar in Select calendars… and on its markers. |
 
 The quickest way to get one is the **Create calendar** command. It creates
 `New Calendar.md` in the `Calendars` folder (numbered if that name is taken) with a Monday-to-Friday pattern and an empty
@@ -105,7 +105,8 @@ define working time.
    *Team calendar*.
 2. On each task that follows this calendar, add a property holding a wikilink to
    the note, for example `calendar: "[[Team calendar]]"`. A task follows **one**
-   calendar. If the property holds a list, only the first link counts.
+   link, to a calendar or to a calendar set; a set combines the days off of all its
+   calendars. If the property holds a list, only the first link counts.
 3. In the Gantt view, open the view-settings menu and, in the **Fields** group, set
    **[Calendar Property](../settings/fields.md#calendar-property)** to that
    property. At the **Days** and **Hours** scales, the chart now shades the
@@ -156,8 +157,8 @@ A calendar **only ever adds shading**. The locale weekend is shaded separately
 while **Highlight weekends** is on. If your calendar works on a Sunday, that
 Sunday stays shaded until you turn Highlight weekends off, or untick **Default
 calendar** in Select calendars…. Turning Highlight weekends off also clears
-any calendar day off that falls on a locale weekend. A calendar's days off on
-other days stay shaded.
+any calendar shading that falls on a locale weekend. Calendar shading on other
+days stays.
 
 Shading appears only at the **Days** and **Hours** scales. A week or month column
 is not a single day, so nothing is shaded there.
