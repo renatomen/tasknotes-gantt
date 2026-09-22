@@ -72,6 +72,29 @@ their values and nothing tells the user why. The fix is to surface the degraded 
 user: a product change, outside the documentation campaign's scope. Narrow (degraded-API only)
 and non-blocking under the repo's P2 rule.
 
+### P2 — A working-days stretch that gives up is flagged, and nothing shows the flag (2026-09-22)
+
+`applyWorkingTimeStretch` (`src/controller/calendar/stretch.ts`) falls back to the plain
+calendar-day span when its scan ceiling is hit (a calendar that blocks every day within
+reach) and returns `flagged: true`. Its module comment promises "the task is flagged —
+fail-visible, never a hang". The flag travels as `stretchFlagged` through
+`GanttController.ts`, `ganttSync.ts` and `dragCommitPlan.ts`, and **no CSS rule, Svelte
+markup or legend entry reads it** (`grep -rn stretchFlagged src/` finds only carriers). The
+never-a-hang half holds, but the fail-visible half does not: such a bar shows calendar days
+under *Working days* with no cue. Surfaced while writing U2 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`, which documents the
+fallback without claiming a cue ("documentation never becomes the fix").
+
+### P2 — The Default calendar row describes weekend shading as per task (2026-09-22)
+
+`CalendarPickerModal.ts` labels the **Default calendar** row "Weekend shading for tasks with no
+calendar". The row is the same switch as **Highlight weekends** (`calendarSelection.ts`), and
+the locale-weekend class is stamped on every day/hour cell regardless of any task's calendar
+(`calendarCellClass` in `src/controller/availability.ts`). A calendar that works Sundays
+therefore still shows Sunday shaded while the row is on, whatever tasks are linked to it. The
+description should say what the row does (chart-wide locale-weekend shading). Found during
+the same U2; the page documents the behaviour as shipped.
+
 ### P1 — Schedule validation (errors & warnings), with swapped dates as the first slice (2026-08-10)
 Per-task validation with two severities, surfaced as a badge **left of the gantt bar**
 (hover for a description naming what's wrong). Example warnings: subtask ends beyond

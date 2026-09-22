@@ -56,6 +56,7 @@ nav:
   - Features:
     - Chart controls: features/chart-controls.md
     - Scheduling & dates: features/scheduling.md
+    - Calendars & working time: features/calendars.md
     - Dependencies: features/dependencies.md
     - Parent / child roll-up: features/parent-child.md
     - Colors, icons & weekends: features/appearance.md
@@ -75,6 +76,15 @@ nav:
     - Vision & Philosophy: vision-and-philosophy.md
     - Development Cadence: development-cadence.md
     - Acknowledgements: acknowledgements.md
+
+# MkDocs leaves omitted_files at INFO, which --strict does not escalate, so a
+# page missing from nav would otherwise build green.
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+  links:
+    absolute_links: warn
 
 # Adding `plugins:` disables the implicit default, so `search` is re-declared.
 plugins:
