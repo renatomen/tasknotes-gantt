@@ -67,7 +67,7 @@ events:
 
 | Key | What it does |
 | --- | --- |
-| `pattern` | The **working days**, as a recurrence rule. Every day the rule does not cover is a non-working day. |
+| `pattern` | The **working days**, as a recurrence rule. Every day that neither this rule nor an `availability` block covers is a non-working day. |
 | `non_working` | Individual days off: a bare date, `{date, name}`, or a `{start, end}` range (both days included). Dates only, no recurrence rules here. |
 | `availability` | Extra working days, each block with its own `pattern`. A Monday-to-Friday pattern plus a Saturday block works Monday to Saturday. A `non_working` date is still a day off even when a block covers it. |
 | `events` | Named days to show on the chart. An event is **shaded but does not block**: a task schedules straight through it. Set `marker: true` on a single-date event to draw it as a line instead. |
@@ -150,8 +150,7 @@ For every calendar it shows, the chart shades:
 
 - the calendar's `non_working` days;
 - every day its working pattern does not cover;
-- its `events`, including recurring ones. These are shaded but never hold a task
-  back.
+- its `events`. These are shaded but never hold a task back.
 
 A calendar **only ever adds shading**. The locale weekend is shaded separately
 while **Highlight weekends** is on. If your calendar works on a Sunday, that
