@@ -103,6 +103,7 @@ interface StubOpts {
   exit?: string;
   sideEffect?: string;
   cwd?: string;
+  env?: Record<string, string>;
 }
 
 /**
@@ -130,6 +131,7 @@ function runWrapper(response: string, opts: StubOpts = {}): Run {
       PEER_STUB_RESPONSE: responseFile,
       PEER_STUB_EXIT: opts.exit ?? '0',
       PEER_STUB_SIDE_EFFECT: opts.sideEffect ?? '',
+      ...opts.env,
     },
     // The wrapper signals every refusal through its exit code, so a nonzero
     // status is the subject of most of these tests, not a failure of them.
@@ -158,6 +160,16 @@ function receipts(): Record<string, Record<string, unknown>> {
 }
 
 const CLEAN = 'SAW-DIFF: @@SENTINEL@@\n\nNothing found.\n\nVERDICT: CLEAN';
+
+/**
+ * Overrides one command inside the wrapper's bash, as an exported function.
+ * A shim on PATH is not enough: Git for Windows' bin\bash.exe, which is what
+ * `bash` resolves to on the CI runner, puts git's own directories ahead of
+ * PATH, so the real git and cat would win. A function beats PATH everywhere.
+ */
+function exportedBashFunction(name: string, body: string): Record<string, string> {
+  return { [`BASH_FUNC_${name}%%`]: `() { ${body} }` };
+}
 
 /** Windows paths reach the stub through bash, which reads backslashes as escapes. */
 const posix = (p: string): string => p.split('\\').join('/');
@@ -1270,17 +1282,13 @@ describe('cross-model peer review wrapper', () => {
     it('refuses when reading the rendered diff back fails partway', () => {
       // A read that dies after a prefix still leaves text, and a clean review
       // of that prefix would be a receipt for a change nobody saw in full.
-      const realCat = String(
-        execFileSync('bash', ['-c', 'command -v cat'], { encoding: 'utf8', env: childEnv }),
-      ).trim();
-      const shim = join(stubDir, 'cat');
-      writeFileSync(
-        shim,
-        `#!/usr/bin/env bash\ncase "$(basename -- "\${1:-}")" in tmp.*) head -c 20 "$1"; exit 1 ;; esac\nexec "${realCat}" "$@"\n`,
-      );
-      chmodSync(shim, 0o755);
-
-      const run = runExpectingRefusal(CLEAN, { record: true });
+      const run = runExpectingRefusal(CLEAN, {
+        record: true,
+        env: exportedBashFunction(
+          'cat',
+          'case "$(basename -- "${1:-}")" in tmp.*) head -c 20 "$1"; return 1 ;; esac; command cat "$@";',
+        ),
+      });
 
       expect(run.status).toBe(10);
       expect(existsSync(`${promptFile}.staged`)).toBe(false);
@@ -1288,19 +1296,6 @@ describe('cross-model peer review wrapper', () => {
     });
 
     describe('when a git step the binary check depends on fails', () => {
-      /** Shadows git on the wrapper's PATH, failing only the call that carries `failOn`. */
-      function failGitCallCarrying(failOn: string): void {
-        const realGit = String(
-          execFileSync('bash', ['-c', 'command -v git'], { encoding: 'utf8', env: childEnv }),
-        ).trim();
-        const shim = join(stubDir, 'git');
-        writeFileSync(
-          shim,
-          `#!/usr/bin/env bash\ncase " $* " in *" ${failOn} "*) exit 3 ;; esac\nexec "${realGit}" "$@"\n`,
-        );
-        chmodSync(shim, 0o755);
-      }
-
       it.each([
         ['the binary scan', '-z'],
         ['the declaration lookup', 'check-attr'],
@@ -1308,9 +1303,11 @@ describe('cross-model peer review wrapper', () => {
       ])('refuses when %s fails', (_step, failOn) => {
         declareImagesBinary();
         commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
-        failGitCallCarrying(failOn);
 
-        const run = runExpectingRefusal(CLEAN, { record: true });
+        const run = runExpectingRefusal(CLEAN, {
+          record: true,
+          env: exportedBashFunction('git', `case " $* " in *" ${failOn} "*) return 3 ;; esac; command git "$@";`),
+        });
 
         expect(run.status).toBe(10);
         expect(existsSync(`${promptFile}.staged`)).toBe(false);
