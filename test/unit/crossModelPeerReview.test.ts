@@ -1084,6 +1084,18 @@ describe('cross-model peer review wrapper', () => {
       expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true, cwd: join(repo, 'docs') }));
     });
 
+    it('refuses an image overwritten with text under a path Git Bash would rewrite', () => {
+      // `a=/` is where MSYS argument conversion turns the path git receives
+      // into another one, so the per-side check would read a path that is
+      // not in the change. A no-op wherever that conversion does not exist.
+      declareImagesBinary();
+      commitFile('docs/a=/shot.png', binaryBytes(), 'add a screenshot');
+      pushAll();
+      commitFile('docs/a=/shot.png', 'source text where the image was\n', 'overwrite with text');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
     it('refuses a declared image that a local -diff attribute would let text replace unread', () => {
       declareImagesBinary();
       commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');

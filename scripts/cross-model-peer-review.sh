@@ -33,6 +33,11 @@
 # `2>&1` therefore fed our own words to the guards that grep for the reviewer's.
 # `< /dev/null` is load-bearing — without it the CLI hangs on stdin.
 set -u
+# Git Bash rewrites a native program's argument that looks like a POSIX path —
+# `d/a=/b.png` reaches git as `d/a=C:/Program Files/Git/b.png` — so git would
+# check a path the change does not contain. Off, git receives each argument as
+# written; Git for Windows reads /dev/null itself. Inert everywhere else.
+export MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1
 RECORD=""
 POSITIONAL=()
 ACKNOWLEDGE=""
