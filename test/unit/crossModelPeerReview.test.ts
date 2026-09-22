@@ -1125,6 +1125,28 @@ describe('cross-model peer review wrapper', () => {
       expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true, cwd: join(repo, 'docs') }));
     });
 
+    it('reviews the whole change from a subdirectory even when diff.relative is set', () => {
+      git(['config', 'diff.relative', 'true']);
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+
+      runWrapper(CLEAN, { record: true, cwd: join(repo, 'docs') });
+
+      expectReceipt();
+      expect(staged()).toContain('+a change to review');
+      expectNamedWithoutBytes('docs/media/shot.png');
+    });
+
+    it('refuses an image overwritten with text from a subdirectory when diff.relative is set', () => {
+      git(['config', 'diff.relative', 'true']);
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+      pushAll();
+      commitFile('docs/media/shot.png', 'source text where the image was\n', 'overwrite with text');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true, cwd: join(repo, 'docs') }));
+    });
+
     it('refuses an image overwritten with text under a path Git Bash would rewrite', () => {
       // `a=/` is where MSYS argument conversion turns the path git receives
       // into another one, so the per-side check would read a path that is

@@ -69,7 +69,9 @@ git_nr() { MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1 git --no-replace-objects "
 # run from a subdirectory then opens relative to it.
 EMPTY_TREE=$(git hash-object -t tree --stdin < /dev/null) || {
   echo "cannot name the empty tree — refusing to review with attributes that may hide source" >&2; exit 10; }
-git_view() { git_nr -c core.attributesFile=/dev/null --attr-source="$EMPTY_TREE" "$@"; }
+# From the root, so a subdirectory run under diff.relative cannot narrow the
+# change or hand the checks paths relative to somewhere else.
+git_view() { git_nr -C "$REPO_ROOT" -c core.attributesFile=/dev/null --attr-source="$EMPTY_TREE" "$@"; }
 
 # macOS ships `shasum`, not `sha256sum`, so the acknowledgement path exited 20
 # there — recording became impossible on a whole platform for want of one
@@ -325,7 +327,7 @@ while IFS= read -r -d '' record; do
   # Git calls a pair binary when either side is, so text on one side — an image
   # overwritten with source, or the reverse — would ride along unread.
   sides=$(for side in "$BASE_SHA" "$REVIEWED_SHA"; do
-    git_view -C "$REPO_ROOT" --literal-pathspecs diff --numstat --no-ext-diff "$EMPTY_TREE" "$side" -- "$path" || exit 1
+    git_view --literal-pathspecs diff --numstat --no-ext-diff "$EMPTY_TREE" "$side" -- "$path" || exit 1
   done) || { echo "git diff --numstat failed for one side of a binary path; refusing" >&2; exit 10; }
   text_side=""
   case $'\n'"$sides" in *$'\n'[0-9]*) text_side=yes ;; esac
