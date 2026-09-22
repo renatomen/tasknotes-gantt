@@ -62,7 +62,7 @@ function git(args: string[], cwd = repo): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', env: childEnv }).trim();
 }
 
-function commitFile(path: string, body: string, message: string): string {
+function commitFile(path: string, body: string | Buffer, message: string): string {
   const full = join(repo, path);
   mkdirSync(join(full, '..'), { recursive: true });
   writeFileSync(full, body);
@@ -102,6 +102,8 @@ interface StubOpts {
   acknowledge?: boolean;
   exit?: string;
   sideEffect?: string;
+  cwd?: string;
+  env?: Record<string, string>;
 }
 
 /**
@@ -120,7 +122,7 @@ function runWrapper(response: string, opts: StubOpts = {}): Run {
   if (opts.record) args.push('--record');
   if (opts.acknowledge) args.push('--acknowledge');
   const result = execFileSync('bash', args, {
-    cwd: repo,
+    cwd: opts.cwd ?? repo,
     encoding: 'utf8',
     env: {
       ...stubbedEnv(),
@@ -129,6 +131,7 @@ function runWrapper(response: string, opts: StubOpts = {}): Run {
       PEER_STUB_RESPONSE: responseFile,
       PEER_STUB_EXIT: opts.exit ?? '0',
       PEER_STUB_SIDE_EFFECT: opts.sideEffect ?? '',
+      ...opts.env,
     },
     // The wrapper signals every refusal through its exit code, so a nonzero
     // status is the subject of most of these tests, not a failure of them.
@@ -157,6 +160,16 @@ function receipts(): Record<string, Record<string, unknown>> {
 }
 
 const CLEAN = 'SAW-DIFF: @@SENTINEL@@\n\nNothing found.\n\nVERDICT: CLEAN';
+
+/**
+ * Overrides one command inside the wrapper's bash, as an exported function.
+ * A shim on PATH is not enough: Git for Windows' bin\bash.exe, which is what
+ * `bash` resolves to on the CI runner, puts git's own directories ahead of
+ * PATH, so the real git and cat would win. A function beats PATH everywhere.
+ */
+function exportedBashFunction(name: string, body: string): Record<string, string> {
+  return { [`BASH_FUNC_${name}%%`]: `() { ${body} }` };
+}
 
 /** Windows paths reach the stub through bash, which reads backslashes as escapes. */
 const posix = (p: string): string => p.split('\\').join('/');
@@ -520,6 +533,30 @@ describe('cross-model peer review wrapper', () => {
     expect(trend).not.toContain('MODIFIES maintainability-registry.json');
   });
 
+  it('delivers the trend measurement from the base-side copy every run on main takes', () => {
+    // The base-side copy runs from a temp directory, so this is the path a
+    // wrapper-wide change to how arguments reach native programs breaks.
+    writeFileSync(
+      join(repo, 'scripts', 'stage-peer-trend-block.sh'),
+      readFileSync(resolve('scripts/stage-peer-trend-block.sh'), 'utf8'),
+    );
+    commitFile(
+      'scripts/maintainability-trend.mjs',
+      'process.stdout.write("BASE-SIDE-TREND\\n");\n',
+      'base-side trend script',
+    );
+    commitFile('scripts/maintainability-registry.mjs', 'export {};\n', 'base-side registry reader');
+    commitFile('maintainability-registry.json', '{}\n', 'base-side registry');
+    git(['push', '-q', '--no-verify', 'origin', 'main']);
+    commitFile('after-base.txt', 'a change to review\n', 'reviewable work');
+
+    runWrapper(CLEAN);
+    const trend = readFileSync(`${promptFile}.trend`, 'utf8');
+
+    expect(trend).toContain('BASE-SIDE-TREND');
+    expect(trend).not.toContain('trend measurement unavailable');
+  });
+
   it('flags a branch-side registry modification inside the staged block', () => {
     // The measurement deliberately uses the main-side registry; when the
     // branch edits the registry, that blind spot must be loud, not silent.
@@ -825,6 +862,24 @@ describe('cross-model peer review wrapper', () => {
     expect(run.stderr).toContain('submodule pointer');
   });
 
+  it('refuses a submodule pointer move outside the subdirectory it runs from under diff.relative', () => {
+    commitFile('docs/notes.md', 'a place to run from\n', 'docs');
+    const nested = join(repo, 'vendor', 'lib');
+    mkdirSync(nested, { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main', nested], { env: childEnv });
+    writeFileSync(join(nested, 'code.txt'), 'submodule content\n');
+    git(['add', 'code.txt'], nested);
+    git(['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-q', '--no-verify', '-m', 'nested'], nested);
+    git(['add', 'vendor/lib']);
+    git(['commit', '-q', '--no-verify', '-m', 'add submodule pointer']);
+    git(['config', 'diff.relative', 'true']);
+
+    const run = runExpectingRefusal(CLEAN, { record: true, cwd: join(repo, 'docs') });
+
+    expect(run.status).toBe(14);
+    expect(run.stderr).toContain('submodule pointer');
+  });
+
   it('allows an ordinary path that merely contains the submodule mode digits', () => {
     // Unanchored, the gitlink match also hit `docs/160000-notes.md` and refused
     // an innocent change — the same class of failure as the exit-17 bug.
@@ -833,5 +888,458 @@ describe('cross-model peer review wrapper', () => {
     const run = runWrapper(CLEAN, { record: true });
 
     expect(run.stdout).toContain('VERDICT:CLEAN');
+  });
+
+  it('refuses to start on a tracked edit the commit does not contain', () => {
+    writeFileSync(join(repo, 'seed.txt'), 'edited but not committed\n');
+
+    const run = runExpectingRefusal(CLEAN, { record: true });
+
+    expect(run.status).toBe(15);
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  it('refuses to record when the remote moves past the reviewed base during the review', () => {
+    const other = join(repo, '..', 'other');
+    execFileSync('git', ['clone', '-q', origin, other], { env: childEnv });
+    git(['config', 'user.email', 'o@e.com'], other);
+    git(['config', 'user.name', 'O'], other);
+    writeFileSync(join(other, 'theirs.txt'), 'pushed while the review ran\n');
+    git(['add', 'theirs.txt'], other);
+    git(['commit', '-q', '--no-verify', '-m', 'theirs'], other);
+
+    const run = runExpectingRefusal(CLEAN, {
+      record: true,
+      sideEffect: `git -C '${posix(other)}' push -q --no-verify origin main`,
+    });
+
+    expect(run.status).toBe(16);
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  it('refuses when git cannot read an object of the reviewed range', () => {
+    // A diff that dies partway still prints what it rendered so far, so the
+    // status — not the output — is what says whether the change was read whole.
+    const blob = git(['rev-parse', 'HEAD:second.txt']);
+    const object = join(repo, '.git', 'objects', blob.slice(0, 2), blob.slice(2));
+    chmodSync(object, 0o644);
+    rmSync(object);
+
+    const run = runExpectingRefusal(CLEAN, { record: true });
+
+    expect(run.status).toBe(10);
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  describe('binary files in the reviewed range', () => {
+    // Bytes after a NUL, so git's own content test calls the file binary, and a
+    // marker no rendering of the file could produce unless its bytes leaked.
+    const PAYLOAD_MARKER = 'PAYLOAD-BYTES-MUST-NOT-REACH-THE-REVIEWER';
+    const binaryBytes = (): Buffer =>
+      Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]), Buffer.from(PAYLOAD_MARKER)]);
+
+    /** The repository's own declaration, as this repo's .gitattributes makes it. */
+    function declareImagesBinary(): void {
+      commitFile('.gitattributes', '*.png binary\n', 'declare images binary');
+    }
+
+    function pushAll(): void {
+      git(['push', '-q', '--no-verify', 'origin', 'main']);
+    }
+
+    function staged(): string {
+      return readFileSync(`${promptFile}.staged`, 'utf8');
+    }
+
+    function expectReceipt(): void {
+      expect(typeof receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBe('string');
+    }
+
+    /** Git's own attribute-neutral rendering of the range: what the reviewer must receive, whole. */
+    function neutralDiff(): string {
+      const emptyTree = execFileSync('git', ['hash-object', '-t', 'tree', '--stdin'], {
+        cwd: repo,
+        encoding: 'utf8',
+        env: childEnv,
+        input: '',
+      }).trim();
+      return execFileSync(
+        'git',
+        [
+          '--no-replace-objects',
+          '-c',
+          'core.attributesFile=/dev/null',
+          `--attr-source=${emptyTree}`,
+          'diff',
+          '--no-ext-diff',
+          '--no-textconv',
+          'origin/main..HEAD',
+        ],
+        { cwd: repo, encoding: 'utf8', env: childEnv },
+      );
+    }
+
+    function stagedPayload(): string {
+      return staged().replace(/^SAW-DIFF: PEER-[0-9a-f]+-\d+\r?\n\r?\n/, '');
+    }
+
+    function expectNamedWithoutBytes(path: string): void {
+      expect(staged()).toContain(path);
+      expect(staged()).not.toContain('\0');
+      expect(staged()).not.toContain(PAYLOAD_MARKER);
+      // `--binary` would carry the bytes base85-encoded, past both checks above.
+      expect(staged()).not.toContain('GIT binary patch');
+      // A path alone is not the change: the reviewer gets git's whole record.
+      expect(stagedPayload()).toBe(neutralDiff());
+    }
+
+    function expectRefusedUnreviewed(run: Run): void {
+      expect(run.status).toBe(14);
+      expect(existsSync(`${promptFile}.staged`)).toBe(false);
+      expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+    }
+
+    it('records a receipt for an added image, naming it without its bytes', () => {
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/shot.png');
+      // Beside the image, the text change is still read in full.
+      const expectedDiff = neutralDiff();
+      expect(expectedDiff).toContain('+a change to review');
+      expect(expectedDiff).toContain('+after a hard break');
+      expect(expectedDiff).toContain('Binary files /dev/null and b/docs/media/shot.png differ');
+    });
+
+    it('records a receipt when the whole range is one image', () => {
+      declareImagesBinary();
+      pushAll();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/shot.png');
+    });
+
+    it('records a receipt for a renamed image, naming both paths', () => {
+      declareImagesBinary();
+      commitFile('docs/media/old.png', binaryBytes(), 'add a screenshot');
+      pushAll();
+      git(['mv', 'docs/media/old.png', 'docs/media/new.png']);
+      git(['commit', '-q', '--no-verify', '-m', 'rename the screenshot']);
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/old.png');
+      expectNamedWithoutBytes('docs/media/new.png');
+    });
+
+    it('refuses code renamed out of a declared image, which the rename pair would hide', () => {
+      // Similar enough that git pairs the two as a rename and prints one
+      // "Binary files" line for the pair, text side included.
+      const lines = Array.from({ length: 60 }, (_, i) => `line ${i}\n`).join('');
+      declareImagesBinary();
+      commitFile('old.png', Buffer.concat([Buffer.from([0x00]), Buffer.from(lines)]), 'an image with text inside');
+      pushAll();
+      git(['rm', '-q', 'old.png']);
+      commitFile('new.ts', `${lines}export const smuggled = 1;\n`, 'rename it to text code and add a line');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('reviews a large text rename as a rename, not as a delete and an add past the size cap', () => {
+      commitFile('big.md', `${'a line of prose that is long enough\n'.repeat(12000)}`, 'a large document');
+      pushAll();
+      git(['mv', 'big.md', 'moved.md']);
+      git(['commit', '-q', '--no-verify', '-m', 'move it']);
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expect(staged()).toContain('rename to moved.md');
+    });
+
+    it('records a receipt when an image leaves together with its own declaration', () => {
+      commitFile('.gitattributes', 'docs/media/gone.png binary\n', 'declare one image');
+      commitFile('docs/media/gone.png', binaryBytes(), 'add it');
+      pushAll();
+      git(['rm', '-q', 'docs/media/gone.png', '.gitattributes']);
+      git(['commit', '-q', '--no-verify', '-m', 'drop the image and its rule']);
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/gone.png');
+    });
+
+    it('records a receipt when an image is renamed and its own declaration moves with it', () => {
+      commitFile('.gitattributes', 'docs/media/old.png binary\n', 'declare one image');
+      commitFile('docs/media/old.png', binaryBytes(), 'add it');
+      pushAll();
+      git(['mv', 'docs/media/old.png', 'docs/media/new.png']);
+      commitFile('.gitattributes', 'docs/media/new.png binary\n', 'move the rule with it');
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/new.png');
+    });
+
+    it('records a receipt for a deleted image, naming it without its bytes', () => {
+      declareImagesBinary();
+      commitFile('docs/media/gone.png', binaryBytes(), 'add a screenshot');
+      pushAll();
+      git(['rm', '-q', 'docs/media/gone.png']);
+      git(['commit', '-q', '--no-verify', '-m', 'drop the screenshot']);
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/gone.png');
+    });
+
+    it('records a receipt for an image whose path has spaces', () => {
+      declareImagesBinary();
+      commitFile('docs/media/a shot.png', binaryBytes(), 'add a screenshot');
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/a shot.png');
+    });
+
+    it('reviews a text file that a committed binary attribute would hide', () => {
+      declareImagesBinary();
+      pushAll();
+      commitFile('notes.png', 'text wearing an image name\n', 'the only change');
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expect(staged()).toContain('+text wearing an image name');
+    });
+
+    it('reviews source that a committed -diff attribute would hide', () => {
+      commitFile('.gitattributes', 'code.ts -diff\n', 'suppress a diff');
+      pushAll();
+      commitFile('code.ts', 'export const hidden = true;\n', 'the only change');
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expect(staged()).toContain('+export const hidden = true;');
+    });
+
+    it('reviews a hidden text file beside a real image in the same range', () => {
+      declareImagesBinary();
+      pushAll();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+      commitFile('notes.png', 'text beside the image\n', 'text under an image name');
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/shot.png');
+      expect(staged()).toContain('+text beside the image');
+    });
+
+    it('refuses UTF-16 text, which git cannot render and the repo does not declare binary', () => {
+      // What Windows PowerShell 5.1 writes for `>` — real text the reviewer
+      // would receive as one "Binary files differ" line.
+      commitFile('notes.md', Buffer.from('﻿unreadable notes\n', 'utf16le'), 'utf-16 notes');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('refuses text whose first NUL lies past the window git tests for binary content', () => {
+      // Git calls it text and renders it, but a shell variable cannot hold the
+      // NUL, so the reviewer would get a copy that differs from the change.
+      commitFile(
+        'late-nul.txt',
+        Buffer.concat([Buffer.from(`${'a'.repeat(9000)}\n`), Buffer.from([0x00]), Buffer.from('after the nul\n')]),
+        'text with a late NUL',
+      );
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('refuses UTF-16 text whose path has spaces', () => {
+      commitFile('my notes.md', Buffer.from('﻿unreadable notes\n', 'utf16le'), 'utf-16 notes');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('refuses a binary the repository never declared binary', () => {
+      declareImagesBinary();
+      commitFile('data.bin', binaryBytes(), 'an undeclared binary');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('refuses source hidden by the local info/attributes file', () => {
+      mkdirSync(join(repo, '.git', 'info'), { recursive: true });
+      writeFileSync(join(repo, '.git', 'info', 'attributes'), 'code.ts -diff\n');
+      commitFile('code.ts', 'export const hidden = true;\n', 'locally suppressed');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('refuses a binary declared only by the local info/attributes file', () => {
+      mkdirSync(join(repo, '.git', 'info'), { recursive: true });
+      writeFileSync(join(repo, '.git', 'info', 'attributes'), 'notes.md binary\n');
+      commitFile('notes.md', Buffer.from('﻿unreadable notes\n', 'utf16le'), 'utf-16 notes');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('refuses a declared image overwritten with text, whose new lines git would hide', () => {
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+      pushAll();
+      commitFile('docs/media/shot.png', 'source text where the image was\n', 'overwrite with text');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('refuses text overwritten with a declared image, whose removed lines git would hide', () => {
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', 'text that will be replaced\n', 'text under an image name');
+      pushAll();
+      commitFile('docs/media/shot.png', binaryBytes(), 'replace it with an image');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('records a receipt for an added image when the wrapper runs from a subdirectory', () => {
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+
+      runWrapper(CLEAN, { record: true, cwd: join(repo, 'docs') });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/shot.png');
+    });
+
+    it('refuses an image overwritten with text when the wrapper runs from a subdirectory', () => {
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+      pushAll();
+      commitFile('docs/media/shot.png', 'source text where the image was\n', 'overwrite with text');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true, cwd: join(repo, 'docs') }));
+    });
+
+    it('reviews the whole change from a subdirectory even when diff.relative is set', () => {
+      git(['config', 'diff.relative', 'true']);
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+
+      runWrapper(CLEAN, { record: true, cwd: join(repo, 'docs') });
+
+      expectReceipt();
+      expect(staged()).toContain('+a change to review');
+      expectNamedWithoutBytes('docs/media/shot.png');
+    });
+
+    it('refuses an image overwritten with text from a subdirectory when diff.relative is set', () => {
+      git(['config', 'diff.relative', 'true']);
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+      pushAll();
+      commitFile('docs/media/shot.png', 'source text where the image was\n', 'overwrite with text');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true, cwd: join(repo, 'docs') }));
+    });
+
+    it('refuses an image overwritten with text under a path Git Bash would rewrite', () => {
+      // `a=/` is where MSYS argument conversion turns the path git receives
+      // into another one, so the per-side check would read a path that is
+      // not in the change. A no-op wherever that conversion does not exist.
+      declareImagesBinary();
+      commitFile('docs/a=/shot.png', binaryBytes(), 'add a screenshot');
+      pushAll();
+      commitFile('docs/a=/shot.png', 'source text where the image was\n', 'overwrite with text');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('refuses a declared image that a local -diff attribute would let text replace unread', () => {
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+      pushAll();
+      mkdirSync(join(repo, '.git', 'info'), { recursive: true });
+      writeFileSync(join(repo, '.git', 'info', 'attributes'), '*.png -diff\n');
+      commitFile('docs/media/shot.png', 'source text where the image was\n', 'overwrite with text');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('refuses when reading the rendered diff back fails partway', () => {
+      // A read that dies after a prefix still leaves text, and a clean review
+      // of that prefix would be a receipt for a change nobody saw in full.
+      const run = runExpectingRefusal(CLEAN, {
+        record: true,
+        env: exportedBashFunction(
+          'cat',
+          'case "$(basename -- "${1:-}")" in tmp.*) head -c 20 "$1"; return 1 ;; esac; command cat "$@";',
+        ),
+      });
+
+      expect(run.status).toBe(10);
+      expect(existsSync(`${promptFile}.staged`)).toBe(false);
+      expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+    });
+
+    it('refuses a binary scan that was cut short mid-record', () => {
+      // Without its closing NUL the last record never reaches the check, and a
+      // loop that quietly stops would pass the change on unvetted.
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+
+      const run = runExpectingRefusal(CLEAN, {
+        record: true,
+        env: exportedBashFunction(
+          'git',
+          `case " $* " in *" -z "*) printf -- '-\\t-\\tdocs/media/shot.png'; return 0 ;; esac; command git "$@";`,
+        ),
+      });
+
+      expect(run.status).toBe(10);
+      expect(existsSync(`${promptFile}.staged`)).toBe(false);
+      expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+    });
+
+    describe('when a git step the binary check depends on fails', () => {
+      it.each([
+        ['the binary scan', '-z'],
+        ['the declaration lookup', 'check-attr'],
+        ['the per-side content check', '--literal-pathspecs'],
+      ])('refuses when %s fails', (_step, failOn) => {
+        declareImagesBinary();
+        commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+
+        const run = runExpectingRefusal(CLEAN, {
+          record: true,
+          env: exportedBashFunction('git', `case " $* " in *" ${failOn} "*) return 3 ;; esac; command git "$@";`),
+        });
+
+        expect(run.status).toBe(10);
+        expect(existsSync(`${promptFile}.staged`)).toBe(false);
+        expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+      });
+    });
+
+    it('tells the reviewer a binary line names a file whose bytes are deliberately absent', () => {
+      runWrapper(CLEAN);
+      const prompt = readFileSync(promptFile, 'utf8');
+
+      expect(prompt).toMatch(/'Binary files \.\.\. differ' line names a changed\s+binary file/);
+      expect(prompt).toMatch(/its bytes are\s+deliberately absent/);
+    });
   });
 });
