@@ -83,6 +83,10 @@ when it saves, and you change or remove them in Markdown:
   **Availability blocks are set on this calendar — edit them as markdown for
   now.**
 
+A single-date day off or event is edited, and saved, as its date, name and
+**Marker** only. Any other field on such an entry, such as a `region:` you added,
+is dropped from every entry in that list when you save a change to the list.
+
 ### Renaming a calendar
 
 Type a new name into **Name** and save. The note is renamed in its own folder, so

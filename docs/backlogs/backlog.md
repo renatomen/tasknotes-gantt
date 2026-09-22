@@ -170,6 +170,18 @@ state test per case. Surfaced by the adversarial reviewer during U3 of
 `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page states only
 what the form checks.
 
+### P2 — Editing one calendar entry drops extra fields from every entry in its list (2026-09-23)
+
+`readDatedList` (`calendarEditorState.ts`) treats any single-date record without `start`,
+`pattern` or `rrule` as editable, and `datedForWrite` rebuilds each such record from `date`,
+`name` and `marker` only. So when a `non_working` or `events` list changes, every simple entry in
+it loses any other field (a hand-added `region:`, `source:` and so on), including entries the user
+never touched. Reproduced by the adversarial reviewer with the real modules. Fix direction: carry
+unrecognised fields through `DatedEntry` (or treat an entry with unknown keys as a raw
+pass-through), pinned by a state test that edits one entry and asserts a sibling's extra key
+survives. Surfaced during U3 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page discloses it.
+
 ### P2 — The calendar editor loses or splits unsaved edits outside the close guard (2026-09-23)
 
 The unsaved-changes guard (`registerCalendarEditor.ts`) patches only `WorkspaceLeaf.detach`, so
