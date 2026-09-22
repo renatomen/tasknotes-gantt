@@ -834,4 +834,224 @@ describe('cross-model peer review wrapper', () => {
 
     expect(run.stdout).toContain('VERDICT:CLEAN');
   });
+
+  it('refuses to start on a tracked edit the commit does not contain', () => {
+    writeFileSync(join(repo, 'seed.txt'), 'edited but not committed\n');
+
+    const run = runExpectingRefusal(CLEAN, { record: true });
+
+    expect(run.status).toBe(15);
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  it('refuses to record when the remote moves past the reviewed base during the review', () => {
+    const other = join(repo, '..', 'other');
+    execFileSync('git', ['clone', '-q', origin, other], { env: childEnv });
+    git(['config', 'user.email', 'o@e.com'], other);
+    git(['config', 'user.name', 'O'], other);
+    writeFileSync(join(other, 'theirs.txt'), 'pushed while the review ran\n');
+    git(['add', 'theirs.txt'], other);
+    git(['commit', '-q', '--no-verify', '-m', 'theirs'], other);
+
+    const run = runExpectingRefusal(CLEAN, {
+      record: true,
+      sideEffect: `git -C '${posix(other)}' push -q --no-verify origin main`,
+    });
+
+    expect(run.status).toBe(16);
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  it('refuses when git cannot read an object of the reviewed range', () => {
+    // A diff that dies partway still prints what it rendered so far, so the
+    // status — not the output — is what says whether the change was read whole.
+    const blob = git(['rev-parse', 'HEAD:second.txt']);
+    const object = join(repo, '.git', 'objects', blob.slice(0, 2), blob.slice(2));
+    chmodSync(object, 0o644);
+    rmSync(object);
+
+    const run = runExpectingRefusal(CLEAN, { record: true });
+
+    expect(run.status).toBe(10);
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  describe('binary files in the reviewed range', () => {
+    // Bytes after a NUL, so git's own content test calls the file binary, and a
+    // marker no rendering of the file could produce unless its bytes leaked.
+    const PAYLOAD_MARKER = 'PAYLOAD-BYTES-MUST-NOT-REACH-THE-REVIEWER';
+    const binaryBytes = (): Buffer =>
+      Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]), Buffer.from(PAYLOAD_MARKER)]);
+
+    function commitBytes(path: string, bytes: Buffer, message: string): void {
+      const full = join(repo, path);
+      mkdirSync(join(full, '..'), { recursive: true });
+      writeFileSync(full, bytes);
+      git(['add', path]);
+      git(['commit', '-q', '--no-verify', '-m', message]);
+    }
+
+    /** The repository's own declaration, as this repo's .gitattributes makes it. */
+    function declareImagesBinary(): void {
+      commitFile('.gitattributes', '*.png binary\n', 'declare images binary');
+    }
+
+    function pushAll(): void {
+      git(['push', '-q', '--no-verify', 'origin', 'main']);
+    }
+
+    function staged(): string {
+      return readFileSync(`${promptFile}.staged`, 'utf8');
+    }
+
+    function expectReceipt(): void {
+      expect(typeof receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBe('string');
+    }
+
+    function expectNamedWithoutBytes(path: string): void {
+      expect(staged()).toContain(path);
+      expect(staged()).not.toContain('\0');
+      expect(staged()).not.toContain(PAYLOAD_MARKER);
+      // `--binary` would carry the bytes base85-encoded, past both checks above.
+      expect(staged()).not.toContain('GIT binary patch');
+    }
+
+    function expectRefusedUnreviewed(run: Run): void {
+      expect(run.status).toBe(14);
+      expect(existsSync(`${promptFile}.staged`)).toBe(false);
+      expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+    }
+
+    it('records a receipt for an added image, naming it without its bytes', () => {
+      declareImagesBinary();
+      commitBytes('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/shot.png');
+      // Beside the image, the text change is still read in full.
+      expect(staged()).toContain('+a change to review');
+    });
+
+    it('records a receipt when the whole range is one image', () => {
+      declareImagesBinary();
+      pushAll();
+      commitBytes('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/shot.png');
+    });
+
+    it('records a receipt for a renamed image, naming both paths', () => {
+      declareImagesBinary();
+      commitBytes('docs/media/old.png', binaryBytes(), 'add a screenshot');
+      pushAll();
+      git(['mv', 'docs/media/old.png', 'docs/media/new.png']);
+      git(['commit', '-q', '--no-verify', '-m', 'rename the screenshot']);
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/old.png');
+      expectNamedWithoutBytes('docs/media/new.png');
+    });
+
+    it('records a receipt for a deleted image, naming it without its bytes', () => {
+      declareImagesBinary();
+      commitBytes('docs/media/gone.png', binaryBytes(), 'add a screenshot');
+      pushAll();
+      git(['rm', '-q', 'docs/media/gone.png']);
+      git(['commit', '-q', '--no-verify', '-m', 'drop the screenshot']);
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/gone.png');
+    });
+
+    it('records a receipt for an image whose path has spaces', () => {
+      declareImagesBinary();
+      commitBytes('docs/media/a shot.png', binaryBytes(), 'add a screenshot');
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/a shot.png');
+    });
+
+    it('reviews a text file that a committed binary attribute would hide', () => {
+      declareImagesBinary();
+      pushAll();
+      commitFile('notes.png', 'text wearing an image name\n', 'the only change');
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expect(staged()).toContain('+text wearing an image name');
+    });
+
+    it('reviews source that a committed -diff attribute would hide', () => {
+      commitFile('.gitattributes', 'code.ts -diff\n', 'suppress a diff');
+      pushAll();
+      commitFile('code.ts', 'export const hidden = true;\n', 'the only change');
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expect(staged()).toContain('+export const hidden = true;');
+    });
+
+    it('reviews a hidden text file beside a real image in the same range', () => {
+      declareImagesBinary();
+      pushAll();
+      commitBytes('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+      commitFile('notes.png', 'text beside the image\n', 'text under an image name');
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/shot.png');
+      expect(staged()).toContain('+text beside the image');
+    });
+
+    it('refuses UTF-16 text, which git cannot render and the repo does not declare binary', () => {
+      // What Windows PowerShell 5.1 writes for `>` — real text the reviewer
+      // would receive as one "Binary files differ" line.
+      commitBytes('notes.md', Buffer.from('﻿unreadable notes\n', 'utf16le'), 'utf-16 notes');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('refuses UTF-16 text whose path has spaces', () => {
+      commitBytes('my notes.md', Buffer.from('﻿unreadable notes\n', 'utf16le'), 'utf-16 notes');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('refuses a binary the repository never declared binary', () => {
+      declareImagesBinary();
+      commitBytes('data.bin', binaryBytes(), 'an undeclared binary');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('refuses source hidden by the local info/attributes file', () => {
+      mkdirSync(join(repo, '.git', 'info'), { recursive: true });
+      writeFileSync(join(repo, '.git', 'info', 'attributes'), 'code.ts -diff\n');
+      commitFile('code.ts', 'export const hidden = true;\n', 'locally suppressed');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('tells the reviewer a binary line names a file whose bytes are deliberately absent', () => {
+      runWrapper(CLEAN);
+      const prompt = readFileSync(promptFile, 'utf8');
+
+      expect(prompt).toMatch(/'Binary files \.\.\. differ' line names a changed\s+binary file/);
+      expect(prompt).toMatch(/its bytes are\s+deliberately absent/);
+    });
+  });
 });
