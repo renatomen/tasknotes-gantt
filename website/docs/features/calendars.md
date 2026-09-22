@@ -69,7 +69,7 @@ events:
 | --- | --- |
 | `pattern` | The **working days**, as a recurrence rule. Every day the rule does not cover is a non-working day. |
 | `non_working` | Individual days off: a bare date, `{date, name}`, or a `{start, end}` range (both days included). Dates only, no recurrence rules here. |
-| `availability` | Extra working days, each block with its own `pattern`. A day is a working day if the main `pattern` **or** any block covers it, so a Monday-to-Friday pattern plus a Saturday block works Monday to Saturday. |
+| `availability` | Extra working days, each block with its own `pattern`. A Monday-to-Friday pattern plus a Saturday block works Monday to Saturday. A `non_working` date is still a day off even when a block covers it. A block's rule is not anchored to `pattern_start`, so a block that uses `INTERVAL`, `COUNT` or `UNTIL` (every other Saturday, say) is ignored. |
 | `events` | Named days to show on the chart. An event is **shaded but does not block**: a task schedules straight through it. Set `marker: true` on a single-date event to draw it as a line instead. |
 | `color` | The calendar's colour. It appears beside the calendar in Select calendars… and on its markers, and it colours bars when **Bar fill** or **Bar strip** is set to **By calendar**. |
 
@@ -79,19 +79,18 @@ The quickest way to get one is the **Create calendar** command. It creates
 calendar note as markdown** shows you the raw frontmatter.
 
 A `pattern` with no `FREQ=` part makes the whole calendar invalid, and nothing
-uses it. So does a rule with `INTERVAL`, `COUNT` or `UNTIL` but no `pattern_start`.
-A rule that has `FREQ=` but that the chart cannot evaluate, such as a misspelt
-weekday or an hourly rule, is ignored instead: the calendar stays in use, its
-`non_working` days still count, and its pattern marks no day off. A single
+uses it. A `pattern` that has `FREQ=` but that the chart cannot evaluate, such as
+a misspelt weekday or an hourly rule, is ignored instead: the calendar stays in
+use, its `non_working` days still count, and its pattern marks no day off. A single
 malformed entry in a list is dropped and the rest of the calendar still works.
 
 ### Recurrence rules, and what they are not
 
 `pattern` takes an **RFC 5545 RRULE value**, which is the recurrence syntax
 iCalendar uses. If you have written a repeating event rule before, it will look
-familiar: `FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH` is a Sunday-to-Thursday week. A rule
-that uses `INTERVAL`, `COUNT` or `UNTIL` also needs a `pattern_start` date to
-count from.
+familiar: `FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH` is a Sunday-to-Thursday week. If
+`pattern` uses `INTERVAL`, `COUNT` or `UNTIL`, the note also needs a
+`pattern_start` date to count from; without one the whole calendar is invalid.
 
 There is **no iCalendar import or export**. A calendar note is this plugin's
 frontmatter in a Markdown file, and other calendar apps cannot read it. Calendar
