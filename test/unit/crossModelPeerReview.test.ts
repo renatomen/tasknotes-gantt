@@ -1295,6 +1295,25 @@ describe('cross-model peer review wrapper', () => {
       expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
     });
 
+    it('refuses a binary scan that was cut short mid-record', () => {
+      // Without its closing NUL the last record never reaches the check, and a
+      // loop that quietly stops would pass the change on unvetted.
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+
+      const run = runExpectingRefusal(CLEAN, {
+        record: true,
+        env: exportedBashFunction(
+          'git',
+          `case " $* " in *" -z "*) printf -- '-\\t-\\tdocs/media/shot.png'; return 0 ;; esac; command git "$@";`,
+        ),
+      });
+
+      expect(run.status).toBe(10);
+      expect(existsSync(`${promptFile}.staged`)).toBe(false);
+      expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+    });
+
     describe('when a git step the binary check depends on fails', () => {
       it.each([
         ['the binary scan', '-z'],
