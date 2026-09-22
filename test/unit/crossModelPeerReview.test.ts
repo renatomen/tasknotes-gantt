@@ -1258,6 +1258,26 @@ describe('cross-model peer review wrapper', () => {
       expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
     });
 
+    it('refuses when reading the rendered diff back fails partway', () => {
+      // A read that dies after a prefix still leaves text, and a clean review
+      // of that prefix would be a receipt for a change nobody saw in full.
+      const realCat = String(
+        execFileSync('bash', ['-c', 'command -v cat'], { encoding: 'utf8', env: childEnv }),
+      ).trim();
+      const shim = join(stubDir, 'cat');
+      writeFileSync(
+        shim,
+        `#!/usr/bin/env bash\ncase "$(basename -- "\${1:-}")" in tmp.*) head -c 20 "$1"; exit 1 ;; esac\nexec "${realCat}" "$@"\n`,
+      );
+      chmodSync(shim, 0o755);
+
+      const run = runExpectingRefusal(CLEAN, { record: true });
+
+      expect(run.status).toBe(10);
+      expect(existsSync(`${promptFile}.staged`)).toBe(false);
+      expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+    });
+
     describe('when a git step the binary check depends on fails', () => {
       /** Shadows git on the wrapper's PATH, failing only the call that carries `failOn`. */
       function failGitCallCarrying(failOn: string): void {

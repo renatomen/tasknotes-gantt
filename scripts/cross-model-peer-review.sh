@@ -304,7 +304,7 @@ if ! tr -d '\000' < "$SCAN_FILE" | cmp -s - "$SCAN_FILE"; then
   echo "the rendered diff contains a NUL byte the reviewer cannot receive; refusing" >&2
   exit 14
 fi
-DIFF=$(cat "$SCAN_FILE")
+DIFF=$(cat "$SCAN_FILE") || { echo "cannot read the rendered diff back — refusing to review part of it" >&2; exit 10; }
 if [ -z "$DIFF" ]; then
   echo "no diff against $BASE — nothing to review" >&2
   exit 3
