@@ -286,16 +286,25 @@ if ! git_nr merge-base --is-ancestor "$BASE_SHA" "$REVIEWED_SHA"; then
   exit 13
 fi
 
+SCAN_FILE=$(mktemp) || { echo "cannot stage the diff scan" >&2; exit 10; }
+trap 'rm -f "$SCAN_FILE"' EXIT
 # A nonzero status is fatal: a diff driver that dies partway still leaves
 # output, and half a change reviewed clean is a pass for the half nobody read.
 # --no-renames, as the binary scan below: a pair of an image and new text
 # would print one "Binary files" line for a text file the scan passed.
-DIFF=$(git_view diff --no-renames --no-ext-diff --no-textconv "$BASE_SHA".."$REVIEWED_SHA")
+git_view diff --no-renames --no-ext-diff --no-textconv "$BASE_SHA".."$REVIEWED_SHA" > "$SCAN_FILE"
 diff_status=$?
 if [ "$diff_status" -ne 0 ]; then
   echo "git diff failed (exit $diff_status) — refusing to review a partial change" >&2
   exit 10
 fi
+# Text whose first NUL lies past git's content test renders as text, but $(...)
+# silently drops the NUL, so the reviewer would get a copy that differs.
+if ! tr -d '\000' < "$SCAN_FILE" | cmp -s - "$SCAN_FILE"; then
+  echo "the rendered diff contains a NUL byte the reviewer cannot receive; refusing" >&2
+  exit 14
+fi
+DIFF=$(cat "$SCAN_FILE")
 if [ -z "$DIFF" ]; then
   echo "no diff against $BASE — nothing to review" >&2
   exit 3
@@ -307,8 +316,6 @@ fi
 # a verdict on content nobody read, so it refuses the whole review.
 # Through a file, never $(...) or a pipeline: bash drops the NUL separators, and
 # a pipeline reports only its last command's status.
-SCAN_FILE=$(mktemp) || { echo "cannot stage the binary scan" >&2; exit 10; }
-trap 'rm -f "$SCAN_FILE"' EXIT
 if ! git_view diff --numstat -z --no-renames --no-ext-diff "$BASE_SHA".."$REVIEWED_SHA" > "$SCAN_FILE"; then
   echo "git diff --numstat failed — cannot tell which files are binary; refusing" >&2
   exit 10

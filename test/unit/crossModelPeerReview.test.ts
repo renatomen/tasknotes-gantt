@@ -1077,6 +1077,18 @@ describe('cross-model peer review wrapper', () => {
       expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
     });
 
+    it('refuses text whose first NUL lies past the window git tests for binary content', () => {
+      // Git calls it text and renders it, but a shell variable cannot hold the
+      // NUL, so the reviewer would get a copy that differs from the change.
+      commitFile(
+        'late-nul.txt',
+        Buffer.concat([Buffer.from(`${'a'.repeat(9000)}\n`), Buffer.from([0x00]), Buffer.from('after the nul\n')]),
+        'text with a late NUL',
+      );
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
     it('refuses UTF-16 text whose path has spaces', () => {
       commitFile('my notes.md', Buffer.from('﻿unreadable notes\n', 'utf16le'), 'utf-16 notes');
 
