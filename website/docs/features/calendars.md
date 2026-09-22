@@ -134,8 +134,9 @@ saved with the view.
 
 - **Until you choose**, the chart shades every calendar that its tasks link to
   through the Calendar Property.
-- **Once you choose**, your choice decides the **shading only**. Each task still
-  stretches and splits by the calendar it links to itself. You can therefore shade
+- **Once you choose**, your choice decides the shading and which calendars'
+  markers are drawn, **not the scheduling**. Each task still stretches and splits
+  by the calendar it links to itself. You can therefore shade
   a calendar that no task follows, or have a task stretch over days that are not
   shaded.
 - The **Default calendar** row is the locale-weekend shading. It is the same
