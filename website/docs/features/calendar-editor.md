@@ -63,7 +63,8 @@ Further down, the **Exceptions** group holds the calendar's days off and events:
 
 Each entry the form can edit has a **Remove** button. Emptying **Description**,
 **Colour**, **Anchor date** or **Timezone** and saving removes that key from the
-frontmatter. Removing every entry from a list saves it as an empty list.
+frontmatter. Removing every entry from a list saves it as an empty list. Both
+assume the layout under [Write the frontmatter plainly](#write-the-frontmatter-plainly).
 
 A field the note cannot save shows its problem in red, for example a working-hours
 range whose start is not before its end, or an entry with no date. While any field
@@ -107,7 +108,8 @@ Repeating every 2 or more weeks (or days, or months) needs an **Anchor date**,
 so the calendar knows which week to start counting from.
 
 On a calendar that has no `pattern` yet, the builder starts on Monday to Friday,
-but nothing is written until you change it or choose **Edit as text**, which puts
+but nothing is written until you use one of its controls or choose **Edit as
+text**, which puts
 that Monday-to-Friday rule into the field. Until then the note still has no
 `pattern`, and the **Week** tab shows what that means.
 
@@ -166,8 +168,8 @@ for those.
 
 ### Gantt strip
 
-A zoomed-out strip of days around the dates the calendar lists, shaded the way
-the chart shades this calendar. Marker events are drawn as lines, labelled with
+A zoomed-out strip of days around the dates the calendar lists, with the
+calendar's non-working days and events shaded. Marker events are drawn as lines, labelled with
 their names. Hover a day to see its date.
 
 | Light | Dark |
@@ -266,11 +268,15 @@ change to that key.** Comments on other lines, keys you did not change and the
 note's body are kept exactly as written. A key the note did not have before is
 added at the end of the frontmatter.
 
-### Indent list items under their key
+### Write the frontmatter plainly
 
-Write each list's `- ` items indented under their key, as in the examples on this
-page and as Obsidian's own property editor writes them. **If any line of a list
-starts at the left margin, such as its `- ` items or the closing `]` of a list
-written across several lines in brackets, saving a change to that list leaves old
-lines behind and breaks the frontmatter.** Indent them in Markdown before editing
-that list here.
+Write each key unquoted and followed directly by its colon (`description: …`),
+and indent each list's `- ` items under their key, as in the examples on this page
+and as Obsidian's own property editor writes them. **The editor finds keys and
+lists by that layout.** Saving a change to a key written another way, such as
+`"description": …` or `description : …`, adds a second copy of the key, and
+emptying it removes nothing. If any line of a list starts at the left margin, such
+as its `- ` items or the closing `]` of a list written across several lines in
+brackets, saving a change to that list leaves old lines behind. A second copy of a
+key, or old list lines left behind, break the frontmatter, so tidy those keys in
+Markdown before editing them here.

@@ -119,7 +119,7 @@ shipped behaviour.
 
 `WorkingPatternEditor.svelte` opens an empty `pattern` in the visual builder with
 `defaultPattern()` (Weekly, Mon–Fri) selected, but writes nothing back until a control is
-changed: `parsePattern('')` returns null, the empty value keeps `raw` false, and the bound
+used: `parsePattern('')` returns null, the empty value keeps `raw` false, and the bound
 value stays `''`. So a hand-written calendar with no `pattern` and no availability blocks (a
 holidays-only calendar, which `workingDays.ts` treats as working every day) opens showing five
 weekdays selected while the Week tab beside it shows all seven working, and saving an unrelated
@@ -132,7 +132,7 @@ rendered weekday state matches the saved one. Surfaced while writing U3 of
 `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page documents the
 shipped behaviour.
 
-### P1 — Saving a calendar list written at the left margin corrupts the frontmatter (2026-09-23)
+### P1 — Saving a calendar key or list not written in the plain layout corrupts the frontmatter (2026-09-23)
 
 `keySpan` in `frontmatterEdit.ts` ends a key's block at the first line that is not indented,
 blank or a comment, and `isIndentedContent` requires leading whitespace. YAML also allows a block
@@ -143,9 +143,13 @@ column-0 items behind. Reproduced 2026-09-23 by calling `editFrontmatterKeys` di
 `non_working` produced the new block followed by the stale `- date: 2026-04-03` items, which is
 invalid YAML. The same happens to a flow list written across several lines whose closing `]`
 sits at column 0: the span stops before the `]`, which is left behind. Applies to every list the
-editor writes (`non_working`, `events`, `working_hours`, a set's `calendars`). Fix direction: end
-a key's block only at the next top-level `key:` line (or the fence), not at any unindented line,
-pinned by `frontmatterEdit` unit tests for a zero-indented list and a multi-line flow list.
+editor writes (`non_working`, `events`, `working_hours`, a set's `calendars`). The key lookup
+has the same text-layout blind spot: `keySpan` matches only `^key:`, so a quoted
+(`"description": …`) or spaced (`description : …`) key is not found, a change appends a second
+copy (YAML then rejects the duplicate key), and emptying it removes nothing while the form reads
+clean. Fix direction: locate key spans from the YAML parser's key positions instead of line
+shapes, so a block ends at the next top-level key (or the fence), pinned by `frontmatterEdit`
+unit tests for a zero-indented list, a multi-line flow list, and quoted and spaced keys.
 Surfaced by the adversarial reviewer during U3 of
 `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page discloses it.
 
