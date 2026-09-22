@@ -69,7 +69,7 @@ events:
 | --- | --- |
 | `pattern` | The **working days**, as a recurrence rule. Every day the rule does not cover is a non-working day. |
 | `non_working` | Individual days off: a bare date, `{date, name}`, or a `{start, end}` range (both days included). Dates only, no recurrence rules here. |
-| `availability` | Extra working days, each block with its own `pattern`. A Monday-to-Friday pattern plus a Saturday block works Monday to Saturday. A `non_working` date is still a day off even when a block covers it. A block's rule is not anchored to `pattern_start`, so a block that repeats every second week or more, or uses `COUNT` or `UNTIL`, is ignored (every other Saturday, say). |
+| `availability` | Extra working days, each block with its own `pattern`. A Monday-to-Friday pattern plus a Saturday block works Monday to Saturday. A `non_working` date is still a day off even when a block covers it. |
 | `events` | Named days to show on the chart. An event is **shaded but does not block**: a task schedules straight through it. Set `marker: true` on a single-date event to draw it as a line instead. |
 | `color` | The calendar's colour. It appears beside the calendar in Select calendars… and on its markers, and it colours bars when **Bar fill** or **Bar strip** is set to **By calendar**. |
 
