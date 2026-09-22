@@ -82,14 +82,13 @@ calendars:
 type Theme = "moonstone" | "obsidian";
 
 async function setTheme(theme: Theme): Promise<void> {
+  const bodyClass = theme === "moonstone" ? "theme-light" : "theme-dark";
+  const isActive = () => browser.execute((cls: string) => document.body.classList.contains(cls), bodyClass);
+  if (await isActive()) return;
   await browser.executeObsidian(async ({ app }, name) => {
     (app as unknown as { changeTheme?: (t: string) => void }).changeTheme?.(name);
   }, theme);
-  const bodyClass = theme === "moonstone" ? "theme-light" : "theme-dark";
-  await browser.waitUntil(
-    () => browser.execute((cls: string) => document.body.classList.contains(cls), bodyClass),
-    { timeout: 10000, timeoutMsg: `theme never switched to ${theme}` },
-  );
+  await browser.waitUntil(isActive, { timeout: 10000, timeoutMsg: `theme never switched to ${theme}` });
   await browser.pause(500);
 }
 
@@ -174,15 +173,8 @@ async function openInEditor(notePath: string): Promise<void> {
 }
 
 async function selectTab(label: string): Promise<void> {
-  const tabs = await $$(".og-cal-tab");
-  for (const tab of tabs) {
-    if ((await tab.getText()).trim() === label) {
-      await tab.click();
-      await browser.pause(400);
-      return;
-    }
-  }
-  throw new Error(`no editor tab labelled ${label}`);
+  await (await $(`.og-cal-tab=${label}`)).click();
+  await browser.pause(400);
 }
 
 async function formLabels(): Promise<string[]> {
@@ -348,9 +340,6 @@ describe("calendar editor, as the documentation shows it", () => {
   });
 
   it("edits a calendar set's member calendars", async () => {
-    await browser.executeObsidian(({ app }) => {
-      app.workspace.detachLeavesOfType("tngantt-calendar-editor");
-    });
     await openInEditor(TEAM_SET);
     expect(await formLabels()).toEqual(["Name", "Description", "Colour"]);
     const members = await browser.execute(() =>
