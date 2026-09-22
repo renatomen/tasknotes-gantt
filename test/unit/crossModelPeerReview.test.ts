@@ -102,6 +102,7 @@ interface StubOpts {
   acknowledge?: boolean;
   exit?: string;
   sideEffect?: string;
+  cwd?: string;
 }
 
 /**
@@ -120,7 +121,7 @@ function runWrapper(response: string, opts: StubOpts = {}): Run {
   if (opts.record) args.push('--record');
   if (opts.acknowledge) args.push('--acknowledge');
   const result = execFileSync('bash', args, {
-    cwd: repo,
+    cwd: opts.cwd ?? repo,
     encoding: 'utf8',
     env: {
       ...stubbedEnv(),
@@ -1060,6 +1061,36 @@ describe('cross-model peer review wrapper', () => {
       commitFile('docs/media/shot.png', 'text that will be replaced\n', 'text under an image name');
       pushAll();
       commitFile('docs/media/shot.png', binaryBytes(), 'replace it with an image');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('records a receipt for an added image when the wrapper runs from a subdirectory', () => {
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+
+      runWrapper(CLEAN, { record: true, cwd: join(repo, 'docs') });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/shot.png');
+    });
+
+    it('refuses an image overwritten with text when the wrapper runs from a subdirectory', () => {
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+      pushAll();
+      commitFile('docs/media/shot.png', 'source text where the image was\n', 'overwrite with text');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true, cwd: join(repo, 'docs') }));
+    });
+
+    it('refuses a declared image that a local -diff attribute would let text replace unread', () => {
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+      pushAll();
+      mkdirSync(join(repo, '.git', 'info'), { recursive: true });
+      writeFileSync(join(repo, '.git', 'info', 'attributes'), '*.png -diff\n');
+      commitFile('docs/media/shot.png', 'source text where the image was\n', 'overwrite with text');
 
       expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
     });

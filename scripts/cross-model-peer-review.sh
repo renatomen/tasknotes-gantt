@@ -59,7 +59,9 @@ git_nr() { git --no-replace-objects "$@"; }
 # and global attributes and lets git's own content test decide what is binary.
 # The system file and .git/info/attributes still apply; text they hide becomes
 # an undeclared binary, which the check before staging refuses.
-EMPTY_TREE=$(git hash-object -t tree /dev/null) || {
+# On stdin: Git for Windows hands a /dev/null argument to git as `nul`, which a
+# run from a subdirectory then opens relative to it.
+EMPTY_TREE=$(git hash-object -t tree --stdin < /dev/null) || {
   echo "cannot name the empty tree — refusing to review with attributes that may hide source" >&2; exit 10; }
 git_view() { git_nr -c core.attributesFile=/dev/null --attr-source="$EMPTY_TREE" "$@"; }
 
@@ -302,24 +304,25 @@ if ! git_view diff --numstat -z --no-renames --no-ext-diff "$BASE_SHA".."$REVIEW
   exit 10
 fi
 TAB=$'\t'
-declared_in() { git_nr -C "$REPO_ROOT" -c core.attributesFile=/dev/null check-attr --source="$1" binary -- "$2"; }
+attrs_at() { git_nr -C "$REPO_ROOT" -c core.attributesFile=/dev/null check-attr --source="$1" "${@:2}"; }
 while IFS= read -r -d '' record; do
   case "$record" in "-${TAB}-${TAB}"*) ;; *) continue ;; esac
   path=${record#"-${TAB}-${TAB}"}
-  # Only the reviewed commit may declare it: asked of the empty tree, the same
-  # query exposes a declaration from .git/info/attributes or the system file.
+  # Only the reviewed commit may declare it. Whatever the empty tree still
+  # reports comes from .git/info/attributes or the system file, which can hide
+  # a side's text or declare what the commit did not — so any of it refuses.
   # The value is the last field, so a path containing ": " cannot forge it.
-  in_commit=$(declared_in "$REVIEWED_SHA" "$path") && elsewhere=$(declared_in "$EMPTY_TREE" "$path") || {
+  in_commit=$(attrs_at "$REVIEWED_SHA" binary -- "$path") && outside=$(attrs_at "$EMPTY_TREE" -a -- "$path") || {
     echo "git check-attr failed for a binary path — cannot tell whether it is declared; refusing" >&2; exit 10; }
   # Git calls a pair binary when either side is, so text on one side — an image
   # overwritten with source, or the reverse — would ride along unread.
   sides=$(for side in "$BASE_SHA" "$REVIEWED_SHA"; do
-    git_view --literal-pathspecs diff --numstat --no-ext-diff "$EMPTY_TREE" "$side" -- "$path" || exit 1
+    git_view -C "$REPO_ROOT" --literal-pathspecs diff --numstat --no-ext-diff "$EMPTY_TREE" "$side" -- "$path" || exit 1
   done) || { echo "git diff --numstat failed for one side of a binary path; refusing" >&2; exit 10; }
   text_side=""
   case $'\n'"$sides" in *$'\n'[0-9]*) text_side=yes ;; esac
-  if [ "${in_commit##*: }" != "set" ] || [ "${elsewhere##*: }" = "set" ] || [ -n "$text_side" ]; then
-    echo "a changed file renders as binary but the repository does not declare it binary — its contents would never reach the reviewer; refusing: $path" >&2
+  if [ "${in_commit##*: }" != "set" ] || [ -n "$outside" ] || [ -n "$text_side" ]; then
+    echo "a changed file renders as binary but is not, on both sides, a binary only the reviewed commit declares — its contents would never reach the reviewer; refusing: $path" >&2
     exit 14
   fi
 done < "$SCAN_FILE"
