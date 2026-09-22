@@ -697,12 +697,6 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   behind the chart, and a worked-out bar stretching over them. Fixture:
   `test/specs/gantt-calendar-stretch.e2e.ts` (stages exactly that behaviour; the shading-only scene
   is `gantt-calendar-shading.e2e.ts`). Source: PRs #271, #272.
-- **Visual assets — capture for the calendar-note editor (0.1.0-beta.11)** — the working-pattern
-  builder with its year-grid / week / Gantt-strip preview tabs. Fixture: a **new**
-  `test/specs/gantt-calendar-editor-shots.e2e.ts` over the existing `test/vaults/gantt-calendar`.
-  Do **not** append to `test/specs/gantt-calendar-editor.e2e.ts`: it is ranked-defect entry 6
-  (`docs/reports/2026-08-15-001-maintainability-rediagnosis.md:234`) and growing it is a P1 under
-  the AGENTS.md invariant. Source: PRs #289–#298.
 - **Visual assets — capture for calendar items in the timeline (0.1.0-beta.11)** — a recurring task's
   authored row with its occupancy pieces, and the source switcher. Source: PR #386.
 - **Visual assets — capture for independent Fill / Strip / Icon channels (0.1.0-beta.11)** — one view
