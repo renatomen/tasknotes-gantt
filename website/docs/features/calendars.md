@@ -74,7 +74,7 @@ events:
 | `color` | The calendar's colour. It appears beside the calendar in Select calendars… and on its markers, and it colours bars when **Bar fill** or **Bar strip** is set to **By calendar**. |
 
 The quickest way to get one is the **Create calendar** command. It creates
-`Calendars/New Calendar.md` with a Monday-to-Friday pattern and an empty
+`New Calendar.md` in the `Calendars` folder (numbered if that name is taken) with a Monday-to-Friday pattern and an empty
 `non_working` list, then opens it in the calendar editor. The command **Open
 calendar note as markdown** shows you the raw frontmatter.
 
@@ -141,7 +141,8 @@ saved with the view.
 - The **Default calendar** row is the locale-weekend shading. It is the same
   switch as **[Highlight weekends](../settings/timeline.md#highlight-weekends)**,
   so turning either one off turns off the other.
-- In a vault with no calendars yet, the list offers **Create calendar** instead.
+- In a vault with no calendars and no calendar sets yet, the list offers **Create
+  calendar** instead.
 
 ## What the shading shows
 
