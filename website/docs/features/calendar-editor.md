@@ -78,7 +78,7 @@ when it saves, and you change or remove them in Markdown:
 - A non-working day or event that is not a single date, such as a date range
   (`start`/`end`) or a recurring entry, appears as **Advanced entry — edit as
   markdown**.
-- [Availability blocks](#availability-blocks-extra-working-time) show the note
+- [Availability blocks](#availability-blocks) show the note
   **Availability blocks are set on this calendar — edit them as markdown for
   now.**
 
@@ -200,11 +200,13 @@ working day is marked **Conflict**. When the set combines two or more calendars,
 or has conflicts or member links that do not lead to a usable calendar, a status
 line under the header says so on every tab.
 
-## Availability blocks: extra working time
+## Availability blocks
 
-An **availability block** adds working days to a calendar, each with its own hours.
-The editor shows that a calendar has blocks but does not edit them yet, so write
-them in Markdown:
+An **availability block** is a recurrence rule with its own working hours, under
+the `availability` key. How blocks and the `pattern` decide the working days is
+explained under
+[What a calendar note is](calendars.md#what-a-calendar-note-is). The editor shows
+that a calendar has blocks but does not edit them yet, so write them in Markdown:
 
 ```yaml
 pattern: "FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR"
@@ -220,11 +222,9 @@ non_working:
     name: Good Friday
 ```
 
-This team works Monday to Friday and also an on-call Saturday. A block's days
-are **added** to the days the `pattern` covers, so a day off belongs in
-`non_working`, never in a block. A `non_working` date is a day off even when a
-block covers it. On the calendar's own Week tab, each block's hours show on the
-days it covers, as in the Saturday above.
+This team works Monday to Friday and also an on-call Saturday. Days off belong in
+`non_working`, not in a block. On the calendar's own Week tab, each block's hours
+show on the days it covers, as in the Saturday above.
 
 ## Saving and closing
 
@@ -269,6 +269,8 @@ added at the end of the frontmatter.
 ### Indent list items under their key
 
 Write each list's `- ` items indented under their key, as in the examples on this
-page and as Obsidian's own property editor writes them. **If a list's items start
-at the left margin, saving a change to that list leaves the old items behind and
-breaks the frontmatter.** Indent them in Markdown before editing that list here.
+page and as Obsidian's own property editor writes them. **If any line of a list
+starts at the left margin, such as its `- ` items or the closing `]` of a list
+written across several lines in brackets, saving a change to that list leaves old
+lines behind and breaks the frontmatter.** Indent them in Markdown before editing
+that list here.

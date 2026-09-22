@@ -141,9 +141,11 @@ hand-written and PyYAML style that `parseCalendarFrontmatter` reads fine), so fo
 span stops at the key line. The editor then writes the new indented list and leaves the old
 column-0 items behind. Reproduced 2026-09-23 by calling `editFrontmatterKeys` directly: a changed
 `non_working` produced the new block followed by the stale `- date: 2026-04-03` items, which is
-invalid YAML. Applies to every list the editor writes (`non_working`, `events`,
-`working_hours`, a set's `calendars`). Fix direction: treat `- ` lines directly under a key as
-part of that key's block, pinned by a `frontmatterEdit` unit test for a zero-indented list.
+invalid YAML. The same happens to a flow list written across several lines whose closing `]`
+sits at column 0: the span stops before the `]`, which is left behind. Applies to every list the
+editor writes (`non_working`, `events`, `working_hours`, a set's `calendars`). Fix direction: end
+a key's block only at the next top-level `key:` line (or the fence), not at any unindented line,
+pinned by `frontmatterEdit` unit tests for a zero-indented list and a multi-line flow list.
 Surfaced by the adversarial reviewer during U3 of
 `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page discloses it.
 
