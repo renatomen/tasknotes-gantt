@@ -115,6 +115,21 @@ weekends off. Surfaced by the correctness reviewer during U2 of
 `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page documents the
 shipped behaviour.
 
+### P2 — The pattern builder shows Monday to Friday on a calendar that has no pattern (2026-09-23)
+
+`WorkingPatternEditor.svelte` opens an empty `pattern` in the visual builder with
+`defaultPattern()` (Weekly, Mon–Fri) selected, but writes nothing back until a control is
+changed: `parsePattern('')` returns null, the empty value keeps `raw` false, and the bound
+value stays `''`. So a hand-written calendar with no `pattern` (a holidays-only calendar, which
+`workingDays.ts` treats as working every day) opens showing five weekdays selected while the
+Week tab beside it shows all seven working, and saving an unrelated field keeps the note
+pattern-less. The builder displays a rule the note does not have. Fix direction: represent "no
+pattern" in the builder (an explicit empty state, or commit the default on mount only after the
+user confirms), and pin it with a component test that opens an empty value and asserts the
+rendered weekday state matches the saved one. Surfaced while writing U3 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page documents the
+shipped behaviour.
+
 ### P1 — Schedule validation (errors & warnings), with swapped dates as the first slice (2026-08-10)
 Per-task validation with two severities, surfaced as a badge **left of the gantt bar**
 (hover for a description naming what's wrong). Example warnings: subtask ends beyond
