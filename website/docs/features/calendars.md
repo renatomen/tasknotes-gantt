@@ -81,7 +81,7 @@ calendar note as markdown** shows you the raw frontmatter.
 A top-level `pattern` with no `FREQ=` part makes the whole calendar invalid, and
 nothing uses it. A top-level `pattern` that has `FREQ=` but that the chart cannot evaluate, such as
 a misspelt weekday or an hourly rule, is ignored instead: the calendar stays in
-use, its `non_working` days still count, and its pattern marks no day off. A single
+use and its `non_working` days still count. A single
 malformed entry in a list is dropped and the rest of the calendar still works.
 
 ### Recurrence rules, and what they are not
@@ -149,7 +149,7 @@ saved with the view.
 For every calendar it shows, the chart shades:
 
 - the calendar's `non_working` days;
-- every day its working pattern does not cover;
+- every day that neither its `pattern` nor an `availability` block covers;
 - its `events`. These are shaded but never hold a task back.
 
 A calendar **only ever adds shading**. The locale weekend is shaded separately
