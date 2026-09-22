@@ -965,8 +965,32 @@ describe('cross-model peer review wrapper', () => {
 
       expectReceipt();
       expectNamedWithoutBytes('docs/media/shot.png');
-      // Beside the image, the text change is still read in full.
-      expect(staged()).toContain('+a change to review');
+      // Beside the image, the text change is still read in full: the whole
+      // payload, compared with git's own attribute-neutral rendering.
+      const emptyTree = execFileSync('git', ['hash-object', '-t', 'tree', '--stdin'], {
+        cwd: repo,
+        encoding: 'utf8',
+        env: childEnv,
+        input: '',
+      }).trim();
+      const expectedDiff = execFileSync(
+        'git',
+        [
+          '--no-replace-objects',
+          '-c',
+          'core.attributesFile=/dev/null',
+          `--attr-source=${emptyTree}`,
+          'diff',
+          '--no-renames',
+          '--no-ext-diff',
+          '--no-textconv',
+          'origin/main..HEAD',
+        ],
+        { cwd: repo, encoding: 'utf8', env: childEnv },
+      );
+      expect(expectedDiff).toContain('+a change to review');
+      expect(expectedDiff).toContain('+after a hard break');
+      expect(staged().replace(/^SAW-DIFF: PEER-[0-9a-f]+-\d+\r?\n\r?\n/, '')).toBe(expectedDiff);
     });
 
     it('records a receipt when the whole range is one image', () => {
