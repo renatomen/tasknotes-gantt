@@ -33,11 +33,6 @@
 # `2>&1` therefore fed our own words to the guards that grep for the reviewer's.
 # `< /dev/null` is load-bearing — without it the CLI hangs on stdin.
 set -u
-# Git Bash rewrites a native program's argument that looks like a POSIX path —
-# `d/a=/b.png` reaches git as `d/a=C:/Program Files/Git/b.png` — so git would
-# check a path the change does not contain. Off, git receives each argument as
-# written; Git for Windows reads /dev/null itself. Inert everywhere else.
-export MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1
 RECORD=""
 POSITIONAL=()
 ACKNOWLEDGE=""
@@ -57,7 +52,13 @@ command -v codex >/dev/null 2>&1 || { echo "codex CLI not on PATH — peer route
 # Every history read goes through this. A replace ref rewrites what git reports
 # while the push still transfers the original, so `git replace` on an honouring
 # guard blesses a range the diff never described.
-git_nr() { git --no-replace-objects "$@"; }
+#
+# Git Bash also rewrites an argument that looks like a POSIX path — `d/a=/b.png`
+# reaches git as `d/a=C:/Program Files/Git/b.png` — so git would check a path
+# the change does not contain. Switched off for git alone: Git for Windows reads
+# /dev/null itself, while other native programs here are handed /tmp paths that
+# only the conversion makes readable.
+git_nr() { MSYS2_ARG_CONV_EXCL='*' MSYS_NO_PATHCONV=1 git --no-replace-objects "$@"; }
 
 # A committed `binary` or `-diff` attribute renders real source as "Binary files
 # differ", so every read that decides what the reviewer sees ignores committed

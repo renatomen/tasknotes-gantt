@@ -521,6 +521,30 @@ describe('cross-model peer review wrapper', () => {
     expect(trend).not.toContain('MODIFIES maintainability-registry.json');
   });
 
+  it('delivers the trend measurement from the base-side copy every run on main takes', () => {
+    // The base-side copy runs from a temp directory, so this is the path a
+    // wrapper-wide change to how arguments reach native programs breaks.
+    writeFileSync(
+      join(repo, 'scripts', 'stage-peer-trend-block.sh'),
+      readFileSync(resolve('scripts/stage-peer-trend-block.sh'), 'utf8'),
+    );
+    commitFile(
+      'scripts/maintainability-trend.mjs',
+      'process.stdout.write("BASE-SIDE-TREND\\n");\n',
+      'base-side trend script',
+    );
+    commitFile('scripts/maintainability-registry.mjs', 'export {};\n', 'base-side registry reader');
+    commitFile('maintainability-registry.json', '{}\n', 'base-side registry');
+    git(['push', '-q', '--no-verify', 'origin', 'main']);
+    commitFile('after-base.txt', 'a change to review\n', 'reviewable work');
+
+    runWrapper(CLEAN);
+    const trend = readFileSync(`${promptFile}.trend`, 'utf8');
+
+    expect(trend).toContain('BASE-SIDE-TREND');
+    expect(trend).not.toContain('trend measurement unavailable');
+  });
+
   it('flags a branch-side registry modification inside the staged block', () => {
     // The measurement deliberately uses the main-side registry; when the
     // branch edits the registry, that blind spot must be loud, not silent.
