@@ -245,6 +245,10 @@ describe("calendar editor, as the documentation shows it", () => {
       "Year",
     ]);
     await expect($(".og-cal-header .mod-cta")).toHaveText("Save");
+    const groupTitles = await browser.execute(() =>
+      Array.from(document.querySelectorAll(".og-cal-group-title")).map((el) => el.textContent?.trim()),
+    );
+    expect(groupTitles).toEqual(["Identity", "Working schedule", "Exceptions"]);
     const exceptions = $(EXCEPTIONS_SECTION);
     await expect(exceptions).toHaveText(expect.stringContaining("Availability blocks are set on this calendar"));
     await expect(exceptions.$$(".og-cal-readonly")).toBeElementsArrayOfSize(2);
@@ -288,6 +292,7 @@ describe("calendar editor, as the documentation shows it", () => {
     await expect($(".og-color-clear")).toHaveText(expect.stringContaining("Default (theme colour)"));
     await expect($('.og-color-panel input[type="color"]')).toBeExisting();
     await expect($(".og-color-iname=aliceblue")).toBeExisting();
+    await expect($(".og-color-ihex=#f0f8ff")).toBeExisting();
     await capture(".og-color", "calendar-editor-colour.png");
     await (await $(".og-color-summary")).click();
     await expect($(".og-color-panel")).not.toBeExisting();
@@ -298,6 +303,17 @@ describe("calendar editor, as the documentation shows it", () => {
     await description.setValue("Auckland product team, edited");
     await expect($(".og-cal-unsaved")).toHaveText("Unsaved changes");
     await expect($(".og-cal-header .mod-cta")).toBeEnabled();
+    const headerOffsetWhenScrolled = await browser.execute(() => {
+      const scroller = document.querySelector<HTMLElement>(".view-content.og-calendar-editor");
+      const header = document.querySelector<HTMLElement>(".og-cal-header");
+      if (!scroller || !header) return null;
+      scroller.scrollTop = scroller.scrollHeight;
+      const offset = header.getBoundingClientRect().top - scroller.getBoundingClientRect().top;
+      const scrolled = scroller.scrollTop > 0;
+      scroller.scrollTop = 0;
+      return scrolled ? Math.round(offset) : null;
+    });
+    expect(headerOffsetWhenScrolled).toBe(0);
     await capture(".og-cal-header", "calendar-editor-unsaved.png");
   });
 
@@ -357,6 +373,8 @@ describe("calendar editor, as the documentation shows it", () => {
     const expectedClass: Record<string, string> = {
       "2026-04-03 — Good Friday": "og-year-blocking",
       "2026-04-04": "og-year-working",
+      "2026-04-05": "og-year-blocking",
+      "2026-05-19 — Office move": "og-year-blocking",
       "2026-04-14 — Release cutoff": "og-year-marker",
       "2026-05-06 — Planning offsite": "og-year-event",
     };

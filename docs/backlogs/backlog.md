@@ -132,6 +132,21 @@ rendered weekday state matches the saved one. Surfaced while writing U3 of
 `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page documents the
 shipped behaviour.
 
+### P1 — Saving a calendar list written at the left margin corrupts the frontmatter (2026-09-23)
+
+`keySpan` in `frontmatterEdit.ts` ends a key's block at the first line that is neither indented
+nor a comment, and `isIndentedContent` requires leading whitespace. YAML also allows a block
+sequence at the key's own indentation (`non_working:` then `- date: …` at column 0, a common
+hand-written and PyYAML style that `parseCalendarFrontmatter` reads fine), so for such a list the
+span stops at the key line. The editor then writes the new indented list and leaves the old
+column-0 items behind. Reproduced 2026-09-23 by calling `editFrontmatterKeys` directly: a changed
+`non_working` produced the new block followed by the stale `- date: 2026-04-03` items, which is
+invalid YAML. Applies to every list the editor writes (`non_working`, `events`,
+`working_hours`, a set's `calendars`). Fix direction: treat `- ` lines directly under a key as
+part of that key's block, pinned by a `frontmatterEdit` unit test for a zero-indented list.
+Surfaced by the adversarial reviewer during U3 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page discloses it.
+
 ### P2 — The calendar editor loses or splits unsaved edits outside the close guard (2026-09-23)
 
 The unsaved-changes guard (`registerCalendarEditor.ts`) patches only `WorkspaceLeaf.detach`, so

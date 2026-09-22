@@ -53,7 +53,7 @@ Further down, the **Exceptions** group holds the calendar's days off and events:
 | --- | --- | --- |
 | **Name** | *(the file name)* | The note's name. Saving renames the note within its folder. |
 | **Description** | `description` | A line saying what the calendar is for. |
-| **Colour** | `color` | A CSS colour name or a hex value. Empty uses the theme's colour. |
+| **Colour** | `color` | A CSS3 colour name or a hex value. Empty uses the theme's colour. |
 | **Working pattern** | `pattern` | The working days, built with the [pattern builder](#the-working-pattern-builder). |
 | **Anchor date** | `pattern_start` | The date a pattern counts from. Needed when the pattern uses `INTERVAL`, `COUNT` or `UNTIL`. The builder adds `INTERVAL` when the pattern repeats every 2 or more days, weeks or months. |
 | **Working hours** | `working_hours` | One or more `HH:MM-HH:MM` ranges, such as `09:00-17:00`. **+ Add hours** adds a range. |
@@ -135,9 +135,9 @@ by it, as the hint under the field says. See [Days, not hours](calendars.md#days
 **Colour** rests as a single row: a swatch, the colour's value and a sample bar.
 Click it to open the picker:
 
-![The open colour picker: a search box, a custom-colour button and a list of CSS colour names with their hex values](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/calendar-editor-colour.png)
+![The open colour picker: a search box, a custom-colour button and a list of CSS3 colour names with their hex values](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/calendar-editor-colour.png)
 
-Search the CSS colour names, or type a hex value and press Enter. The 🎨 button
+Search the CSS3 colour names, or type a hex value and press Enter. The 🎨 button
 opens your system's colour picker for a custom colour. **Default (theme
 colour)** clears the value.
 
@@ -265,3 +265,10 @@ key, on the key's own line or between its list items, is lost when you save a
 change to that key.** Comments on other lines, keys you did not change and the
 note's body are kept exactly as written. A key the note did not have before is
 added at the end of the frontmatter.
+
+### Indent list items under their key
+
+Write each list's `- ` items indented under their key, as in the examples on this
+page and as Obsidian's own property editor writes them. **If a list's items start
+at the left margin, saving a change to that list leaves the old items behind and
+breaks the frontmatter.** Indent them in Markdown before editing that list here.
