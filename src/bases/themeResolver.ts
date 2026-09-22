@@ -22,6 +22,27 @@ import type { App } from 'obsidian';
 /** The per-view theme mode: follow Obsidian, or pin light/dark for this chart. */
 export type ThemeMode = 'auto' | 'light' | 'dark';
 
+/** A per-view control persisted from the toolbar, never offered in the options panel. */
+export interface ToolbarPersistedControl {
+  /** The label the toolbar renders. */
+  uiLabel: string;
+  /** The toolbar callback prop that hands the chosen value up to be persisted. */
+  changeProp: string;
+  /** The heading documenting it on its settings page. */
+  docHeading: string;
+  /** The options group whose settings page documents it. */
+  group: string;
+}
+
+/**
+ * Toolbar-persisted controls, for the settings-coverage guard: they never pass
+ * through the Bases `options` callback, so without this they would be outside
+ * its inventory.
+ */
+export const TOOLBAR_PERSISTED_CONTROLS: readonly ToolbarPersistedControl[] = [
+  { uiLabel: 'Theme', changeProp: 'onModeChange', docHeading: 'Theme mode', group: 'Appearance' },
+];
+
 /** Coerce an arbitrary stored value to a known mode; unknown → `auto`. */
 export function normalizeThemeMode(value: unknown): ThemeMode {
   return value === 'light' || value === 'dark' ? value : 'auto';

@@ -9,14 +9,15 @@
 
 import { describe, it, expect, jest } from '@jest/globals';
 import { Notice } from 'obsidian';
-import type { BasesAllOptions, BasesViewConfig, Plugin } from 'obsidian';
+import type { BasesAllOptions, BasesViewConfig } from 'obsidian';
 import type * as MockObsidian from '../__mocks__/obsidian';
 import {
   createExternalCalendarDegradeSignal,
   sessionExternalCalendarDegradeSignal,
   EXTERNAL_CALENDAR_DEGRADED_NOTICE,
 } from '../../src/bases/externalCalendarDegradeNotice';
-import { registerBasesGantt, wireExternalBatchFlags } from '../../src/bases/register';
+import { wireExternalBatchFlags } from '../../src/bases/register';
+import { captureOptionsCallback } from '../helpers/captureOptionsCallback';
 import { createCalendarItemSourcesProvider } from '../../src/bases/calendarItemSources';
 import { readCalendarItemToggles } from '../../src/bases/calendarItemOptions';
 import {
@@ -24,7 +25,6 @@ import {
   readExternalCalendarDiscovery,
 } from '../../src/datasource/calendarItems/externalCalendarSource';
 import type { CalendarItemQueryContext } from '../../src/datasource/calendarItems';
-import type { PluginLifetime } from '../../src/bases/createCalendarNote';
 
 /**
  * The manual mock's Notice exposes a `created` construction registry the real
@@ -75,39 +75,6 @@ describe('createExternalCalendarDegradeSignal', () => {
   });
 });
 
-/** Capture the REAL registration's options builder over a TaskNotes-present app. */
-function captureOptionsBuilder(taskNotesHandle: Record<string, unknown>): (config: BasesViewConfig) => BasesAllOptions[] {
-  const app = {
-    plugins: { getPlugin: (id: string) => (id === 'tasknotes' ? taskNotesHandle : null) },
-  };
-  let captured: { options?: (config: BasesViewConfig) => BasesAllOptions[] } | null = null;
-  const plugin = {
-    app,
-    registerBasesView: (
-      _id: string,
-      opts: { options?: (config: BasesViewConfig) => BasesAllOptions[] },
-    ) => {
-      captured = opts;
-      return true;
-    },
-  } as unknown as Plugin;
-  const calendarLifetime: PluginLifetime = {
-    isActive: () => true,
-    scope: () => ({
-      own: (source, subscribe) => {
-        subscribe(source);
-      },
-      defer: () => {},
-      close: () => {},
-    }),
-  };
-  registerBasesGantt(plugin, calendarLifetime);
-  const options = (captured as { options?: (config: BasesViewConfig) => BasesAllOptions[] } | null)
-    ?.options;
-  if (!options) throw new Error('options builder was not captured');
-  return options;
-}
-
 function healthyEmptyTaskNotesHandle(): Record<string, unknown> {
   return {
     api: {},
@@ -127,7 +94,7 @@ function hasDegradedEntry(groups: BasesAllOptions[]): boolean {
 
 describe('register wiring: degraded collect → session Notice → options degrade line', () => {
   it('healthy empty discovery stays healthy and shows no degradation', () => {
-    const options = captureOptionsBuilder(healthyEmptyTaskNotesHandle());
+    const options = captureOptionsCallback(healthyEmptyTaskNotesHandle());
     const config = { get: () => undefined } as unknown as BasesViewConfig;
 
     expect(hasDegradedEntry(options(config))).toBe(false);
@@ -136,7 +103,7 @@ describe('register wiring: degraded collect → session Notice → options degra
   });
 
   it('missing discovery surfaces with zero feeds degrade through the real options path exactly once', () => {
-    const options = captureOptionsBuilder({ api: {} });
+    const options = captureOptionsCallback({ api: {} });
     const config = { get: () => undefined } as unknown as BasesViewConfig;
 
     expect(hasDegradedEntry(options(config))).toBe(true);
@@ -167,7 +134,7 @@ describe('register wiring: degraded collect → session Notice → options degra
   });
 
   it('a degraded collect through the wired batch-flags path fires the session Notice', async () => {
-    const options = captureOptionsBuilder(healthyEmptyTaskNotesHandle());
+    const options = captureOptionsCallback(healthyEmptyTaskNotesHandle());
     const config = { get: () => undefined } as unknown as BasesViewConfig;
 
     const loadingStates: boolean[] = [];

@@ -42,6 +42,11 @@ jobs:
         # Mechanical guard, per "enforce always-X with a mechanism, not memory":
         # regenerate locally with `node scripts/update-release-index.mjs`.
         run: node scripts/update-release-index.mjs --check
+      - name: Assert every shipped setting is documented once, on its group's page
+        # Lives here, not in docs.yml: that workflow is filtered to website/**,
+        # so it never runs on the PR that adds a control in src/ — the drift
+        # this guard exists to catch.
+        run: node scripts/check-settings-coverage.mjs
       - name: Lint
         run: npm run lint --if-present
       - name: Typecheck

@@ -191,11 +191,15 @@ interface ExternalFeedEntry {
   name: string;
 }
 
-const EXTERNAL_PROVIDER_ORDER: readonly ExternalCalendarProviderKind[] = [
-  'ics',
-  'google',
-  'microsoft',
-];
+/**
+ * Every provider, in options-panel order. Derived from the keys of the
+ * type-complete {@link EXTERNAL_PROVIDER_SECTIONS} record so a provider added
+ * to the union cannot be missing here; the record's literal order is the
+ * panel order.
+ */
+export const EXTERNAL_PROVIDER_ORDER = Object.keys(
+  EXTERNAL_PROVIDER_SECTIONS,
+) as readonly ExternalCalendarProviderKind[];
 
 function externalFeedsByKind(
   subscriptions: readonly ExternalIcsSubscription[],

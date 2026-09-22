@@ -598,7 +598,18 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   cluster are clean extract candidates", `docs/reports/2026-08-15-001-maintainability-rediagnosis.md:230`).
   Needs its own unit carrying the full ranked-file contract: ranking citation, touch argument, and a
   Definition of Done stating no ranked-file metric regresses. The coverage script then walks the
-  extracted builder instead of re-composing.
+  extracted builder instead of re-composing. Until it lands, the parity test's finite input walk is a
+  maintainer-accepted residual (2026-09-22): a callback control gated jointly on a mixed field-mapping
+  subset and an uneven external-feed count falls between its two walks.
+- **Route toolbar persistence through one typed persist port** — the settings-coverage guard's toolbar
+  pins (`test/unit/settingsCoverageParity.test.ts`) guard `TOOLBAR_PERSISTED_CONTROLS` against
+  `GanttToolbar.svelte` by label, change prop and the `$props()` destructuring, but a source-shape
+  test cannot prove the absence of runtime side channels (dynamic imports, globals, storage, DOM
+  events). Toolbar completeness is therefore a maintainer-accepted residual (2026-09-22). The
+  structural fix: the toolbar persists only through an injected, typed port whose calls are
+  enumerable, so the persisted controls are derived rather than pinned. Touches the toolbar's host
+  (`GanttContainer.svelte`, a ranked-defect file), so it needs its own unit with the ranked-file
+  contract.
 - **Visual assets — README still renders the two stale legend PNGs (0.1.0-beta.11)** — `README.md:45`
   references both `gantt-legend-right.png` and `gantt-legend-bottom.png` pinned to `792e961f`, with
   alt text naming the retired *date-border* semantic that #402/#412 removed. The README is out of
