@@ -134,8 +134,8 @@ shipped behaviour.
 
 ### P1 — Saving a calendar list written at the left margin corrupts the frontmatter (2026-09-23)
 
-`keySpan` in `frontmatterEdit.ts` ends a key's block at the first line that is neither indented
-nor a comment, and `isIndentedContent` requires leading whitespace. YAML also allows a block
+`keySpan` in `frontmatterEdit.ts` ends a key's block at the first line that is not indented,
+blank or a comment, and `isIndentedContent` requires leading whitespace. YAML also allows a block
 sequence at the key's own indentation (`non_working:` then `- date: …` at column 0, a common
 hand-written and PyYAML style that `parseCalendarFrontmatter` reads fine), so for such a list the
 span stops at the key line. The editor then writes the new indented list and leaves the old
@@ -146,6 +146,19 @@ invalid YAML. Applies to every list the editor writes (`non_working`, `events`,
 part of that key's block, pinned by a `frontmatterEdit` unit test for a zero-indented list.
 Surfaced by the adversarial reviewer during U3 of
 `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page discloses it.
+
+### P3 — The editor lets Anchor date be emptied when a recurring event or unpinned rule needs it (2026-09-23)
+
+`fieldErrors` (`calendarEditorState.ts`) requires `pattern_start` only when the working pattern
+matches `INTERVAL|COUNT|UNTIL`. Recurring events are evaluated against the same anchor
+(`calendarDayFacts.ts` `eventDays`, `calendarShading.ts`), and `patternWindow.ts` also rejects
+an anchorless rule that pins no days of its own (such as `FREQ=WEEKLY` with no `BYDAY`, typed as
+text). Emptying Anchor date in either case saves without a flag, and the event's days or the
+pattern then silently stop applying. Fix direction: derive the anchor requirement from the same
+evaluator the chart uses (every rule the calendar evaluates against `pattern_start`), with a
+state test per case. Surfaced by the adversarial reviewer during U3 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page states only
+what the form checks.
 
 ### P2 — The calendar editor loses or splits unsaved edits outside the close guard (2026-09-23)
 

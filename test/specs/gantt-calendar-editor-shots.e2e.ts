@@ -330,7 +330,8 @@ describe("calendar editor, as the documentation shows it", () => {
     const goBack = await $("button=Go back");
     await goBack.click();
     await modal.waitForDisplayed({ reverse: true, timeout: 5000 });
-    await expect($(".og-cal-form")).toBeExisting();
+    await expect($(".og-cal-form textarea")).toHaveValue("Auckland product team, edited");
+    await expect($(".og-cal-unsaved")).toHaveText("Unsaved changes");
   });
 
   it("previews authored hours on the Week tab", async () => {
@@ -384,7 +385,7 @@ describe("calendar editor, as the documentation shows it", () => {
     await captureThemes(".og-year", "calendar-editor-year");
   });
 
-  it("edits a calendar set's member calendars", async () => {
+  it("shows a calendar set's member calendars and conflict status", async () => {
     await openInEditor(TEAM_SET);
     expect(await formLabels()).toEqual(["Name", "Description", "Colour"]);
     const members = await browser.execute(() =>
