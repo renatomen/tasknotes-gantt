@@ -286,7 +286,9 @@ fi
 
 # A nonzero status is fatal: a diff driver that dies partway still leaves
 # output, and half a change reviewed clean is a pass for the half nobody read.
-DIFF=$(git_view diff --no-ext-diff --no-textconv "$BASE_SHA".."$REVIEWED_SHA")
+# --no-renames, as the binary scan below: a pair of an image and new text
+# would print one "Binary files" line for a text file the scan passed.
+DIFF=$(git_view diff --no-renames --no-ext-diff --no-textconv "$BASE_SHA".."$REVIEWED_SHA")
 diff_status=$?
 if [ "$diff_status" -ne 0 ]; then
   echo "git diff failed (exit $diff_status) — refusing to review a partial change" >&2

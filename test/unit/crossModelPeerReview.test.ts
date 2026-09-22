@@ -976,6 +976,23 @@ describe('cross-model peer review wrapper', () => {
       expectNamedWithoutBytes('docs/media/new.png');
     });
 
+    it('reviews code renamed out of a declared image, which rename pairing would hide', () => {
+      // Similar enough that git pairs the two as a rename, so an unpaired scan
+      // and a paired diff would describe different files.
+      const lines = Array.from({ length: 60 }, (_, i) => `line ${i}\n`).join('');
+      declareImagesBinary();
+      commitFile('old.png', Buffer.concat([Buffer.from([0x00]), Buffer.from(lines)]), 'an image with text inside');
+      pushAll();
+      git(['rm', '-q', 'old.png']);
+      commitFile('new.ts', `${lines}export const smuggled = 1;\n`, 'rename it to text code and add a line');
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expect(staged()).toContain('+export const smuggled = 1;');
+      expectNamedWithoutBytes('old.png');
+    });
+
     it('records a receipt for a deleted image, naming it without its bytes', () => {
       declareImagesBinary();
       commitFile('docs/media/gone.png', binaryBytes(), 'add a screenshot');
