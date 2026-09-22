@@ -1018,9 +1018,9 @@ describe('cross-model peer review wrapper', () => {
       expectNamedWithoutBytes('docs/media/new.png');
     });
 
-    it('reviews code renamed out of a declared image, which rename pairing would hide', () => {
-      // Similar enough that git pairs the two as a rename, so an unpaired scan
-      // and a paired diff would describe different files.
+    it('refuses code renamed out of a declared image, which the rename pair would hide', () => {
+      // Similar enough that git pairs the two as a rename and prints one
+      // "Binary files" line for the pair, text side included.
       const lines = Array.from({ length: 60 }, (_, i) => `line ${i}\n`).join('');
       declareImagesBinary();
       commitFile('old.png', Buffer.concat([Buffer.from([0x00]), Buffer.from(lines)]), 'an image with text inside');
@@ -1028,11 +1028,45 @@ describe('cross-model peer review wrapper', () => {
       git(['rm', '-q', 'old.png']);
       commitFile('new.ts', `${lines}export const smuggled = 1;\n`, 'rename it to text code and add a line');
 
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('reviews a large text rename as a rename, not as a delete and an add past the size cap', () => {
+      commitFile('big.md', `${'a line of prose that is long enough\n'.repeat(12000)}`, 'a large document');
+      pushAll();
+      git(['mv', 'big.md', 'moved.md']);
+      git(['commit', '-q', '--no-verify', '-m', 'move it']);
+
       runWrapper(CLEAN, { record: true });
 
       expectReceipt();
-      expect(staged()).toContain('+export const smuggled = 1;');
-      expectNamedWithoutBytes('old.png');
+      expect(staged()).toContain('rename to moved.md');
+    });
+
+    it('records a receipt when an image leaves together with its own declaration', () => {
+      commitFile('.gitattributes', 'docs/media/gone.png binary\n', 'declare one image');
+      commitFile('docs/media/gone.png', binaryBytes(), 'add it');
+      pushAll();
+      git(['rm', '-q', 'docs/media/gone.png', '.gitattributes']);
+      git(['commit', '-q', '--no-verify', '-m', 'drop the image and its rule']);
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/gone.png');
+    });
+
+    it('records a receipt when an image is renamed and its own declaration moves with it', () => {
+      commitFile('.gitattributes', 'docs/media/old.png binary\n', 'declare one image');
+      commitFile('docs/media/old.png', binaryBytes(), 'add it');
+      pushAll();
+      git(['mv', 'docs/media/old.png', 'docs/media/new.png']);
+      commitFile('.gitattributes', 'docs/media/new.png binary\n', 'move the rule with it');
+
+      runWrapper(CLEAN, { record: true });
+
+      expectReceipt();
+      expectNamedWithoutBytes('docs/media/new.png');
     });
 
     it('records a receipt for a deleted image, naming it without its bytes', () => {

@@ -290,9 +290,9 @@ SCAN_FILE=$(mktemp) || { echo "cannot stage the diff scan" >&2; exit 10; }
 trap 'rm -f "$SCAN_FILE"' EXIT
 # A nonzero status is fatal: a diff driver that dies partway still leaves
 # output, and half a change reviewed clean is a pass for the half nobody read.
-# --no-renames, as the binary scan below: a pair of an image and new text
-# would print one "Binary files" line for a text file the scan passed.
-git_view diff --no-renames --no-ext-diff --no-textconv "$BASE_SHA".."$REVIEWED_SHA" > "$SCAN_FILE"
+# The binary scan below pairs renames exactly as this does, so every
+# "Binary files" line here is a pair the scan checked.
+git_view diff --no-ext-diff --no-textconv "$BASE_SHA".."$REVIEWED_SHA" > "$SCAN_FILE"
 diff_status=$?
 if [ "$diff_status" -ne 0 ]; then
   echo "git diff failed (exit $diff_status) — refusing to review a partial change" >&2
@@ -316,32 +316,47 @@ fi
 # a verdict on content nobody read, so it refuses the whole review.
 # Through a file, never $(...) or a pipeline: bash drops the NUL separators, and
 # a pipeline reports only its last command's status.
-if ! git_view diff --numstat -z --no-renames --no-ext-diff "$BASE_SHA".."$REVIEWED_SHA" > "$SCAN_FILE"; then
+if ! git_view diff --numstat -z --no-ext-diff --no-textconv "$BASE_SHA".."$REVIEWED_SHA" > "$SCAN_FILE"; then
   echo "git diff --numstat failed — cannot tell which files are binary; refusing" >&2
   exit 10
 fi
 TAB=$'\t'
 attrs_at() { git_nr -C "$REPO_ROOT" -c core.attributesFile=/dev/null check-attr --source="$1" "${@:2}"; }
+# One side of a binary pair, at its own commit: absent, or binary on its own
+# and declared `binary` there. Git calls a pair binary when either side is, so
+# a text side — an image overwritten with source, or renamed into it — would
+# ride along unread. Whatever the empty tree still reports comes from
+# .git/info/attributes or the system file, which can hide text or declare
+# what no commit did, so any of it refuses. The declaration's value is the
+# last field, so a path containing ": " cannot forge it.
+side_is_declared_binary() {
+  local stat declared outside
+  stat=$(git_view --literal-pathspecs diff --numstat --no-ext-diff --no-textconv "$EMPTY_TREE" "$1" -- "$2") || return 10
+  [ -n "$stat" ] || return 0
+  case $'\n'"$stat" in *$'\n'[0-9]*) return 14 ;; esac
+  declared=$(attrs_at "$1" binary -- "$2") && outside=$(attrs_at "$EMPTY_TREE" -a -- "$2") || return 10
+  [ "${declared##*: }" = "set" ] && [ -z "$outside" ] || return 14
+}
 while IFS= read -r -d '' record; do
-  case "$record" in "-${TAB}-${TAB}"*) ;; *) continue ;; esac
-  path=${record#"-${TAB}-${TAB}"}
-  # Only the reviewed commit may declare it. Whatever the empty tree still
-  # reports comes from .git/info/attributes or the system file, which can hide
-  # a side's text or declare what the commit did not — so any of it refuses.
-  # The value is the last field, so a path containing ": " cannot forge it.
-  in_commit=$(attrs_at "$REVIEWED_SHA" binary -- "$path") && outside=$(attrs_at "$EMPTY_TREE" -a -- "$path") || {
-    echo "git check-attr failed for a binary path — cannot tell whether it is declared; refusing" >&2; exit 10; }
-  # Git calls a pair binary when either side is, so text on one side — an image
-  # overwritten with source, or the reverse — would ride along unread.
-  sides=$(for side in "$BASE_SHA" "$REVIEWED_SHA"; do
-    git_view --literal-pathspecs diff --numstat --no-ext-diff "$EMPTY_TREE" "$side" -- "$path" || exit 1
-  done) || { echo "git diff --numstat failed for one side of a binary path; refusing" >&2; exit 10; }
-  text_side=""
-  case $'\n'"$sides" in *$'\n'[0-9]*) text_side=yes ;; esac
-  if [ "${in_commit##*: }" != "set" ] || [ -n "$outside" ] || [ -n "$text_side" ]; then
-    echo "a changed file renders as binary but is not, on both sides, a binary only the reviewed commit declares — its contents would never reach the reviewer; refusing: $path" >&2
-    exit 14
+  added=${record%%"$TAB"*}; rest=${record#*"$TAB"}
+  deleted=${rest%%"$TAB"*}; path=${rest#*"$TAB"}
+  old=$path new=$path
+  # A rename or copy leaves the path field empty and names both sides next.
+  if [ -z "$path" ]; then
+    IFS= read -r -d '' old && IFS= read -r -d '' new || {
+      echo "the binary scan ended inside a rename record; refusing" >&2; exit 10; }
   fi
+  [ "$added$deleted" = "--" ] || continue
+  for side in "$BASE_SHA:$old" "$REVIEWED_SHA:$new"; do
+    side_is_declared_binary "${side%%:*}" "${side#*:}"; verdict=$?
+    if [ "$verdict" -eq 10 ]; then
+      echo "git failed while checking a binary path — cannot tell whether it is safe; refusing: ${side#*:}" >&2
+      exit 10
+    elif [ "$verdict" -ne 0 ]; then
+      echo "a changed file renders as binary but is not, on each side, a binary its own commit declares — its contents would never reach the reviewer; refusing: ${side#*:}" >&2
+      exit 14
+    fi
+  done
 done < "$SCAN_FILE"
 # A gitlink moves a whole submodule with two lines of hex and no source at all,
 # so it slips past the check above while changing arbitrarily much code. Mode
