@@ -943,12 +943,42 @@ describe('cross-model peer review wrapper', () => {
       expect(typeof receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBe('string');
     }
 
+    /** Git's own attribute-neutral rendering of the range: what the reviewer must receive, whole. */
+    function neutralDiff(): string {
+      const emptyTree = execFileSync('git', ['hash-object', '-t', 'tree', '--stdin'], {
+        cwd: repo,
+        encoding: 'utf8',
+        env: childEnv,
+        input: '',
+      }).trim();
+      return execFileSync(
+        'git',
+        [
+          '--no-replace-objects',
+          '-c',
+          'core.attributesFile=/dev/null',
+          `--attr-source=${emptyTree}`,
+          'diff',
+          '--no-ext-diff',
+          '--no-textconv',
+          'origin/main..HEAD',
+        ],
+        { cwd: repo, encoding: 'utf8', env: childEnv },
+      );
+    }
+
+    function stagedPayload(): string {
+      return staged().replace(/^SAW-DIFF: PEER-[0-9a-f]+-\d+\r?\n\r?\n/, '');
+    }
+
     function expectNamedWithoutBytes(path: string): void {
       expect(staged()).toContain(path);
       expect(staged()).not.toContain('\0');
       expect(staged()).not.toContain(PAYLOAD_MARKER);
       // `--binary` would carry the bytes base85-encoded, past both checks above.
       expect(staged()).not.toContain('GIT binary patch');
+      // A path alone is not the change: the reviewer gets git's whole record.
+      expect(stagedPayload()).toBe(neutralDiff());
     }
 
     function expectRefusedUnreviewed(run: Run): void {
@@ -965,32 +995,11 @@ describe('cross-model peer review wrapper', () => {
 
       expectReceipt();
       expectNamedWithoutBytes('docs/media/shot.png');
-      // Beside the image, the text change is still read in full: the whole
-      // payload, compared with git's own attribute-neutral rendering.
-      const emptyTree = execFileSync('git', ['hash-object', '-t', 'tree', '--stdin'], {
-        cwd: repo,
-        encoding: 'utf8',
-        env: childEnv,
-        input: '',
-      }).trim();
-      const expectedDiff = execFileSync(
-        'git',
-        [
-          '--no-replace-objects',
-          '-c',
-          'core.attributesFile=/dev/null',
-          `--attr-source=${emptyTree}`,
-          'diff',
-          '--no-renames',
-          '--no-ext-diff',
-          '--no-textconv',
-          'origin/main..HEAD',
-        ],
-        { cwd: repo, encoding: 'utf8', env: childEnv },
-      );
+      // Beside the image, the text change is still read in full.
+      const expectedDiff = neutralDiff();
       expect(expectedDiff).toContain('+a change to review');
       expect(expectedDiff).toContain('+after a hard break');
-      expect(staged().replace(/^SAW-DIFF: PEER-[0-9a-f]+-\d+\r?\n\r?\n/, '')).toBe(expectedDiff);
+      expect(expectedDiff).toContain('Binary files /dev/null and b/docs/media/shot.png differ');
     });
 
     it('records a receipt when the whole range is one image', () => {
