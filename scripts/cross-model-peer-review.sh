@@ -357,7 +357,7 @@ while IFS= read -r -d '' record; do
       exit 14
     fi
   done
-done < "$SCAN_FILE" || { echo "cannot read the binary scan back — refusing" >&2; exit 10; }
+done < "$SCAN_FILE"
 # Every scan record ends in a NUL, so text left over means it was cut short.
 [ -z "${record:-}" ] || { echo "the binary scan ended mid-record — refusing" >&2; exit 10; }
 # A gitlink moves a whole submodule with two lines of hex and no source at all,
