@@ -155,6 +155,19 @@ an external change. Surfaced by review during U3 of
 `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page documents the
 shipped behaviour.
 
+### P3 — A calendar set's Week tab ignores its members' availability-block hours (2026-09-23)
+
+`unionWorkingHours` (`weekPreviewLayout.ts`) collects only each member's `working_hours` on the
+days that member does not block, while a single calendar's Week tab adds each availability
+block's `hours` on the block's days (`availabilityHours`). So a set containing a calendar with a
+Monday-to-Friday `working_hours` and a Saturday block of `10:00-14:00` shows the weekday hours on
+Saturday instead of the block's. It also adds the `working_hours` of a member with no working
+rule at all. Fix direction: build the union's per-day hours from each member's own per-day hours
+(pattern days get `working_hours`, block days get the block's `hours`), and pin it with a layout
+unit test for a member with a block. Surfaced by review during U3 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page documents the
+shipped behaviour.
+
 ### P1 — Schedule validation (errors & warnings), with swapped dates as the first slice (2026-08-10)
 Per-task validation with two severities, surfaced as a badge **left of the gantt bar**
 (hover for a description naming what's wrong). Example warnings: subtask ends beyond

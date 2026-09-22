@@ -67,8 +67,8 @@ frontmatter. Removing every entry from a list saves it as an empty list.
 
 A field the note cannot save shows its problem in red, for example a working-hours
 range whose start is not before its end, or an entry with no date. While any field
-is flagged, the header reads **Fix the flagged fields before saving.** and **Save**
-stays disabled.
+is flagged, **Save** stays disabled and a line under the header reads **Fix the
+flagged fields before saving.**
 
 ### What the form cannot edit yet
 
@@ -196,9 +196,9 @@ a `[[wikilink]]` to a calendar note, and typing `[[` suggests notes from the vau
 
 For a set, the preview tabs show the member calendars combined. A day that one
 member has off while another member's pattern or availability blocks make it a
-working day is marked **Conflict**. A status line under
-the header summarises the set on every tab, including member links that do not
-lead to a usable calendar.
+working day is marked **Conflict**. When the set combines two or more calendars,
+or has conflicts or member links that do not lead to a usable calendar, a status
+line under the header says so on every tab.
 
 ## Availability blocks: extra working time
 
@@ -223,12 +223,8 @@ non_working:
 This team works Monday to Friday and also an on-call Saturday. A block's days
 are **added** to the days the `pattern` covers, so a day off belongs in
 `non_working`, never in a block. A `non_working` date is a day off even when a
-block covers it. A calendar with blocks but no `pattern` works only on the days
-its blocks cover. A block has no anchor date of its own, so a block whose pattern
-needs one adds no working days, for example one that repeats every 2 or more
-weeks or uses `COUNT` or `UNTIL`.
-The Week tab shows each block's hours on the days it covers,
-as in the Saturday above.
+block covers it. On the calendar's own Week tab, each block's hours show on the
+days it covers, as in the Saturday above.
 
 ## Saving and closing
 

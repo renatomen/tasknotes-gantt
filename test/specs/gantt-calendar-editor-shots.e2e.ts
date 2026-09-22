@@ -238,10 +238,19 @@ describe("calendar editor, as the documentation shows it", () => {
       "Non-working days",
       "Events",
     ]);
-    await expect($(".og-cal-form")).toHaveText(
-      expect.stringContaining("Availability blocks are set on this calendar"),
-    );
-    await expect($(".og-cal-form")).toHaveText(expect.stringContaining("Advanced entry — edit as markdown"));
+    expect(await $$(".og-cal-tab").map((tab) => tab.getText())).toEqual([
+      "Edit",
+      "Week",
+      "Gantt strip",
+      "Year",
+    ]);
+    await expect($(".og-cal-header .mod-cta")).toHaveText("Save");
+    const exceptions = $(EXCEPTIONS_SECTION);
+    await expect(exceptions).toHaveText(expect.stringContaining("Availability blocks are set on this calendar"));
+    await expect(exceptions.$$(".og-cal-readonly")).toBeElementsArrayOfSize(2);
+    await expect(exceptions.$$(".og-cal-entry:not(.og-cal-entry-event)")).toBeElementsArrayOfSize(4);
+    const markers = exceptions.$$(".og-cal-entry-event input[type='checkbox']");
+    expect(await markers.map((box) => box.isSelected())).toEqual([true, false]);
     // The form outgrows the window, so its shot ends at the window's edge and
     // Exceptions gets a shot of its own.
     await capture(".og-cal-form", "calendar-editor-form.png");
@@ -275,8 +284,10 @@ describe("calendar editor, as the documentation shows it", () => {
   it("opens the colour picker from the collapsed colour field", async () => {
     await (await $(".og-color-summary")).click();
     await expect($(".og-color-panel")).toBeDisplayed();
+    await expect($(".og-color-search")).toBeDisplayed();
     await expect($(".og-color-clear")).toHaveText(expect.stringContaining("Default (theme colour)"));
     await expect($('.og-color-panel input[type="color"]')).toBeExisting();
+    await expect($(".og-color-iname=aliceblue")).toBeExisting();
     await capture(".og-color", "calendar-editor-colour.png");
     await (await $(".og-color-summary")).click();
     await expect($(".og-color-panel")).not.toBeExisting();
@@ -329,7 +340,13 @@ describe("calendar editor, as the documentation shows it", () => {
 
   it("previews shading and markers on the Gantt strip tab", async () => {
     await selectTab("Gantt strip");
-    expect((await $$(".og-strip-cell.og-strip-shaded")).length).toBeGreaterThan(0);
+    const shaded = async (date: string) =>
+      (await $(`.og-strip-cell[title='${date}']`).getAttribute("class")).includes("og-strip-shaded");
+    expect(await shaded("2026-04-03")).toBe(true); // Good Friday
+    expect(await shaded("2026-04-05")).toBe(true); // a Sunday
+    expect(await shaded("2026-05-19")).toBe(true); // inside the Office move range
+    expect(await shaded("2026-04-04")).toBe(false); // the on-call Saturday
+    expect(await shaded("2026-04-14")).toBe(false); // a marker is a line, not shading
     await expect($(".og-strip-marker-label")).toHaveText("Release cutoff");
     await captureThemes(".og-strip", "calendar-editor-strip");
   });
@@ -337,8 +354,14 @@ describe("calendar editor, as the documentation shows it", () => {
   it("previews the whole year on the Year tab", async () => {
     await selectTab("Year");
     await stepYearTo(PREVIEW_YEAR);
-    for (const dayClass of ["working", "blocking", "event", "marker"]) {
-      expect((await $$(`.og-year-cell.og-year-${dayClass}`)).length).toBeGreaterThan(0);
+    const expectedClass: Record<string, string> = {
+      "2026-04-03 — Good Friday": "og-year-blocking",
+      "2026-04-04": "og-year-working",
+      "2026-04-14 — Release cutoff": "og-year-marker",
+      "2026-05-06 — Planning offsite": "og-year-event",
+    };
+    for (const [title, dayClass] of Object.entries(expectedClass)) {
+      await expect($(`.og-year-cell[title='${title}']`)).toHaveElementClass(dayClass);
     }
     await captureThemes(".og-year", "calendar-editor-year");
   });
