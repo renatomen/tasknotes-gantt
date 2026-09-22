@@ -18,7 +18,7 @@ All three are **day-level**. See [Days, not hours](#days-not-hours).
 
 A four-person team works Monday to Friday. Friday 10 April 2026 is a public
 holiday. *Task Stretch* starts on that Friday. It has no due date and an estimate
-of three days, so the plugin works out where it ends.
+of three days (4,320 minutes), so the plugin works out where it ends.
 
 With no working time, three days from Friday is **Friday, Saturday, Sunday**. The
 bar ends on Sunday 12 April. The holiday column and both weekends are shaded, but
@@ -71,16 +71,19 @@ events:
 | `non_working` | Individual days off: a bare date, `{date, name}`, or a `{start, end}` range (both days included). Dates only, no recurrence rules here. |
 | `availability` | Extra working days, each block with its own `pattern`. A day is a working day if the main `pattern` **or** any block covers it, so a Monday-to-Friday pattern plus a Saturday block works Monday to Saturday. |
 | `events` | Named days to show on the chart. An event is **shaded but does not block**: a task schedules straight through it. Set `marker: true` on a single-date event to draw it as a line instead. |
-| `color` | The calendar's colour. It appears beside the calendar in Select calendars… and on its markers. |
+| `color` | The calendar's colour. It appears beside the calendar in Select calendars… and on its markers, and it colours bars when **Bar fill** or **Bar strip** is set to **By calendar**. |
 
 The quickest way to get one is the **Create calendar** command. It creates
 `Calendars/New Calendar.md` with a Monday-to-Friday pattern and an empty
 `non_working` list, then opens it in the calendar editor. The command **Open
 calendar note as markdown** shows you the raw frontmatter.
 
-If a note's `pattern` is not a valid recurrence rule, the whole calendar is
-invalid and nothing uses it. A single malformed entry in a list is dropped and the
-rest of the calendar still works.
+A `pattern` with no `FREQ=` part makes the whole calendar invalid, and nothing
+uses it. So does a rule with `INTERVAL`, `COUNT` or `UNTIL` but no `pattern_start`.
+A rule that has `FREQ=` but that the chart cannot evaluate, such as a misspelt
+weekday or an hourly rule, is ignored instead: the calendar stays in use, its
+`non_working` days still count, and its pattern marks no day off. A single
+malformed entry in a list is dropped and the rest of the calendar still works.
 
 ### Recurrence rules, and what they are not
 
@@ -104,16 +107,18 @@ define working time.
 2. On each task that follows this calendar, add a property holding a wikilink to
    the note, for example `calendar: "[[Team calendar]]"`. A task follows **one**
    calendar. If the property holds a list, only the first link counts.
-3. In the Gantt view, open **Configure view → Fields** and set
+3. In the Gantt view, open the view-settings menu and, in the **Fields** group, set
    **[Calendar Property](../settings/fields.md#calendar-property)** to that
    property. At the **Days** and **Hours** scales, the chart now shades the
    calendar's non-working days.
-4. Open **Configure view → Timeline** and set
+4. In the **Timeline** group of the same menu, set
    **[Estimate meaning](../settings/timeline.md#estimate-meaning)** to **Working
    days (skip non-working)**. Tasks with a worked-out end, such as a start date
    plus an estimate, now skip the calendar's non-working days. The estimate comes
    from the **[Time Estimate Property](../settings/fields.md#time-estimate-property)**.
-   A task with no estimate uses the view's default task duration.
+   The estimate is in minutes, and every started 1,440 minutes (24 hours) counts
+   as one day, so 480 minutes and 1,440 minutes are both one day. A task with no
+   estimate uses the view's default task duration.
 5. *(Optional)* On the same Timeline group, set
    **[Non-working-day rendering](../settings/timeline.md#non-working-day-rendering)**
    to **Split segments** to draw each bar's days off as a ghost.
@@ -150,8 +155,9 @@ For every calendar it shows, the chart shades:
 A calendar **only ever adds shading**. The locale weekend is shaded separately
 while **Highlight weekends** is on. If your calendar works on a Sunday, that
 Sunday stays shaded until you turn Highlight weekends off, or untick **Default
-calendar** in Select calendars…. The reverse also holds: turning Highlight
-weekends off never hides a calendar's own days off.
+calendar** in Select calendars…. Turning Highlight weekends off also clears
+any calendar day off that falls on a locale weekend. A calendar's days off on
+other days stay shaded.
 
 Shading appears only at the **Days** and **Hours** scales. A week or month column
 is not a single day, so nothing is shaded there.
