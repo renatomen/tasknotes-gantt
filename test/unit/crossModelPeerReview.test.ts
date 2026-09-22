@@ -62,7 +62,7 @@ function git(args: string[], cwd = repo): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', env: childEnv }).trim();
 }
 
-function commitFile(path: string, body: string, message: string): string {
+function commitFile(path: string, body: string | Buffer, message: string): string {
   const full = join(repo, path);
   mkdirSync(join(full, '..'), { recursive: true });
   writeFileSync(full, body);
@@ -883,14 +883,6 @@ describe('cross-model peer review wrapper', () => {
     const binaryBytes = (): Buffer =>
       Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00]), Buffer.from(PAYLOAD_MARKER)]);
 
-    function commitBytes(path: string, bytes: Buffer, message: string): void {
-      const full = join(repo, path);
-      mkdirSync(join(full, '..'), { recursive: true });
-      writeFileSync(full, bytes);
-      git(['add', path]);
-      git(['commit', '-q', '--no-verify', '-m', message]);
-    }
-
     /** The repository's own declaration, as this repo's .gitattributes makes it. */
     function declareImagesBinary(): void {
       commitFile('.gitattributes', '*.png binary\n', 'declare images binary');
@@ -924,7 +916,7 @@ describe('cross-model peer review wrapper', () => {
 
     it('records a receipt for an added image, naming it without its bytes', () => {
       declareImagesBinary();
-      commitBytes('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
 
       runWrapper(CLEAN, { record: true });
 
@@ -937,7 +929,7 @@ describe('cross-model peer review wrapper', () => {
     it('records a receipt when the whole range is one image', () => {
       declareImagesBinary();
       pushAll();
-      commitBytes('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
 
       runWrapper(CLEAN, { record: true });
 
@@ -947,7 +939,7 @@ describe('cross-model peer review wrapper', () => {
 
     it('records a receipt for a renamed image, naming both paths', () => {
       declareImagesBinary();
-      commitBytes('docs/media/old.png', binaryBytes(), 'add a screenshot');
+      commitFile('docs/media/old.png', binaryBytes(), 'add a screenshot');
       pushAll();
       git(['mv', 'docs/media/old.png', 'docs/media/new.png']);
       git(['commit', '-q', '--no-verify', '-m', 'rename the screenshot']);
@@ -961,7 +953,7 @@ describe('cross-model peer review wrapper', () => {
 
     it('records a receipt for a deleted image, naming it without its bytes', () => {
       declareImagesBinary();
-      commitBytes('docs/media/gone.png', binaryBytes(), 'add a screenshot');
+      commitFile('docs/media/gone.png', binaryBytes(), 'add a screenshot');
       pushAll();
       git(['rm', '-q', 'docs/media/gone.png']);
       git(['commit', '-q', '--no-verify', '-m', 'drop the screenshot']);
@@ -974,7 +966,7 @@ describe('cross-model peer review wrapper', () => {
 
     it('records a receipt for an image whose path has spaces', () => {
       declareImagesBinary();
-      commitBytes('docs/media/a shot.png', binaryBytes(), 'add a screenshot');
+      commitFile('docs/media/a shot.png', binaryBytes(), 'add a screenshot');
 
       runWrapper(CLEAN, { record: true });
 
@@ -1007,7 +999,7 @@ describe('cross-model peer review wrapper', () => {
     it('reviews a hidden text file beside a real image in the same range', () => {
       declareImagesBinary();
       pushAll();
-      commitBytes('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
       commitFile('notes.png', 'text beside the image\n', 'text under an image name');
 
       runWrapper(CLEAN, { record: true });
@@ -1020,20 +1012,20 @@ describe('cross-model peer review wrapper', () => {
     it('refuses UTF-16 text, which git cannot render and the repo does not declare binary', () => {
       // What Windows PowerShell 5.1 writes for `>` — real text the reviewer
       // would receive as one "Binary files differ" line.
-      commitBytes('notes.md', Buffer.from('﻿unreadable notes\n', 'utf16le'), 'utf-16 notes');
+      commitFile('notes.md', Buffer.from('﻿unreadable notes\n', 'utf16le'), 'utf-16 notes');
 
       expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
     });
 
     it('refuses UTF-16 text whose path has spaces', () => {
-      commitBytes('my notes.md', Buffer.from('﻿unreadable notes\n', 'utf16le'), 'utf-16 notes');
+      commitFile('my notes.md', Buffer.from('﻿unreadable notes\n', 'utf16le'), 'utf-16 notes');
 
       expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
     });
 
     it('refuses a binary the repository never declared binary', () => {
       declareImagesBinary();
-      commitBytes('data.bin', binaryBytes(), 'an undeclared binary');
+      commitFile('data.bin', binaryBytes(), 'an undeclared binary');
 
       expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
     });
@@ -1044,6 +1036,63 @@ describe('cross-model peer review wrapper', () => {
       commitFile('code.ts', 'export const hidden = true;\n', 'locally suppressed');
 
       expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('refuses a binary declared only by the local info/attributes file', () => {
+      mkdirSync(join(repo, '.git', 'info'), { recursive: true });
+      writeFileSync(join(repo, '.git', 'info', 'attributes'), 'notes.md binary\n');
+      commitFile('notes.md', Buffer.from('﻿unreadable notes\n', 'utf16le'), 'utf-16 notes');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('refuses a declared image overwritten with text, whose new lines git would hide', () => {
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+      pushAll();
+      commitFile('docs/media/shot.png', 'source text where the image was\n', 'overwrite with text');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    it('refuses text overwritten with a declared image, whose removed lines git would hide', () => {
+      declareImagesBinary();
+      commitFile('docs/media/shot.png', 'text that will be replaced\n', 'text under an image name');
+      pushAll();
+      commitFile('docs/media/shot.png', binaryBytes(), 'replace it with an image');
+
+      expectRefusedUnreviewed(runExpectingRefusal(CLEAN, { record: true }));
+    });
+
+    describe('when a git step the binary check depends on fails', () => {
+      /** Shadows git on the wrapper's PATH, failing only the call that carries `failOn`. */
+      function failGitCallCarrying(failOn: string): void {
+        const realGit = String(
+          execFileSync('bash', ['-c', 'command -v git'], { encoding: 'utf8', env: childEnv }),
+        ).trim();
+        const shim = join(stubDir, 'git');
+        writeFileSync(
+          shim,
+          `#!/usr/bin/env bash\ncase " $* " in *" ${failOn} "*) exit 3 ;; esac\nexec "${realGit}" "$@"\n`,
+        );
+        chmodSync(shim, 0o755);
+      }
+
+      it.each([
+        ['the binary scan', '--no-renames'],
+        ['the declaration lookup', 'check-attr'],
+        ['the per-side content check', '--literal-pathspecs'],
+      ])('refuses when %s fails', (_step, failOn) => {
+        declareImagesBinary();
+        commitFile('docs/media/shot.png', binaryBytes(), 'add a screenshot');
+        failGitCallCarrying(failOn);
+
+        const run = runExpectingRefusal(CLEAN, { record: true });
+
+        expect(run.status).toBe(10);
+        expect(existsSync(`${promptFile}.staged`)).toBe(false);
+        expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+      });
     });
 
     it('tells the reviewer a binary line names a file whose bytes are deliberately absent', () => {
