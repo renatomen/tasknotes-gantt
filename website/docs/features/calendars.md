@@ -78,8 +78,8 @@ The quickest way to get one is the **Create calendar** command. It creates
 `non_working` list, then opens it in the calendar editor. The command **Open
 calendar note as markdown** shows you the raw frontmatter.
 
-A `pattern` with no `FREQ=` part makes the whole calendar invalid, and nothing
-uses it. A `pattern` that has `FREQ=` but that the chart cannot evaluate, such as
+A top-level `pattern` with no `FREQ=` part makes the whole calendar invalid, and
+nothing uses it. A top-level `pattern` that has `FREQ=` but that the chart cannot evaluate, such as
 a misspelt weekday or an hourly rule, is ignored instead: the calendar stays in
 use, its `non_working` days still count, and its pattern marks no day off. A single
 malformed entry in a list is dropped and the rest of the calendar still works.
@@ -88,8 +88,8 @@ malformed entry in a list is dropped and the rest of the calendar still works.
 
 `pattern` takes an **RFC 5545 RRULE value**, which is the recurrence syntax
 iCalendar uses. If you have written a repeating event rule before, it will look
-familiar: `FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH` is a Sunday-to-Thursday week. If
-`pattern` uses `INTERVAL`, `COUNT` or `UNTIL`, the note also needs a
+familiar: `FREQ=WEEKLY;BYDAY=SU,MO,TU,WE,TH` is a Sunday-to-Thursday week. If the
+top-level `pattern` uses `INTERVAL`, `COUNT` or `UNTIL`, the note also needs a
 `pattern_start` date to count from; without one the whole calendar is invalid.
 
 There is **no iCalendar import or export**. A calendar note is this plugin's
