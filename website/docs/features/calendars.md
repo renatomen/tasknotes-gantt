@@ -194,8 +194,8 @@ One task can differ from the view through
 **[Non-working-day rendering](../settings/timeline.md#non-working-day-rendering)
 → Split segments** *adds* segments on top of the shading. It does not replace it.
 Each bar's non-working days are drawn as a faint ghost and its working days as
-solid pieces. This works on any bar with dates, including one whose dates were
-both written down, so it shows the gaps without moving anything. Like the shading,
+solid pieces. This works on any bar, including one whose dates were both
+written down, so it shows the gaps without moving anything. Like the shading,
 it appears only at the **Days** and **Hours** scales; at **Weeks** and **Months**
 the bar is drawn continuous.
 
