@@ -31,6 +31,7 @@ const TEAM_SET = "Delivery Set.md";
 const PREVIEW_YEAR = 2026;
 const CAPTURE_WIDTH = 1000;
 const CAPTURE_HEIGHT = 1000;
+const SIZE_TOLERANCE_PX = 4;
 /** The form's third group: Identity, Working schedule, then Exceptions. */
 const EXCEPTIONS_SECTION = ".og-cal-form > section:nth-of-type(3)";
 
@@ -117,15 +118,34 @@ async function bringIntoView(selector: string): Promise<void> {
 
 /** Size the real window through Electron: WDIO's setWindowSize is unsupported by this driver. */
 async function resizeWindow(width: number, height: number): Promise<void> {
-  await browser.execute((w: number, h: number) => {
+  const resized = await browser.execute((w: number, h: number) => {
     const req = (window as unknown as { require?: (m: string) => unknown }).require;
     type Win = { setSize?: (w: number, h: number) => void; unmaximize?: () => void };
     const electron = req?.("electron") as { remote?: { getCurrentWindow?: () => Win } } | undefined;
     const win = electron?.remote?.getCurrentWindow?.();
-    win?.unmaximize?.();
-    win?.setSize?.(w, h);
+    if (!win?.setSize) return false;
+    win.unmaximize?.();
+    win.setSize(w, h);
+    return true;
   }, width, height);
-  await browser.pause(600);
+  if (!resized) throw new Error("cannot size the Obsidian window: electron.remote is unavailable");
+  // The captures' framing depends on this size, so a window that did not take it
+  // must stop the run rather than overwrite the images with a different crop.
+  await browser.waitUntil(
+    async () => {
+      const size = await browser.execute(() => {
+        const req = (window as unknown as { require?: (m: string) => unknown }).require;
+        type Win = { getSize?: () => number[] };
+        const electron = req?.("electron") as { remote?: { getCurrentWindow?: () => Win } } | undefined;
+        return electron?.remote?.getCurrentWindow?.()?.getSize?.() ?? [];
+      });
+      // Fractional display scaling rounds the size by a pixel or two.
+      const near = (actual: number | undefined, wanted: number) =>
+        actual !== undefined && Math.abs(actual - wanted) <= SIZE_TOLERANCE_PX;
+      return near(size[0], width) && near(size[1], height);
+    },
+    { timeout: 5000, timeoutMsg: `window never reached ${width}x${height}` },
+  );
 }
 
 async function collapseSidebars(): Promise<void> {
