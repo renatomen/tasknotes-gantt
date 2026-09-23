@@ -115,6 +115,109 @@ weekends off. Surfaced by the correctness reviewer during U2 of
 `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page documents the
 shipped behaviour.
 
+### P2 — The pattern builder shows Monday to Friday on a calendar that has no pattern (2026-09-23)
+
+`WorkingPatternEditor.svelte` opens an empty `pattern` in the visual builder with
+`defaultPattern()` (Weekly, Mon–Fri) selected, but writes nothing back until a control is
+used: `parsePattern('')` returns null, the empty value keeps `raw` false, and the bound
+value stays `''`. So a hand-written calendar with no `pattern` and no availability blocks (a
+holidays-only calendar, which `workingDays.ts` treats as working every day) opens showing five
+weekdays selected while the Week tab beside it shows all seven working, and saving an unrelated
+field keeps the note pattern-less. **Edit as text** then writes that unseen default into the
+field (`editAsText` calls `formatPattern(model)`), so merely opening the text view changes the
+calendar. The builder displays a rule the note does not have. Fix direction: represent "no
+pattern" in the builder (an explicit empty state, or commit the default on mount only after the
+user confirms), and pin it with a component test that opens an empty value and asserts the
+rendered weekday state matches the saved one. Surfaced while writing U3 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page documents the
+shipped behaviour.
+
+### P1 — Saving a calendar key or list not written in the plain layout corrupts the frontmatter (2026-09-23)
+
+`keySpan` in `frontmatterEdit.ts` ends a key's block at the first line that is not indented,
+blank or a comment, and `isIndentedContent` requires leading whitespace. YAML also allows a block
+sequence at the key's own indentation (`non_working:` then `- date: …` at column 0, a common
+hand-written and PyYAML style that `parseCalendarFrontmatter` reads fine), so for such a list the
+span stops at the key line. The editor then writes the new indented list and leaves the old
+column-0 items behind. Reproduced 2026-09-23 by calling `editFrontmatterKeys` directly: a changed
+`non_working` produced the new block followed by the stale `- date: 2026-04-03` items, which is
+invalid YAML. The same happens to a flow list written across several lines whose closing `]`
+sits at column 0: the span stops before the `]`, which is left behind. Applies to every list the
+editor writes (`non_working`, `events`, `working_hours`, a set's `calendars`). The key lookup
+has the same text-layout blind spot: `keySpan` matches only `^key:`, so a quoted
+(`"description": …`) or spaced (`description : …`) key is not found, a change appends a second
+copy (YAML then rejects the duplicate key), and emptying it removes nothing while the form reads
+clean. Fix direction: locate key spans from the YAML parser's key positions instead of line
+shapes, so a block ends at the next top-level key (or the fence), pinned by `frontmatterEdit`
+unit tests for a zero-indented list, a multi-line flow list, and quoted and spaced keys.
+Surfaced by the adversarial reviewer during U3 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page discloses it.
+
+### P3 — The editor lets Anchor date be emptied when a recurring event or unpinned rule needs it (2026-09-23)
+
+`fieldErrors` (`calendarEditorState.ts`) requires `pattern_start` only when the working pattern
+matches `INTERVAL|COUNT|UNTIL`. Recurring events are evaluated against the same anchor
+(`calendarDayFacts.ts` `eventDays`, `calendarShading.ts`), and `patternWindow.ts` also rejects
+an anchorless rule that pins no days of its own (such as `FREQ=WEEKLY` with no `BYDAY`, typed as
+text). Emptying Anchor date in either case saves without a flag, and the event's days or the
+pattern then silently stop applying. Availability blocks are the opposite case: their patterns
+are evaluated with no anchor at all (`workingDayRules` passes `anchor: undefined`, and the Week
+tab validates each block with `validatePattern(block.pattern, undefined)`), so a block that needs
+an anchor cannot be fixed by setting Anchor date, and the Week tab's error asks for an anchor the
+note already has. Fix direction: derive the anchor requirement from the same
+evaluator the chart uses (every rule the calendar evaluates against `pattern_start`), with a
+state test per case. Surfaced by the adversarial reviewer during U3 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page states only
+what the form checks.
+
+### P2 — Editing one calendar entry drops extra fields from every entry in its list (2026-09-23)
+
+`readDatedList` (`calendarEditorState.ts`) treats any single-date record without `start`,
+`pattern` or `rrule` as editable, and `datedForWrite` rebuilds each such record from `date`,
+`name` and `marker` only. So when a `non_working` or `events` list changes, every simple entry in
+it loses any other field (a hand-added `region:`, `source:` and so on), including entries the user
+never touched. Reproduced by the adversarial reviewer with the real modules. Fix direction: carry
+unrecognised fields through `DatedEntry` (or treat an entry with unknown keys as a raw
+pass-through), pinned by a state test that edits one entry and asserts a sibling's extra key
+survives. Surfaced during U3 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page discloses it.
+
+### P2 — The calendar editor loses or splits unsaved edits outside the close guard (2026-09-23)
+
+The unsaved-changes guard (`registerCalendarEditor.ts`) patches only `WorkspaceLeaf.detach`, so
+it fires when a tab closes and nowhere else. Three paths escape it:
+
+- **Replacing the view drops the edits silently.** `openAsMarkdown()` (`CalendarEditorView.ts`),
+  the marker-removed heal, `revertOpenEditors` on plugin unload, and opening another note in the
+  same leaf all go through `setViewState`, which unmounts the form with no prompt.
+- **A rename collision splits the save.** `save()` in `CalendarEditorForm.svelte` awaits
+  `onSave` (frontmatter written) before `onRename`, which throws on a name collision, so the
+  frontmatter lands while the rename is refused and the form stays dirty against a baseline
+  that no longer matches disk.
+- **Saving over an external change leaves the form stale.** The save writes only changed keys
+  onto the fresh file and sets `lastContent` to the result, so the metadata listener sees no
+  external change and the form keeps showing its pre-change values for the other keys until the
+  note is reopened.
+
+Fix direction: route every view replacement through the same confirm path, check a rename
+collision before writing frontmatter, and re-seed the form from disk after a save that followed
+an external change. Surfaced by review during U3 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page documents the
+shipped behaviour.
+
+### P3 — A calendar set's Week tab ignores its members' availability-block hours (2026-09-23)
+
+`unionWorkingHours` (`weekPreviewLayout.ts`) collects only each member's `working_hours` on the
+days that member does not block, while a single calendar's Week tab adds each availability
+block's `hours` on the block's days (`availabilityHours`). So a set containing a calendar with a
+Monday-to-Friday `working_hours` and a Saturday block of `10:00-14:00` shows the weekday hours on
+Saturday instead of the block's. It also adds the `working_hours` of a member with no working
+rule at all. Fix direction: build the union's per-day hours from each member's own per-day hours
+(pattern days get `working_hours`, block days get the block's `hours`), and pin it with a layout
+unit test for a member with a block. Surfaced by review during U3 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page documents the
+shipped behaviour.
+
 ### P1 — Schedule validation (errors & warnings), with swapped dates as the first slice (2026-08-10)
 Per-task validation with two severities, surfaced as a badge **left of the gantt bar**
 (hover for a description naming what's wrong). Example warnings: subtask ends beyond
@@ -612,12 +715,6 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   behind the chart, and a worked-out bar stretching over them. Fixture:
   `test/specs/gantt-calendar-stretch.e2e.ts` (stages exactly that behaviour; the shading-only scene
   is `gantt-calendar-shading.e2e.ts`). Source: PRs #271, #272.
-- **Visual assets — capture for the calendar-note editor (0.1.0-beta.11)** — the working-pattern
-  builder with its year-grid / week / Gantt-strip preview tabs. Fixture: a **new**
-  `test/specs/gantt-calendar-editor-shots.e2e.ts` over the existing `test/vaults/gantt-calendar`.
-  Do **not** append to `test/specs/gantt-calendar-editor.e2e.ts`: it is ranked-defect entry 6
-  (`docs/reports/2026-08-15-001-maintainability-rediagnosis.md:234`) and growing it is a P1 under
-  the AGENTS.md invariant. Source: PRs #289–#298.
 - **Visual assets — capture for calendar items in the timeline (0.1.0-beta.11)** — a recurring task's
   authored row with its occupancy pieces, and the source switcher. Source: PR #386.
 - **Visual assets — capture for independent Fill / Strip / Icon channels (0.1.0-beta.11)** — one view
