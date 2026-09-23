@@ -16,8 +16,9 @@ under [Editing a calendar set](calendar-editor.md#editing-a-calendar-set).
     Every member of a set is a **wikilink to a calendar note** in your vault: a
     note whose frontmatter carries `tngantt: calendar`. A set never contains a
     calendar **feed**. The ICS, Google and Microsoft calendars TaskNotes subscribes
-    to appear on the chart as read-only [calendar items](calendar-items.md). They
-    define no working time, and a link to one is not a set member.
+    to can appear on the chart, once you turn them on, as read-only
+    [calendar items](calendar-items.md). They define no working time, and a link
+    to one is not a set member.
 
 ## A worked example
 
@@ -86,15 +87,18 @@ line can report member links that do not lead to a usable calendar.
 ## How the members combine
 
 **For a task that links to the set**, a day is off when **any** member has it off:
-a date in that member's `non_working` list, or, for a member that has working rules
-(a `pattern` or `availability` blocks), a day none of those rules cover. That is what
+a date in that member's `non_working` list, or, for a member with working rules the
+chart can use (a `pattern` or `availability` blocks), a day none of those rules
+cover. That is what
 [Working days](calendars.md#working-days-which-dates-move) and
 [Split segments](calendars.md#split-segments) count for the task. In the example,
 Friday is off because of *Sun Thu* and Sunday because of *NZ Holidays*.
 
-A member with no `pattern` and no `availability` blocks, such as a plain list of
-public holidays, adds only its `non_working` dates. That makes a set the way to
-share one holiday list across several team calendars.
+A member with no working rule the chart can use adds only its `non_working` dates.
+That is a member with no `pattern` and no `availability` blocks, such as a plain list
+of public holidays, or one whose rules the chart ignores (see
+[What a calendar note is](calendars.md#what-a-calendar-note-is)). That makes a set
+the way to share one holiday list across several team calendars.
 
 **For shading**, each member is shaded as a calendar of its own, exactly as
 [What the shading shows](calendars.md#what-the-shading-shows) describes, and
@@ -111,8 +115,8 @@ working day by its own `pattern` or `availability` blocks. It does not matter
 whether the two calendars come from one set, from two sets, or were picked
 separately.
 
-- A calendar with no `pattern` and no `availability` blocks never makes a day a
-  working day, so it can only be on the "day off" side. Combine a Monday-to-Friday
+- A calendar with no working rule the chart can use never makes a day a working
+  day, so it can only be on the "day off" side. Combine a Monday-to-Friday
   team calendar with a holidays-only calendar, and every holiday that falls on a
   weekday is a conflict.
 - Events and markers never take part in a conflict.
@@ -129,8 +133,9 @@ The [calendar-status banner](#the-calendar-status-banner) names the calendars th
 disagree. To see who disagrees on a particular day, open the set in the calendar
 editor. Its **Week**, **Gantt strip** and **Year** tabs mark the conflict days in
 the dates each one shows, and hovering one lists the date and every member that
-disagrees, each with the name it gives the day, if any. For a set of a Monday-to-Friday *Team* calendar and a
-*Public holidays* calendar, hovering Good Friday could show:
+disagrees, each with the name it gives the day, if any. For a set of a
+Monday-to-Friday *Team* calendar and a *Public holidays* calendar, hovering Good
+Friday could show:
 
 ```text
 2026-04-03
@@ -164,16 +169,22 @@ calendar** row, are explained under
 - Each calendar and each set has one row, followed by its description if it has
   one.
 - A set's row has **Show members**, which lists its member calendars under it, each
-  with its own tick box. Untick a member to stop shading it while keeping the rest
-  of the set.
+  with its own tick box.
 - When some members of a set are ticked and others are not, the set's tick box
   shows as partly ticked. Clicking a partly ticked or unticked set ticks every
   member; clicking a fully ticked set unticks it.
 - Invalid calendar notes, and saved choices whose link no longer leads to a
   calendar or set, are listed with the reason and cannot be ticked.
 
-The first time you tick or untick a calendar or set, the dialog starts from the calendars
-the chart was already shading, so the chart does not jump.
+**A calendar is shaded while any ticked row includes it**: its own row, or a ticked
+set in which it is ticked as a member. Unticking it inside a set does not stop the
+shading while its own row is still ticked.
+
+That matters the first time you change anything here. Until then, the chart shades
+the calendars your tasks link to, including the members of their sets. Your first
+tick or untick of a calendar, set or member saves each of those calendars as ticked
+**on its own row**, so the chart does not jump. From then on the rule above applies:
+to stop shading a calendar, untick it everywhere it is ticked.
 
 ## Bar colour: By calendar { #bar-colour-by-calendar }
 
@@ -185,7 +196,8 @@ each bar by the calendar its task links to.
   set has no `color`, the bar keeps the default treatment.
 - A task that links to a calendar takes that calendar's colour.
 - A task with no calendar, one whose link does not lead to a calendar or set, or
-  one whose calendar or set has no colour, keeps the default treatment. See [Bar colors](appearance.md#bar-colors).
+  one whose calendar or set has no colour (or one the chart cannot use), keeps the
+  default treatment. See [Bar colors](appearance.md#bar-colors).
 
 The colour follows the task's own link. Select calendars… does not change it.
 
