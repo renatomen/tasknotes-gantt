@@ -104,9 +104,6 @@ Several entries change with the view's settings:
 - The **Task bar** sample carries the view's bar colours and icon, and its sentence
   describes the combination, for example *"This task bar combines calendar fill,
   priority strip, status icon from the active view."*
-- With **Task icon** set to **Status** or **Priority**, the **Task icon** sample
-  can show the icons for the status or priority values TaskNotes supplies. Without
-  them, it shows a single placeholder ring.
 - The estimate entry is named **Working-day estimate** or **Calendar-day estimate**
   after [Estimate meaning](../settings/timeline.md#estimate-meaning), and the
   non-working-time entry is named **Split non-working time** or **Shaded
