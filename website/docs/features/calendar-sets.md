@@ -172,9 +172,8 @@ calendar** row, are explained under
 - Each calendar and each set has one row, followed by its description if it has
   one.
 - A set's row has **Show members**, which lists its member calendars under it.
-  Ticking members there one at a time does not always shade what the tick boxes
-  suggest. To shade only some of a set's calendars, leave the set unticked and tick
-  those calendars on their own rows.
+  Clicking a member there does not always tick or untick just that member; the rule
+  below decides what is shaded.
 - When some members of a set are ticked and others are not, the set's tick box
   shows as partly ticked. Clicking a partly ticked or unticked set ticks every
   member; clicking a fully ticked set unticks it.
