@@ -136,7 +136,7 @@ notes and two sets:
 | --- | --- | --- |
 | *Four-day week* | calendar | Monday to Thursday |
 | *Alex on call* | calendar | Monday to Thursday, plus the on-call Saturday |
-| *Public holidays* | calendar | Easter Monday, and no working days of its own |
+| *Public holidays* | calendar | Easter Monday, and no working pattern |
 | *Team* | calendar set | *Four-day week* and *Public holidays* |
 | *Alex* | calendar set | *Alex on call* and *Public holidays* |
 
@@ -166,7 +166,7 @@ This note must not keep the Monday-to-Friday pattern that **Create calendar**
 writes. In a set, a day is off when **any** member has it off
 ([How the members combine](features/calendar-sets.md#how-the-members-combine)),
 so that pattern would turn Alex's on-call Saturday back into a day off. Run **Open
-calendar note as markdown** and delete the `pattern:` line:
+calendar note as markdown** and delete the `pattern` property, leaving:
 
 ```yaml
 tngantt: calendar
@@ -188,7 +188,9 @@ The on-call Saturday has to live in this calendar. Putting it in a set would not
 help: as step 2 showed, a task that links to a set gets every member's days off,
 so a set can take working days away but never add one. Extra working days go in an
 [availability block](features/calendar-editor.md#availability-blocks). The editor
-does not edit blocks yet, so run **Open calendar note as markdown** and add one:
+does not edit blocks yet, so run **Open calendar note as markdown** and add one to
+the frontmatter. A block is a nested list, which is easiest to type in Source
+mode:
 
 ```yaml
 tngantt: calendar
