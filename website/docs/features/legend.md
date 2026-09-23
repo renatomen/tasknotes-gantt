@@ -9,6 +9,31 @@ settings.
 This page covers opening the legend, where it sits, and how to read it. Some cues
 have fuller pages of their own, linked at the end.
 
+## A worked example
+
+You run a kitchen remodel with two crews. Each crew has its own calendar note with
+a colour, and each task links to its crew's calendar. You want one chart to show at
+a glance who does each task, how urgent it is and where it stands. With TaskNotes
+installed, under **Appearance** in the view's settings:
+
+1. Set **Bar fill** to **By calendar**, so each bar takes its crew's colour.
+2. Set **Bar strip** to **By priority**, so a strip down the left edge shows
+   urgency.
+3. Set **Task icon** to **Status**, so each bar carries a status icon.
+
+A colleague opens the chart and cannot tell the three apart. They click the
+**Legend** button. Under **Bar appearance**, the **Task bar** entry reads *"This
+task bar combines calendar fill, priority strip, status icon from the active
+view."* The screenshots below use the same three settings.
+
+They would rather read it along the bottom, so they click **Bottom** in the
+legend's header (on a chart tall enough for it; see
+[When the chart is too small](#when-the-chart-is-too-small)). The next time they
+open it, it is back on the right, where **Default legend position** starts it
+unless you change that setting. You prefer
+the bottom too, so you set **Default legend position** to **Bottom**, and every
+opening starts there.
+
 ## Opening and closing the legend
 
 The **Legend** button (a book icon) sits in the top-right corner of the chart,
