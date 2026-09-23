@@ -12,7 +12,7 @@ cue means in depth lives on the page for its feature, linked below.
 ## Opening and closing the legend
 
 The **Legend** button (a book icon) sits in the top-right corner of the chart,
-beside the full-screen button. It does not need **Show toolbar** to be on.
+just below the full-screen button. It does not need **Show toolbar** to be on.
 
 Click it to open the legend. Close it with its **Close** button or with
 <kbd>Esc</kbd>. When an Obsidian popup is open on top of it, <kbd>Esc</kbd> closes
@@ -68,8 +68,7 @@ When the chart is short of either size, the legend covers the whole chart instea
 Position buttons disappear and **Close** becomes **Return**. When the chart has
 room again, for example after you enlarge the pane or
 [maximize the chart](chart-controls.md#full-screen), the legend goes back to its
-side. A short chart with only a few rows can be under Bottom's 320 px floor while
-Right still fits, so moving the legend to the other side can be enough.
+side.
 
 ## What the legend lists
 
@@ -84,7 +83,7 @@ Entries are grouped under six headings:
 | **Occurrences and series** | **Occurrence occupancy**, **Next occurrence**, **Projected occurrence**, **Completed occurrence**, **Skipped occurrence** |
 | **Structure and context** | **Replicated task**, **Context task**, **Estimate override** |
 
-Each entry pairs a sample with one sentence of explanation.
+Each entry pairs a sample with a short explanation.
 
 ### Which entries appear
 
@@ -106,7 +105,7 @@ Several entries change with the view's settings:
   describes the combination, for example *"This task bar combines calendar fill,
   priority strip, status icon from the active view."*
 - With **Task icon** set to **Status** or **Priority**, the **Task icon** sample
-  shows the icons for those values.
+  shows the icons for the status or priority values TaskNotes defines.
 - The estimate entry is named **Working-day estimate** or **Calendar-day estimate**
   after [Estimate meaning](../settings/timeline.md#estimate-meaning), and the
   non-working-time entry is named **Split non-working time** or **Shaded
@@ -136,10 +135,12 @@ in the screenshots above, and the **Task bar** entry names it.
 Two fallbacks keep a bar from going blank:
 
 - With **Bar fill** and **Bar strip** both set to **None**, bars take the Default
-  child colour.
+  child colour (see the **None** row under
+  [Bar fill](../settings/appearance.md#bar-fill)).
 - **By status** and **By priority** need the TaskNotes status and priority colours.
   Without them (TaskNotes not installed, for example), those choices fall back to
-  **Default**. A vault with no calendars does the same for **By calendar**.
+  **Default**. **By calendar** does the same when no calendar or calendar set in
+  the vault sets a colour.
 
 What each value paints, and how parents and children differ, is on
 [Settings → Appearance](../settings/appearance.md#bar-fill) and
@@ -147,7 +148,7 @@ What each value paints, and how parents and children differ, is on
 
 ## Where each cue is explained in full
 
-The legend gives each cue one sentence. These pages give the detail:
+The legend gives each cue a short explanation. These pages give the detail:
 
 - Torn edges, the orange date fill and the other bar decorations:
   [Reading bar decorations](appearance.md#reading-bar-decorations).
