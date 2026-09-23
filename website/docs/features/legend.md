@@ -18,9 +18,7 @@ Click it to open the legend. Close it with its **Close** button or with
 <kbd>Esc</kbd>. When an Obsidian popup is open on top of it, <kbd>Esc</kbd> closes
 the popup first. Switching to another tab or pane also closes the legend.
 
-The legend floats over the chart. Moving it from one side to the other does not
-resize the chart or change its zoom or scroll position, and you can still click
-the bars it does not cover.
+The legend floats over the chart rather than squeezing it.
 
 ## Right or bottom
 
@@ -64,7 +62,9 @@ Each side needs a minimum amount of room:
 | Right | 640 px wide and 240 px tall |
 | Bottom | 480 px wide and 320 px tall |
 
-When the chart is short of either size, the legend covers the whole chart instead. The
+When the chart is short of either size, the legend covers the whole chart instead.
+Moving it to a side that does not fit does the same: on a short chart, choosing
+**Bottom** can cover the chart at once. The
 Position buttons disappear and **Close** becomes **Return**, which closes the
 legend. If the chart gets room again while the legend is open, for example because
 you enlarge the pane, the legend goes back to its side.
@@ -94,7 +94,8 @@ cues are the exception:
   **[Show date-status indicators on bars](../settings/appearance.md#show-date-status-indicators-on-bars)**
   is on.
 - **Torn edge** is listed only while that setting is on **and** at least one task in
-  the view is missing a date.
+  the view is missing a date. It can stay listed while a filter or search hides
+  that task.
 
 ### What follows your view
 
@@ -104,7 +105,8 @@ Several entries change with the view's settings:
   describes the combination, for example *"This task bar combines calendar fill,
   priority strip, status icon from the active view."*
 - With **Task icon** set to **Status** or **Priority**, the **Task icon** sample
-  shows the icons for the status or priority values TaskNotes defines.
+  can show the icons for the status or priority values TaskNotes supplies. Without
+  them, it shows a single placeholder ring.
 - The estimate entry is named **Working-day estimate** or **Calendar-day estimate**
   after [Estimate meaning](../settings/timeline.md#estimate-meaning), and the
   non-working-time entry is named **Split non-working time** or **Shaded
