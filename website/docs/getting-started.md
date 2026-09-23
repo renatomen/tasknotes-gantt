@@ -162,11 +162,11 @@ Run **Create calendar** again and name this one `Public holidays`. Under
 **Non-working days**, click **+ Add non-working day**, pick 6 April 2026, name it
 `Easter Monday`, and click **Save**.
 
-This note needs one change in Markdown. In a set, a day is off when **any** member
-has it off ([How the members combine](features/calendar-sets.md#how-the-members-combine)),
-so the Monday-to-Friday pattern that **Create calendar** writes would turn Alex's
-on-call Saturday back into a day off. Run **Open calendar note as markdown** and
-delete the `pattern:` line:
+This note must not keep the Monday-to-Friday pattern that **Create calendar**
+writes. In a set, a day is off when **any** member has it off
+([How the members combine](features/calendar-sets.md#how-the-members-combine)),
+so that pattern would turn Alex's on-call Saturday back into a day off. Run **Open
+calendar note as markdown** and delete the `pattern:` line:
 
 ```yaml
 tngantt: calendar
@@ -174,6 +174,10 @@ non_working:
   - date: 2026-04-06
     name: Easter Monday
 ```
+
+If you open the note in the editor again, leave **Working pattern** alone: using
+its controls writes a pattern back
+([The working pattern builder](features/calendar-editor.md#the-working-pattern-builder)).
 
 ### 3. Alex's week, with the on-call Saturday
 
@@ -197,8 +201,9 @@ availability:
 ```
 
 `BYDAY=2SA` is the second Saturday of each month. A block has no anchor date, so
-its rule has to pick its days by itself, as this one does. A rule written with
-`COUNT` or `UNTIL` adds no working days in a block. The chart works in whole days,
+its rule has to pick its days by itself, as this one does. A rule that counts from
+a start date, one with `INTERVAL` above 1, `COUNT` or `UNTIL`, adds no working
+days in a block, so "every other Saturday" cannot be written as one. The chart works in whole days,
 so the Saturday counts as a full working day whatever its hours
 ([Days, not hours](features/calendars.md#days-not-hours)).
 
@@ -212,13 +217,18 @@ save. Then create a second set, `Alex`, with `[[Alex on call]]` and
 ### 5. Link the tasks, and set the Calendar Property
 
 Give each team task the property `calendar: "[[Team]]"`, and Alex's on-call task
-`calendar: "[[Alex]]"`. Here the estimate is two days, written in minutes:
+`calendar: "[[Alex]]"`. Here the estimate is two days, written in minutes (1,440
+to a day):
 
 ```yaml
 scheduled: 2026-04-09
 timeEstimate: 2880
 calendar: "[[Alex]]"
 ```
+
+`timeEstimate` is TaskNotes' estimate field. With TaskNotes the view reads it while
+**[Time Estimate Property](settings/fields.md#time-estimate-property)** is left
+blank; without TaskNotes, set Time Estimate Property to `timeEstimate`.
 
 Then open the Gantt view's settings and, in the **Fields** group, set
 **[Calendar Property](settings/fields.md#calendar-property)** to `calendar`. It
@@ -231,9 +241,8 @@ days (skip non-working)** and **Non-working-day rendering** to **Split segments*
 What each one does is on
 [Calendars and working time](features/calendars.md#turn-it-on-from-no-calendar-to-a-shaded-stretched-chart).
 
-Until you choose otherwise in **Select calendars…**, the chart shades every
-calendar your tasks link to, set members included, which here is all three. You
-can change that there; it changes the shading, not how tasks are scheduled
+Until you use **Select calendars…**, the chart shades the calendars your tasks
+link to, which here is all three
 ([Choosing which calendars shade](features/calendars.md#choosing-which-calendars-shade-select-calendars)).
 
 ### Reading the chart
@@ -248,7 +257,7 @@ can change that there; it changes the shading, not how tasks are scheduled
   about the day. *Public holidays* has Monday 6 April off, while both working weeks
   would work it. *Alex on call* works Saturday 11 April, while *Four-day week* does
   not. The banner counts conflict days over every date the chart shades, not just
-  the fortnight on screen, which is why it says 6
+  the days on screen, which is why it says 6 here
   ([The calendar-status banner](features/calendar-sets.md#the-calendar-status-banner)).
 - ***Plan the sprint*** starts on Thursday 2 April with an estimate of three days. It
   works that Thursday, skips Friday, the weekend and Easter Monday, which are drawn

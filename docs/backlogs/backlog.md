@@ -859,6 +859,15 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   rather than load-bearing. Source:
   `docs/solutions/workflow-issues/release-notes-belong-on-main-not-release-branches.md`.
 
+### P3 — `mkdocs build --strict` does not check in-page anchors (2026-09-23)
+Found by the plan `2026-09-20-002` U6 review. `website/mkdocs.yml`'s `validation:` block sets
+`links.absolute_links: warn` but not `links.anchors`, which MkDocs leaves at INFO, so `--strict`
+builds green with a broken `page.md#anchor` link. Every docs unit in that campaign links into other
+pages by anchor and has checked them by grepping the built site by hand. The reviewer measured the
+fix: add `anchors: warn` under `validation.links`; the current tree still builds green, and a
+deliberately broken anchor then fails the build. Not taken in U6 because `website/mkdocs.yml` is
+outside that unit's files.
+
 ---
 
 ## Verify before promoting
