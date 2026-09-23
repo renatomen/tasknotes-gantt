@@ -224,17 +224,29 @@ shipped behaviour.
 ### P2 — The first picker change seeds set members as separate calendar rows, so set and member toggles stop working (2026-09-23)
 
 While no selection is stored, `ensureExplicit` (`calendarPickerModel.ts`) materializes the
-auto-displayed calendar paths — the members of every set the tasks link to — as plain calendar
-entries (`materializeSelection` in `calendarSelection.ts`). The set itself gets no entry. So on
-the first change: unticking member A of set S appends `{link: S, members: {A: false}}` while the
-seeded `{link: A, enabled: true}` keeps A shaded (`effectiveDisplayPaths` unions both, measured
-with a throwaway jest probe on 2026-09-23). After a first change on any other calendar or set row, the set's row
-reads unticked (it has no entry) although its members still shade through their own rows. Fix direction: seed the links the tasks actually use (a set link stays a set entry),
-and pin it with a unit test that toggles a member starting from `readDisplaySelection(undefined,
-true)` — `CalendarPickerModal.test.ts` only covers member toggles from an explicit selection.
-Surfaced by review during U4 of
-`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the calendar-sets page
-documents the shipped rule (a calendar shades while any ticked row includes it).
+auto-displayed calendar paths (the members of every set the tasks link to) as plain calendar
+entries (`materializeSelection` in `calendarSelection.ts`). The set itself gets no entry. So on the
+first change, unticking member A of set S appends `{link: S, enabled: true, members: {A: false}}`
+while the seeded `{link: A, enabled: true}` keeps A shaded (`effectiveDisplayPaths` unions both;
+measured with a throwaway jest probe on 2026-09-23). After a first change on any other calendar or
+set row, the set's row reads unticked (it has no entry) although its members still shade through
+their own rows.
+
+Two related member-toggle quirks, found by the same review:
+
+- Ticking a member of a set whose entry is `enabled: false` writes only `members[link] = true`, so
+  the row re-renders unticked and the set still shades none of its members (`buildPickerRows` and
+  `effectiveDisplayPaths` check `enabled` first).
+- Ticking one member of a set with no entry appends `{link: S, enabled: true, members: {B: true}}`,
+  which shades every member, because `effectiveDisplayPaths` excludes only an explicit `false`.
+
+Fix direction: seed the links the tasks actually use (a set link stays a set entry), make a member
+tick enable its set entry with the other members explicitly off, and pin both with unit tests that
+start from `readDisplaySelection(undefined, true)` and from a disabled set entry.
+`CalendarPickerModal.test.ts` only covers member toggles from an explicit, enabled set entry.
+Surfaced by review during U4 of `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`;
+the calendar-sets page documents the shipped rule (a calendar shades while any ticked row includes
+it).
 
 ### P3 — Select calendars… has no styles: no colour swatch, and names run into descriptions (2026-09-23)
 

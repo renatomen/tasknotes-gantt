@@ -207,10 +207,10 @@ The colour follows the task's own link. Select calendars… does not change it.
 ## Markers and the today line
 
 A **marker** is a calendar event drawn as a vertical line across the chart instead
-of shading its day. Set `marker: true` on a single-date entry under `events`. Only
-that form makes a marker. On a date range or a recurring event, `marker: true` draws
-no line and the entry stays an ordinary event; a `non_working` entry with
-`marker: true` is still a day off with no line.
+of shading its day. Set `marker: true` on a single-day entry under `events`. On a
+range of more than one day or a recurring event, `marker: true` draws no line and the
+entry stays an ordinary event; a `non_working` entry with `marker: true` is still a
+day off with no line.
 
 - The chart draws the markers of the calendars it shades, so a set's members'
   markers appear once the set is shaded.
