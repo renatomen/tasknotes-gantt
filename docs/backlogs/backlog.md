@@ -772,7 +772,8 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   pulled from the 0.1.0-beta.11 notes for that reason and must not be referenced by any release until
   re-captured. Fixture: `test/specs/gantt-legend.e2e.ts`. The committed bytes stay in place — older
   releases pin to their own tags (`docs/conventions/visual-assets.md`), so a re-capture lands under a
-  new filename rather than overwriting these.
+  new filename rather than overwriting these. `website/docs/features/legend.md` now uses the new
+  captures `docs/media/gantt-legend-panel-{right,bottom}-{light,dark}.png`.
 - **Extract the view-options assembly out of `register.ts` (ranked entry 2)** — `register.ts:1849-1875`
   assembles the registered option set by calling `calendarItemOptionsGroup()` and then mutating it with
   `externalCalendarOptionEntries(...)` / `externalCalendarDegradedEntry()` before returning it beside
