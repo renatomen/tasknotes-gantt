@@ -217,18 +217,18 @@ save. Then create a second set, `Alex`, with `[[Alex on call]]` and
 ### 5. Link the tasks, and set the Calendar Property
 
 Give each team task the property `calendar: "[[Team]]"`, and Alex's on-call task
-`calendar: "[[Alex]]"`. Here the estimate is two days, written in minutes (1,440
-to a day):
+`calendar: "[[Alex]]"`. The example has three tasks, each with a start date and an
+estimate in minutes (1,440 to a day) but no due date:
 
-```yaml
-scheduled: 2026-04-09
-timeEstimate: 2880
-calendar: "[[Alex]]"
-```
+| Task | `scheduled` | `timeEstimate` | `calendar` |
+| --- | --- | --- | --- |
+| *Plan the sprint* | 2026-04-02 | 4320 (three days) | `"[[Team]]"` |
+| *Write the release notes* | 2026-04-09 | 2880 (two days) | `"[[Team]]"` |
+| *Upgrade the database* | 2026-04-09 | 2880 (two days) | `"[[Alex]]"` |
 
-`timeEstimate` is TaskNotes' estimate field. With TaskNotes the view reads it while
-**[Time Estimate Property](settings/fields.md#time-estimate-property)** is left
-blank; without TaskNotes, set Time Estimate Property to `timeEstimate`.
+`timeEstimate` is TaskNotes' estimate field. With TaskNotes installed, the view
+reads it while **[Time Estimate Property](settings/fields.md#time-estimate-property)**
+is left blank.
 
 Then open the Gantt view's settings and, in the **Fields** group, set
 **[Calendar Property](settings/fields.md#calendar-property)** to `calendar`. It
