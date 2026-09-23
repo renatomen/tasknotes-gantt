@@ -800,6 +800,13 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   scope for the calendar-documentation campaign (`docs/plans/2026-09-20-002`, § Scope boundaries), so
   its campaign DoD is scoped to `website/docs/**` and `docs/releases/**` and this reference is parked
   here instead. Fix it when the legend is re-captured under its new filenames, above.
+- **Docs — `settings/appearance.md` suggests moving a legend that cannot move (P3)** — the
+  *Default legend position* section ends "moving it to the other side can seat it again". While the
+  legend covers the chart (layout `full`, `legendLayout.ts:40-46`) the Position radiogroup is not
+  rendered (`GanttLegend.svelte:113`) and the chart surface is inert, so there is no live move; reopening
+  starts on the default again (`reduceLegendSession`). Found by U5's review (`docs/plans/2026-09-20-002`);
+  `features/legend.md` does not repeat the claim. Fix: delete the clause, or say to Return and change
+  the setting.
 
 ---
 

@@ -62,6 +62,7 @@ nav:
     - Dependencies: features/dependencies.md
     - Parent / child roll-up: features/parent-child.md
     - Colors, icons & weekends: features/appearance.md
+    - The legend: features/legend.md
     - Editing tasks: features/editing.md
     - Find & focus: features/find-focus.md
     - Calendar items: features/calendar-items.md
