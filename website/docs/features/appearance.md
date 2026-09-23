@@ -1,7 +1,8 @@
 # Colors, icons & weekends
 
 How bars look, and how the timeline itself is drawn. Most of these work in both
-modes; status/priority coloring needs TaskNotes.
+modes; status/priority coloring needs TaskNotes. To read the chart's cues from
+inside the chart, open [the legend](legend.md).
 
 ## Bar colors
 
@@ -117,7 +118,8 @@ in when you need to be sure whether a bar's dates were authored.
 
 Four visual cues can appear on a bar. The two date cues are alternatives — a bar
 is torn **or** orange, never both — while the hatch and the fade say nothing
-about dates and can stack on top of either:
+about dates and can stack on top of either (see also
+[the legend](legend.md#what-the-legend-lists)):
 
 | Cue | What it means |
 | --- | --- |
