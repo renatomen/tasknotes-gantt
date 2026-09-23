@@ -230,7 +230,9 @@ first change, unticking member A of set S appends `{link: S, enabled: true, memb
 while the seeded `{link: A, enabled: true}` keeps A shaded (`effectiveDisplayPaths` unions both;
 measured with a throwaway jest probe on 2026-09-23). After a first change on any other calendar or
 set row, the set's row reads unticked (it has no entry) although its members still shade through
-their own rows.
+their own rows. Measured in real Obsidian during U6 (2026-09-23): with two sets linked and nothing
+stored, every row reads ticked; one click on the first set's row leaves **both** set rows unticked
+while all three member calendars stay ticked and shaded.
 
 Two related member-toggle quirks, found by the same review:
 

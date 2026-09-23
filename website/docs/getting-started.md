@@ -243,9 +243,14 @@ days (skip non-working)** and **Non-working-day rendering** to **Split segments*
 What each one does is on
 [Calendars and working time](features/calendars.md#turn-it-on-from-no-calendar-to-a-shaded-stretched-chart).
 
-Until you use **Select calendars…**, the chart shades the calendars your tasks
-link to, which here is all three
-([Choosing which calendars shade](features/calendars.md#choosing-which-calendars-shade-select-calendars)).
+### 7. Check the selection
+
+Run **Select calendars…** to see which calendars the chart shades. Until you
+change anything there, the chart shades the calendars your tasks link to
+([Choosing which calendars shade](features/calendars.md#choosing-which-calendars-shade-select-calendars)),
+so here **Default calendar**, the three calendars and both sets are already
+ticked. Nothing needs changing for this example. How ticking and unticking a set
+or its members works is under [Select calendars…](features/calendar-sets.md#select-calendars).
 
 ### Reading the chart
 
