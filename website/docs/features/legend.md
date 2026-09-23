@@ -35,7 +35,7 @@ The legend opens on one of two sides:
 
     | Light | Dark |
     | :---: | :---: |
-    | ![The legend open as a panel down the right of a Gantt chart, each entry a small sample beside one sentence, under the headings Bar appearance, Dates and progress, Dependencies and Calendars and working time, light theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/gantt-legend-panel-right-light.png) | ![The same legend on the right, dark theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/gantt-legend-panel-right-dark.png) |
+    | ![The legend open as a panel down the right of a Gantt chart, each entry a small sample beside a short explanation, under the headings Bar appearance, Dates and progress, Dependencies and Calendars and working time, light theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/gantt-legend-panel-right-light.png) | ![The same legend on the right, dark theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/gantt-legend-panel-right-dark.png) |
 
 === "Bottom"
 
@@ -65,10 +65,9 @@ Each side needs a minimum amount of room:
 | Bottom | 480 px wide and 320 px tall |
 
 When the chart is short of either size, the legend covers the whole chart instead. The
-Position buttons disappear and **Close** becomes **Return**. When the chart has
-room again, for example after you enlarge the pane or
-[maximize the chart](chart-controls.md#full-screen), the legend goes back to its
-side.
+Position buttons disappear and **Close** becomes **Return**, which closes the
+legend. If the chart gets room again while the legend is open, for example because
+you enlarge the pane, the legend goes back to its side.
 
 ## What the legend lists
 
@@ -115,7 +114,9 @@ Several entries change with the view's settings:
   in place, staying open on the same side.
 
 A sample is an example, not a key to every colour. When bars are coloured by
-status, the **Task bar** sample shows one status colour, not all of them.
+status, the **Task bar** sample shows one status colour, not all of them. Under
+**By calendar**, the sample's colour can come from a calendar this view does not
+show.
 
 ## Bar fill, Bar strip and Task icon
 
