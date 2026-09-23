@@ -230,7 +230,9 @@ first change, unticking member A of set S appends `{link: S, enabled: true, memb
 while the seeded `{link: A, enabled: true}` keeps A shaded (`effectiveDisplayPaths` unions both;
 measured with a throwaway jest probe on 2026-09-23). After a first change on any other calendar or
 set row, the set's row reads unticked (it has no entry) although its members still shade through
-their own rows.
+their own rows. Measured in real Obsidian during U6 (2026-09-23): with two sets linked and nothing
+stored, both set rows and their three member calendars read ticked; one click on the first set's row leaves **both** set rows unticked
+while all three member calendars stay ticked and shaded.
 
 Two related member-toggle quirks, found by the same review:
 
@@ -772,7 +774,8 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   pulled from the 0.1.0-beta.11 notes for that reason and must not be referenced by any release until
   re-captured. Fixture: `test/specs/gantt-legend.e2e.ts`. The committed bytes stay in place — older
   releases pin to their own tags (`docs/conventions/visual-assets.md`), so a re-capture lands under a
-  new filename rather than overwriting these.
+  new filename rather than overwriting these. `website/docs/features/legend.md` now uses the new
+  captures `docs/media/gantt-legend-panel-{right,bottom}-{light,dark}.png`.
 - **Extract the view-options assembly out of `register.ts` (ranked entry 2)** — `register.ts:1849-1875`
   assembles the registered option set by calling `calendarItemOptionsGroup()` and then mutating it with
   `externalCalendarOptionEntries(...)` / `externalCalendarDegradedEntry()` before returning it beside
@@ -857,6 +860,15 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
   immutable source of truth). Would make the notes-to-`main`-first discipline belt-and-suspenders
   rather than load-bearing. Source:
   `docs/solutions/workflow-issues/release-notes-belong-on-main-not-release-branches.md`.
+
+### P3 — `mkdocs build --strict` does not check in-page anchors (2026-09-23)
+Found by the plan `2026-09-20-002` U6 review. `website/mkdocs.yml`'s `validation:` block sets
+`links.absolute_links: warn` but not `links.anchors`, which MkDocs leaves at INFO, so `--strict`
+builds green with a broken `page.md#anchor` link. Every docs unit in that campaign links into other
+pages by anchor and has checked them by grepping the built site by hand. The reviewer measured the
+fix: add `anchors: warn` under `validation.links`; the current tree still builds green, and a
+deliberately broken anchor then fails the build. Not taken in U6 because `website/mkdocs.yml` is
+outside that unit's files.
 
 ---
 
