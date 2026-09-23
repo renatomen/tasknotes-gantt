@@ -120,8 +120,7 @@ cues are the exception:
   **[Show date-status indicators on bars](../settings/appearance.md#show-date-status-indicators-on-bars)**
   is on.
 - **Torn edge** is listed only while that setting is on **and** at least one task in
-  the view is missing a date. It can stay listed while a filter or search hides
-  that task.
+  the view is missing a date.
 
 ### What follows your view
 
