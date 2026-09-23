@@ -228,13 +228,12 @@ estimate in minutes (1,440 to a day) but no due date:
 | *Write the release notes* | 2026-04-09 | 2880 (two days) | `"[[Team]]"` |
 | *Upgrade the database* | 2026-04-09 | 2880 (two days) | `"[[Alex]]"` |
 
-`timeEstimate` is TaskNotes' estimate field. With TaskNotes installed, the view
-reads it while **[Time Estimate Property](settings/fields.md#time-estimate-property)**
-is left blank.
-
 Then open the Gantt view's settings and, in the **Fields** group, set
-**[Calendar Property](settings/fields.md#calendar-property)** to `calendar`. It
-starts blank, and while it is blank no task follows a calendar.
+**[Start Date Property](settings/fields.md#start-date-property)** to `scheduled`,
+**[Time Estimate Property](settings/fields.md#time-estimate-property)** to
+`timeEstimate` and **[Calendar Property](settings/fields.md#calendar-property)**
+to `calendar`, the property names in the table. Calendar Property starts blank,
+and while it is blank no task follows a calendar.
 
 ### 6. Count working days
 
