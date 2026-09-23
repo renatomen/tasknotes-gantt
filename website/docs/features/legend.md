@@ -66,8 +66,7 @@ When the chart is short of either size, the legend covers the whole chart instea
 Moving it to a side that does not fit does the same: on a short chart, choosing
 **Bottom** can cover the chart at once. The
 Position buttons disappear and **Close** becomes **Return**, which closes the
-legend. If the chart gets room again while the legend is open, for example because
-you enlarge the pane, the legend goes back to its side.
+legend.
 
 ## What the legend lists
 
