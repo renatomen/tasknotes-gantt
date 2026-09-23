@@ -262,6 +262,7 @@ describe("calendar editor, as the documentation shows it", () => {
   });
 
   it("shows the working pattern as a visual weekday builder", async () => {
+    await openInEditor(TEAM_CALENDAR);
     const pressed = await browser.execute(() =>
       Array.from(document.querySelectorAll<HTMLElement>(".og-rrule-day[aria-pressed='true']")).map(
         (el) => el.textContent?.trim(),
@@ -271,6 +272,7 @@ describe("calendar editor, as the documentation shows it", () => {
   });
 
   it("offers timezones with their current UTC offset", async () => {
+    await openInEditor(TEAM_CALENDAR);
     await expect($(".og-cal-form")).toHaveText(expect.stringMatching(/Currently UTC\+1[23]:00/));
     const input = await $('.og-cal-form input[placeholder^="Search a timezone"]');
     await input.click();
@@ -286,6 +288,7 @@ describe("calendar editor, as the documentation shows it", () => {
   });
 
   it("opens the colour picker from the collapsed colour field", async () => {
+    await openInEditor(TEAM_CALENDAR);
     await (await $(".og-color-summary")).click();
     await expect($(".og-color-panel")).toBeDisplayed();
     await expect($(".og-color-search")).toBeDisplayed();
@@ -299,6 +302,7 @@ describe("calendar editor, as the documentation shows it", () => {
   });
 
   it("flags unsaved edits in the sticky header", async () => {
+    await openInEditor(TEAM_CALENDAR);
     await expect($(".og-cal-unsaved")).not.toBeExisting();
     await expect($(".og-cal-header .mod-cta")).toBeDisabled();
     const description = await $(".og-cal-form textarea");
@@ -320,6 +324,9 @@ describe("calendar editor, as the documentation shows it", () => {
   });
 
   it("asks before closing a calendar with unsaved edits", async () => {
+    await openInEditor(TEAM_CALENDAR);
+    await (await $(".og-cal-form textarea")).setValue("Auckland product team, edited");
+    await expect($(".og-cal-unsaved")).toHaveText("Unsaved changes");
     await browser.executeObsidian(({ app }) => {
       app.workspace.getLeavesOfType("tngantt-calendar-editor")[0]?.detach();
     });
@@ -337,6 +344,7 @@ describe("calendar editor, as the documentation shows it", () => {
   });
 
   it("previews authored hours on the Week tab", async () => {
+    await openInEditor(TEAM_CALENDAR);
     await selectTab("Week");
     const days = await browser.execute(() =>
       Array.from(document.querySelectorAll<HTMLElement>(".og-week-col")).map((col) => [
@@ -358,6 +366,7 @@ describe("calendar editor, as the documentation shows it", () => {
   });
 
   it("previews shading and markers on the Gantt strip tab", async () => {
+    await openInEditor(TEAM_CALENDAR);
     await selectTab("Gantt strip");
     const shaded = async (date: string) =>
       (await $(`.og-strip-cell[title='${date}']`).getAttribute("class")).includes("og-strip-shaded");
@@ -371,6 +380,7 @@ describe("calendar editor, as the documentation shows it", () => {
   });
 
   it("previews the whole year on the Year tab", async () => {
+    await openInEditor(TEAM_CALENDAR);
     await selectTab("Year");
     await stepYearTo(PREVIEW_YEAR);
     const expectedClass: Record<string, string> = {
