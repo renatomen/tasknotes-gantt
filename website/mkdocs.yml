@@ -58,6 +58,7 @@ nav:
     - Scheduling & dates: features/scheduling.md
     - Calendars & working time: features/calendars.md
     - Calendar editor: features/calendar-editor.md
+    - Calendar sets: features/calendar-sets.md
     - Dependencies: features/dependencies.md
     - Parent / child roll-up: features/parent-child.md
     - Colors, icons & weekends: features/appearance.md

@@ -204,6 +204,7 @@ For a set, the preview tabs show the member calendars combined. A day that one
 member has off while another member's pattern or availability blocks make it a
 working day is marked **Conflict**. A status line under the header can report the
 set's conflicts and member links that do not lead to a usable calendar.
+What a set does on the chart is on [Calendar sets](calendar-sets.md).
 
 ## Availability blocks
 

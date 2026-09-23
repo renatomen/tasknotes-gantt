@@ -109,7 +109,10 @@ three, so on a cell carrying both `wx-weekend` and a calendar date class the res
 class `og-weekends-off` added): Saturday 2026-04-11, blocked by the calendar's Mon–Fri pattern, went
 from the holiday background to `rgba(0, 0, 0, 0)`; the Friday 2026-04-10 holiday stayed shaded. So
 a calendar whose days off include the locale weekend loses that shading when a user turns weekend
-highlighting off. Fix direction: raise the calendar rule above the reset's specificity and replace
+highlighting off. Conflict stripes (`CALENDAR_CONFLICT_BACKGROUND`, same selector shape) clear the
+same way: measured 2026-09-23 on `CalendarPicker.base`, Sunday 2026-04-12 went from the stripe
+gradient to `none` while Friday 2026-04-17 kept it (the calendar-sets page documents this). Fix
+direction: raise the calendar rule above the reset's specificity and replace
 the substring test with one asserting the computed background of a weekend calendar cell with
 weekends off. Surfaced by the correctness reviewer during U2 of
 `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page documents the
@@ -217,6 +220,47 @@ rule at all. Fix direction: build the union's per-day hours from each member's o
 unit test for a member with a block. Surfaced by review during U3 of
 `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page documents the
 shipped behaviour.
+
+### P2 — The first picker change seeds set members as separate calendar rows, so set and member toggles stop working (2026-09-23)
+
+While no selection is stored, `ensureExplicit` (`calendarPickerModel.ts`) materializes the
+auto-displayed calendar paths (the members of every set the tasks link to) as plain calendar
+entries (`materializeSelection` in `calendarSelection.ts`). The set itself gets no entry. So on the
+first change, unticking member A of set S appends `{link: S, enabled: true, members: {A: false}}`
+while the seeded `{link: A, enabled: true}` keeps A shaded (`effectiveDisplayPaths` unions both;
+measured with a throwaway jest probe on 2026-09-23). After a first change on any other calendar or
+set row, the set's row reads unticked (it has no entry) although its members still shade through
+their own rows.
+
+Two related member-toggle quirks, found by the same review:
+
+- Ticking a member of a set whose entry is `enabled: false` writes only `members[link] = true`, so
+  the row re-renders unticked and the set still shades none of its members (`buildPickerRows` and
+  `effectiveDisplayPaths` check `enabled` first).
+- Ticking one member of a set with no entry appends `{link: S, enabled: true, members: {B: true}}`,
+  which shades every member, because `effectiveDisplayPaths` excludes only an explicit `false`.
+
+Fix direction: seed the links the tasks actually use (a set link stays a set entry), make a member
+tick enable its set entry with the other members explicitly off, and pin both with unit tests that
+start from `readDisplaySelection(undefined, true)` and from a disabled set entry.
+`CalendarPickerModal.test.ts` only covers member toggles from an explicit, enabled set entry.
+Surfaced by review during U4 of `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`;
+the calendar-sets page documents the shipped rule (a calendar shades while any ticked row includes
+it).
+
+### P3 — Select calendars… has no styles: no colour swatch, and names run into descriptions (2026-09-23)
+
+`CalendarPickerModal.ts` renders each row's colour as an empty `<span class="og-cal-picker-swatch">`
+with only an inline `background-color`, and places the description in a `<small>` straight after
+the name. No stylesheet in the repo defines any `og-cal-picker-*` class, so the swatch has no size
+and never shows, and each row reads as one run of text (`Sun ThuFixture calendar — …`), as the
+`docs/media/calendar-sets-picker.png` capture shows. `website/docs/features/calendars.md` still
+says a calendar's colour "appears beside the calendar in Select calendars…"; correct that sentence
+when the swatch is fixed or, if it is not, in the next unit that touches that page. Fix direction:
+add the picker rules to the plugin stylesheet (a sized, rounded swatch; the description on its own
+line or visibly separated) and pin the swatch's rendered size in `gantt-calendar-picker.e2e.ts`.
+Surfaced during U4 of `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`;
+the calendar-sets page documents the shipped behaviour.
 
 ### P1 — Schedule validation (errors & warnings), with swapped dates as the first slice (2026-08-10)
 Per-task validation with two severities, surfaced as a badge **left of the gantt bar**
