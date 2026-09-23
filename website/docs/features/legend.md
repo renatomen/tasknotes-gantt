@@ -12,7 +12,9 @@ have fuller pages of their own, linked at the end.
 ## A worked example
 
 You run a kitchen remodel with two crews. Each crew has its own calendar note with
-a colour, and each task links to its crew's calendar. You want one chart to show at
+a colour, and each task links to its crew's calendar through the property the view
+names as its [Calendar Property](../settings/fields.md#calendar-property) (see
+[Calendars and working time](calendars.md)). You want one chart to show at
 a glance who does each task, how urgent it is and where it stands. With TaskNotes
 installed, under **Appearance** in the view's settings:
 
