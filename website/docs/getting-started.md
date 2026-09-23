@@ -248,8 +248,11 @@ What each one does is on
 Run **Select calendars…** to see which calendars the chart shades. Until you
 change anything there, the chart shades the calendars your tasks link to
 ([Choosing which calendars shade](features/calendars.md#choosing-which-calendars-shade-select-calendars)),
-so here **Default calendar**, the three calendars and both sets are already
-ticked. Nothing needs changing for this example. How ticking and unticking a set
+so here the three calendars and both sets are already ticked. **Default
+calendar** is ticked too while
+**[Highlight weekends](settings/timeline.md#highlight-weekends)** is on, as it is
+by default and as it was for the chart below. Nothing needs changing for this
+example. How ticking and unticking a set
 or its members works is under [Select calendars…](features/calendar-sets.md#select-calendars).
 
 ### Reading the chart
