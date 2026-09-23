@@ -104,8 +104,9 @@ the way to share one holiday list across several team calendars.
 [What the shading shows](calendars.md#what-the-shading-shows) describes, and
 together they shade every day any of them shades. Until you use
 [Select calendars…](#select-calendars), the chart shades the members of every set
-your tasks link to; once you choose, your choice decides. The events and markers
-of the shaded members appear too. They never make a day off.
+your tasks link to; once you tick or untick a calendar, set or member there, your
+choice decides. The events and markers of the shaded members appear too. They never
+make a day off.
 
 ## Conflicts
 
@@ -116,16 +117,18 @@ whether the two calendars come from one set, from two sets, or were picked
 separately.
 
 - A calendar with no working rule the chart can use never makes a day a working
-  day, so it can only be on the "day off" side. Combine a Monday-to-Friday
-  team calendar with a holidays-only calendar, and every holiday that falls on a
-  weekday is a conflict.
+  day, so it can only be on the "day off" side. Combine a Monday-to-Friday team
+  calendar with a holidays-only calendar, and a holiday on a weekday is a conflict
+  unless the team calendar also lists it as a day off.
 - Events and markers never take part in a conflict.
 - A conflict is a report, not a rule. A task that follows the set still treats the
   day as a day off, because one member has it off.
 
 On the chart, a conflict day is drawn with **diagonal stripes** instead of the plain
 shade. Like the shading, the stripes appear only at the **Days** and **Hours**
-scales.
+scales, and stripes on a locale weekend are cleared while **Highlight weekends** is
+off (see [What the shading shows](calendars.md#what-the-shading-shows)). The banner
+still counts those days.
 
 ### Seeing why a day conflicts
 
@@ -180,10 +183,10 @@ calendar** row, are explained under
 set in which it is ticked as a member. Unticking it inside a set does not stop the
 shading while its own row is still ticked.
 
-That matters the first time you change anything here. Until then, the chart shades
-the calendars your tasks link to, including the members of their sets. Your first
-tick or untick of a calendar, set or member saves each of those calendars as ticked
-**on its own row**, so the chart does not jump. From then on the rule above applies:
+That matters the first time you tick or untick a calendar, set or member. Until
+then, the chart shades the calendars your tasks link to, including the members of
+their sets. That first tick or untick saves each of those calendars as ticked **on
+its own row**, so the chart does not jump. From then on the rule above applies:
 to stop shading a calendar, untick it everywhere it is ticked.
 
 ## Bar colour: By calendar { #bar-colour-by-calendar }
@@ -212,7 +215,7 @@ no line and the entry stays an ordinary event; a `non_working` entry with
 - The chart draws the markers of the calendars it shades, so a set's members'
   markers appear once the set is shaded.
 - A marker is drawn in its calendar's colour, or in the theme's accent colour when
-  the calendar has none, and labelled with the event's name, or its date when it has
+  the calendar has none (or one the chart cannot use), and labelled with the event's name, or its date when it has
   no name.
 - Unlike shading, markers stay visible at **every** scale, including Weeks and
   Months.

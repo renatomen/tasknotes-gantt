@@ -109,7 +109,10 @@ three, so on a cell carrying both `wx-weekend` and a calendar date class the res
 class `og-weekends-off` added): Saturday 2026-04-11, blocked by the calendar's Mon–Fri pattern, went
 from the holiday background to `rgba(0, 0, 0, 0)`; the Friday 2026-04-10 holiday stayed shaded. So
 a calendar whose days off include the locale weekend loses that shading when a user turns weekend
-highlighting off. Fix direction: raise the calendar rule above the reset's specificity and replace
+highlighting off. Conflict stripes (`CALENDAR_CONFLICT_BACKGROUND`, same selector shape) clear the
+same way: measured 2026-09-23 on `CalendarPicker.base`, Sunday 2026-04-12 went from the stripe
+gradient to `none` while Friday 2026-04-17 kept it (the calendar-sets page documents this). Fix
+direction: raise the calendar rule above the reset's specificity and replace
 the substring test with one asserting the computed background of a weekend calendar cell with
 weekends off. Surfaced by the correctness reviewer during U2 of
 `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`; the page documents the
@@ -225,7 +228,7 @@ auto-displayed calendar paths — the members of every set the tasks link to —
 entries (`materializeSelection` in `calendarSelection.ts`). The set itself gets no entry. So on
 the first change: unticking member A of set S appends `{link: S, members: {A: false}}` while the
 seeded `{link: A, enabled: true}` keeps A shaded (`effectiveDisplayPaths` unions both, measured
-with a throwaway jest probe on 2026-09-23). After a first change on any other row, the set's row
+with a throwaway jest probe on 2026-09-23). After a first change on any other calendar or set row, the set's row
 reads unticked (it has no entry) although its members still shade through their own rows. Fix direction: seed the links the tasks actually use (a set link stays a set entry),
 and pin it with a unit test that toggles a member starting from `readDisplaySelection(undefined,
 true)` — `CalendarPickerModal.test.ts` only covers member toggles from an explicit selection.
