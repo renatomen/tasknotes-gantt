@@ -6,8 +6,8 @@ itself. It lists the cues the chart can draw, with a small sample of each, and t
 samples follow the view you are looking at: its colours, and some of its
 settings.
 
-This page covers opening the legend, where it sits, and how to read it. What each
-cue means in depth lives on the page for its feature, linked below.
+This page covers opening the legend, where it sits, and how to read it. Some cues
+have fuller pages of their own, linked at the end.
 
 ## Opening and closing the legend
 
@@ -145,9 +145,9 @@ What each value paints, and how parents and children differ, is on
 [Settings → Appearance](../settings/appearance.md#bar-fill) and
 [Colors, icons & weekends](appearance.md#bar-colors).
 
-## Where each cue is explained in full
+## Where to read more
 
-The legend gives each cue a short explanation. These pages give the detail:
+The legend gives each cue a short explanation. These pages go further:
 
 - Torn edges, the orange date fill and the other bar decorations:
   [Reading bar decorations](appearance.md#reading-bar-decorations).
