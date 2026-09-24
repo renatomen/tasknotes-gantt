@@ -510,16 +510,16 @@ describe('checkReleaseNoteLinks', () => {
   });
 
   it.each([
-    ['a backslash-escaped dash','Write to support@evil\\-corp.example.', '\\-'],
-    ['a backslash-escaped underscore', 'Write to support@evil\\_corp.example.', '\\_'],
-    ['a backslash-escaped @', 'Write to support\\@evil.example.', '\\@'],
-    ['a backslash-escaped #', 'See octocat/Hello-World\\#1.', '\\#'],
+    ['a backslash-escaped dash', 'Write to support@evil\\-corp.example.', '\\'],
+    ['a backslash-escaped underscore', 'Write to support@evil\\_corp.example.', '\\'],
+    ['a backslash-escaped @', 'Write to support\\@evil.example.', '\\'],
+    ['a backslash-escaped #', 'See octocat/Hello-World\\#1.', '\\'],
     ['a numeric character reference', 'Write to support&#64;evil.example.', '&#64;'],
     ['a hex character reference', 'Write to support&#x40;evil.example.', '&#x40;'],
     ['a named character reference', 'See octocat&sol;Hello-World#1.', '&sol;'],
-  ])('refuses %s, which GitHub decodes before linking', (_shape, body, token) => {
+  ])('refuses %s, which a renderer decodes before linking', (_shape, body, token) => {
     expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual(
-      expect.arrayContaining([`${token}: GitHub decodes it before linking, so links built from it are not examined`]),
+      expect.arrayContaining([`${token}: a renderer decodes it before linking, so links built from it are not examined`]),
     );
   });
 
@@ -604,6 +604,16 @@ describe('checkReleaseNoteLinks', () => {
   it('flags a note whose release-date line has been blanked', () => {
     const content = note('text').replace('2026-09-20', '');
     expect(checkReleaseNoteLinks(content, context()).findings).toEqual([expect.stringContaining('release-date')]);
+  });
+
+  it('flags a second release-date comment, which the bundle would strip and so join the text around it', () => {
+    const findings = checkReleaseNoteLinks(note('Guide: https:/<!--release-date:2026-09-20-->/evil.example/guide'), context()).findings;
+    expect(findings).toEqual(expect.arrayContaining(['2 release-date comments: stripping the first could join the text around it']));
+  });
+
+  it('flags a TeX macro, which Obsidian expands in math before it links', () => {
+    const findings = checkReleaseNoteLinks(note('$\\href{https:evil.example/guide}{guide}$'), context()).findings;
+    expect(findings).toEqual(expect.arrayContaining([expect.stringContaining('a renderer decodes it before linking')]));
   });
 
   it('flags raw HTML, whose links it cannot examine', () => {
