@@ -147,9 +147,9 @@ export function findHtmlTag(text) {
   let m;
   while ((m = tagRe.exec(text)) !== null) {
     const tag = m[0];
-    // Allow autolinks: <https://…>, <http://…>, <mailto:…>, <user@host>.
-    if (/^<(https?:\/\/|mailto:)/i.test(tag)) continue;
-    if (/^<[^>\s@]+@[^>\s]+>$/.test(tag)) continue;
+    // Only a whole autolink is allowed: judging by its opening alone would let
+    // `<mailto: <img …>` skip the real tag the match runs on into.
+    if (WHOLE_AUTOLINK_RE.test(tag)) continue;
     return tag;
   }
   return null;
@@ -167,6 +167,7 @@ const REFERENCE_DESTINATION_RE = /\]:[ \t]*(?:\r?\n[ \t]*)?(\S*)/g;
 const WIKILINK_RE = /!?\[\[[^\]\n]*(?:\]\])?/g;
 /** A CommonMark autolink: `<scheme:…>` or `<user@host>`. */
 const AUTOLINK_RE = /<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*|[^<>\s@]+@[^<>\s]+)>/g;
+const WHOLE_AUTOLINK_RE = new RegExp(`^${AUTOLINK_RE.source}$`);
 /** Link syntax left over once every readable link has been consumed. */
 const UNPARSED_LINK_RE = /\]\(/g;
 /** A URL or email address that GFM and Obsidian turn into a link without markup. */

@@ -446,6 +446,19 @@ describe('checkReleaseNoteLinks', () => {
     expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual([expect.stringContaining('raw HTML')]);
   });
 
+  it.each([
+    ['a broken mailto autolink', 'See <mailto: <img src="//evil.example/p.png"> today.'],
+    ['a broken https autolink', 'See <https://tngantt.com/ <img src="//evil.example/p.png"> today.'],
+  ])('flags raw HTML that follows %s', (_shape, body) => {
+    expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual(
+      expect.arrayContaining([expect.stringContaining('raw HTML')]),
+    );
+  });
+
+  it('accepts a well-formed autolink to the site', () => {
+    expect(checkReleaseNoteLinks(note('See <https://tngantt.com/>.'), context())).toEqual({ findings: [], checked: 1 });
+  });
+
   it('flags raw HTML quoted in code, since no model of code is trusted', () => {
     expect(checkReleaseNoteLinks(note('Use `<br>` for breaks.'), context()).findings).toEqual([
       expect.stringContaining('raw HTML'),

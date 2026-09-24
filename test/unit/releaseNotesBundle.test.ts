@@ -138,6 +138,10 @@ describe("findRawHtml", () => {
     expect(findRawHtml("<script>alert(1)</script>")).toBe("<script>");
     expect(findRawHtml('text <img src=x onerror=alert(1)> more')).toBe("<img src=x onerror=alert(1)>");
   });
+
+  it("rejects a tag that a broken autolink opening runs into", () => {
+    expect(findRawHtml("see <mailto: <img src=x> now")).toBe("<mailto: <img src=x>");
+  });
 });
 
 describe("readReleaseEntries", () => {
