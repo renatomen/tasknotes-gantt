@@ -178,10 +178,11 @@ const UNPARSED_LINK_RE = /\]\(/g;
  */
 const BARE_LINK_RE = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.)[^ \t\n\r\f\v<]*|[\w.+-]+@[\w-]*\.[\w.-]+/g;
 /**
- * The trailing characters GFM leaves out of a bare URL. Only these: a `)` or `]`
- * GitHub keeps must stay in the destination the gate examines.
+ * The trailing characters every renderer leaves out of a bare URL: GFM's set and
+ * Obsidian's in common. A character one of them keeps, such as `)`, `]` or a
+ * quote, stays in the destination the gate examines.
  */
-const TRAILING_PUNCTUATION_RE = /[?!.,:*_~'"]+$/;
+const TRAILING_PUNCTUATION_RE = /[?!.,:*_~]+$/;
 /**
  * GitHub's cross-repository shorthand, `owner/repo#12`, `owner/repo@sha` or the
  * path form `owner/repo/issues/12`, which release bodies link. GitHub links it
@@ -190,7 +191,7 @@ const TRAILING_PUNCTUATION_RE = /[?!.,:*_~'"]+$/;
  * match is the last `owner/repo` before the reference.
  */
 const REPO_SHORTHAND_RE =
-  /([A-Za-z0-9][\w.-]*)\/([\w.-]+?)(?:#(\d+)|@([0-9a-f]{7,40})|\/(issues|pull|discussions)\/(\d+))(?![A-Za-z0-9])/g;
+  /([A-Za-z0-9][\w.-]*)\/([\w.-]+?)(?:#(\d+)|@([0-9a-f]{7,40})|\/(issues|pull|discussions)\/(\d+))(?![A-Za-z0-9])/gi;
 /** A GitHub @mention, which release bodies link to the person's profile. */
 const MENTION_RE = /(?<![A-Za-z0-9._%+@/`-])@([A-Za-z0-9][A-Za-z0-9-]{0,38})(?![A-Za-z0-9-])/g;
 /** GitHub's `user@sha` shorthand, which links a commit in that user's fork. */
@@ -223,8 +224,14 @@ function inlineDestination(match, text) {
   return { kind: open > 0 && text[open - 1] === "!" ? "image" : "link", destination: unwrapAngles(match[1]) };
 }
 
+function shorthandItem(issue, sha, itemKind, itemNumber) {
+  if (issue) return `issues/${issue}`;
+  if (sha) return `commit/${sha}`;
+  return `${itemKind.toLowerCase()}/${itemNumber}`;
+}
+
 function shorthandDestination([, owner, repo, issue, sha, itemKind, itemNumber]) {
-  const item = issue ? `issues/${issue}` : sha ? `commit/${sha}` : `${itemKind}/${itemNumber}`;
+  const item = shorthandItem(issue, sha, itemKind, itemNumber);
   return { kind: "shorthand", destination: `https://github.com/${owner}/${repo}/${item}` };
 }
 

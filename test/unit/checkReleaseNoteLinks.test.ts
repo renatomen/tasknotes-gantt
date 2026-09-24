@@ -182,6 +182,13 @@ describe('extractLinkDestinations', () => {
     ]);
   });
 
+  it.each([
+    ['a single quote', "see 'https://x.example/page' now", "https://x.example/page'"],
+    ['a double quote', 'see "https://x.example/page" now', 'https://x.example/page"'],
+  ])('keeps %s that closes a bare URL, as Obsidian does', (_shape, markdown, destination) => {
+    expect(extractLinkDestinations(markdown)).toEqual([{ kind: 'bare', destination }]);
+  });
+
   it('keeps a trailing bracket in a bare URL, as GitHub does', () => {
     expect(extractLinkDestinations('see https://x.example/page] now')).toEqual([
       { kind: 'bare', destination: 'https://x.example/page]' },
@@ -495,6 +502,7 @@ describe('checkReleaseNoteLinks', () => {
     ['in parentheses', 'Upstream fix (callumalpass/tasknotes/pull/2).', 'foreign-host: https://github.com/callumalpass/tasknotes/pull/2'],
     ['after a host', 'See github.com/callumalpass/tasknotes/issues/1 now.', 'foreign-host: https://github.com/callumalpass/tasknotes/issues/1'],
     ['for a discussion here', 'See renatomen/tasknotes-gantt/discussions/3 now.', 'repo-link-shape: https://github.com/renatomen/tasknotes-gantt/discussions/3'],
+    ['in capitals', 'See callumalpass/tasknotes/Issues/1 and more.', 'foreign-host: https://github.com/callumalpass/tasknotes/issues/1'],
   ])('refuses the owner/repo/issues/N path form %s', (_shape, body, finding) => {
     expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual([finding]);
   });
