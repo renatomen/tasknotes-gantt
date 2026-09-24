@@ -137,13 +137,14 @@ export function findRawHtml(content) {
 }
 
 /**
- * Find the first raw HTML tag anywhere in `text`, code included, ignoring only
- * autolinks. Returns the tag text, or null.
+ * Find the first raw HTML tag opener anywhere in `text`, code included, ignoring
+ * only whole autolinks. The `>` is optional: an HTML block whose tag never closes
+ * still renders. Returns the tag text up to its `>` or line end, or null.
  * @param {string} text
  * @returns {string|null}
  */
 export function findHtmlTag(text) {
-  const tagRe = /<\/?[a-zA-Z][^>]*>/g;
+  const tagRe = /<\/?[a-zA-Z][^>\n]*>?/g;
   let m;
   while ((m = tagRe.exec(text)) !== null) {
     const tag = m[0];

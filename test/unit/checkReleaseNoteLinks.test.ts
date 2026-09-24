@@ -455,6 +455,11 @@ describe('checkReleaseNoteLinks', () => {
     );
   });
 
+  it('flags an HTML block whose opening tag never closes', () => {
+    const body = '<iframe\nsrc=https:evil.example/x\nwidth=800 height=600\n\nText.';
+    expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual([expect.stringContaining('raw HTML')]);
+  });
+
   it('accepts a well-formed autolink to the site', () => {
     expect(checkReleaseNoteLinks(note('See <https://tngantt.com/>.'), context())).toEqual({ findings: [], checked: 1 });
   });

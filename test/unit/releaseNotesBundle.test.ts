@@ -142,6 +142,10 @@ describe("findRawHtml", () => {
   it("rejects a tag that a broken autolink opening runs into", () => {
     expect(findRawHtml("see <mailto: <img src=x> now")).toBe("<mailto: <img src=x>");
   });
+
+  it("rejects an HTML block whose opening tag never closes", () => {
+    expect(findRawHtml("<details\nopen\n\nText.")).toBe("<details");
+  });
 });
 
 describe("readReleaseEntries", () => {
