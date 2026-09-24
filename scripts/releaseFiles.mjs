@@ -133,10 +133,19 @@ export function stripDateComment(content) {
  * @returns {string|null}
  */
 export function findRawHtml(content) {
-  const withoutCode = blankCode(content);
+  return findHtmlTag(stripCode(content));
+}
+
+/**
+ * Find the first raw HTML tag anywhere in `text`, code included, ignoring only
+ * autolinks. Returns the tag text, or null.
+ * @param {string} text
+ * @returns {string|null}
+ */
+export function findHtmlTag(text) {
   const tagRe = /<\/?[a-zA-Z][^>]*>/g;
   let m;
-  while ((m = tagRe.exec(withoutCode)) !== null) {
+  while ((m = tagRe.exec(text)) !== null) {
     const tag = m[0];
     // Allow autolinks: <https://…>, <http://…>, <mailto:…>, <user@host>.
     if (/^<(https?:\/\/|mailto:)/i.test(tag)) continue;
@@ -200,51 +209,28 @@ function shorthandDestination([, owner, repo, issue, sha]) {
   return { kind: "shorthand", destination: `https://github.com/${owner}/${repo}/${item}` };
 }
 
-/** A fenced block, from its opening marker line to a line opening with the same marker. */
-const FENCED_BLOCK_RE = /^ {0,3}(`{3,}(?=[^`\n]*$)|~{3,})[\s\S]*?^ {0,3}\1/gm;
 /**
- * A code span on one line, opened by an unescaped backtick run and closed by a
- * run of exactly its length.
+ * Collect every match of `pattern` in `text`, then blank the matched spans so a
+ * later, looser pattern cannot count them twice.
  */
-const CODE_SPAN_RE = /(?<![`\\])(`+)(?!`).*?(?<!`)\1(?!`)/g;
-
-/**
- * `text` with fenced blocks and one-line code spans blanked, positions kept. A
- * backtick that pairs with nothing on its line blanks nothing, so the error
- * direction is examining too much, never too little.
- */
-function blankCode(text) {
-  const blank = (code) => code.replace(/[^\n]/g, " ");
-  return text.replace(FENCED_BLOCK_RE, blank).replace(CODE_SPAN_RE, blank);
-}
-
-/**
- * Collect every match of `pattern` in `searched` (by default `text` itself), then
- * blank the matched spans in `text` so a later, looser pattern cannot count them
- * twice.
- */
-function consumeMatches(text, pattern, toDestination, searched = text) {
+function consumeMatches(text, pattern, toDestination) {
   const found = [];
   const chars = text.split("");
-  for (const match of searched.matchAll(pattern)) {
+  for (const match of text.matchAll(pattern)) {
     found.push({ index: match.index, ...toDestination(match, text) });
     chars.fill(" ", match.index, match.index + match[0].length);
   }
   return { found, masked: chars.join("") };
 }
 
-/**
- * The passes, in order. Only the wikilink pass skips code: an Obsidian plugin's
- * notes routinely quote `[[` in code, and a wikilink points into a vault, never at
- * the web. Every pass that can yield a URL reads the raw text.
- */
+/** The passes, in order; each reads the raw text, code included. */
 const LINK_PASSES = [
   { pattern: INLINE_DESTINATION_RE, toDestination: inlineDestination },
   {
     pattern: REFERENCE_DESTINATION_RE,
     toDestination: ([, url]) => ({ kind: "reference", destination: unwrapAngles(url) }),
   },
-  { pattern: WIKILINK_RE, toDestination: ([match]) => ({ kind: "wikilink", destination: match }), skipsCode: true },
+  { pattern: WIKILINK_RE, toDestination: ([match]) => ({ kind: "wikilink", destination: match }) },
   { pattern: AUTOLINK_RE, toDestination: ([, url]) => ({ kind: "autolink", destination: url }) },
   { pattern: UNPARSED_LINK_RE, toDestination: ([match]) => ({ kind: "unparsed", destination: match }) },
   {
@@ -263,17 +249,17 @@ const LINK_PASSES = [
  * document order. Each pass anchors on a token that opens a link — `](`, `]:`,
  * `[[`, `<scheme:`, a bare URL or email, GitHub's `owner/repo#N` — rather than
  * modelling the grammar around it, and link syntax too malformed to read comes
- * back as `unparsed`, so a caller can refuse what it cannot examine. Code is not
- * stripped for any pass that can yield a URL: a stripper that mis-pairs one
- * backtick would hide every link after it.
+ * back as `unparsed`, so a caller can refuse what it cannot examine. Code is
+ * never stripped: every model of where code ends has hidden live links behind a
+ * mis-paired backtick or fence, so link syntax quoted in code is examined too.
  * @param {string} content
  * @returns {Array<{kind:"link"|"image"|"reference"|"wikilink"|"autolink"|"unparsed"|"bare"|"shorthand", destination:string}>}
  */
 export function extractLinkDestinations(content) {
   let text = content;
   const found = [];
-  for (const { pattern, toDestination, skipsCode } of LINK_PASSES) {
-    const pass = consumeMatches(text, pattern, toDestination, skipsCode ? blankCode(text) : text);
+  for (const { pattern, toDestination } of LINK_PASSES) {
+    const pass = consumeMatches(text, pattern, toDestination);
     found.push(...pass.found);
     text = pass.masked;
   }

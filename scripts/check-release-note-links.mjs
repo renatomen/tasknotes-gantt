@@ -17,7 +17,7 @@
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { extractLinkDestinations, extractReleaseDate, findRawHtml, releaseFileVersion } from './releaseFiles.mjs';
+import { extractLinkDestinations, extractReleaseDate, findHtmlTag, releaseFileVersion } from './releaseFiles.mjs';
 import { REPO_SLUG, REPO_URL } from './repoInfo.mjs';
 import { parseRawAssetUrl } from './visualAssets.mjs';
 
@@ -28,10 +28,11 @@ const SITE_DOCS_DIR = join(repoRoot, 'website/docs');
 /**
  * Published notes that predate the rule and still break it — `0.1.0-beta.1` links
  * to other hosts, `0.1.0-beta.3` pins its image under the legacy
- * `docs/releases/assets/`. Every other note, including each one added later, is
- * checked. The list only shrinks: a test fails when an entry passes or is gone.
+ * `docs/releases/assets/`, `0.1.0-beta.8` quotes `[[` in code. Every other note,
+ * including each one added later, is checked. The list only shrinks: a test fails
+ * when an entry passes or is gone.
  */
-export const GRANDFATHERED_NOTES = ['0.1.0-beta.1.md', '0.1.0-beta.3.md'];
+export const GRANDFATHERED_NOTES = ['0.1.0-beta.1.md', '0.1.0-beta.3.md', '0.1.0-beta.8.md'];
 
 const RAW_REPO_ROOT = `https://raw.githubusercontent.com/${REPO_SLUG}`;
 const SCHEME_RE = /^[A-Za-z][A-Za-z0-9+.-]*:/;
@@ -107,7 +108,9 @@ function nextFence(openFence, [, marker, rest]) {
 export function headingIds(markdown) {
   const ids = new Set();
   let openFence = null;
-  const body = markdown.replace(FRONT_MATTER_RE, '').replace(HTML_COMMENT_RE, '');
+  const body = markdown
+    .replace(FRONT_MATTER_RE, '')
+    .replace(HTML_COMMENT_RE, (comment) => comment.replace(/[^\n]/g, '<'));
   for (const line of body.split(/\r?\n/)) {
     const fence = FENCE_RE.exec(line);
     if (fence) {
@@ -195,7 +198,7 @@ const KIND_VERDICTS = {
 export function checkReleaseNoteLinks(content, context) {
   const findings = [];
   if (!extractReleaseDate(content)) findings.push('missing or malformed <!-- release-date: YYYY-MM-DD --> line');
-  const html = findRawHtml(content);
+  const html = findHtmlTag(content);
   if (html) findings.push(`raw HTML ${html}: links inside it are not examined`);
   const destinations = extractLinkDestinations(content);
   for (const { kind, destination } of destinations) {

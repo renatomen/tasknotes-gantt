@@ -160,24 +160,20 @@ describe('extractLinkDestinations', () => {
     ]);
   });
 
-  it('still returns a wikilink after an escaped backtick', () => {
-    expect(extractLinkDestinations('See \\` [[a note]] ` here.')).toEqual([{ kind: 'wikilink', destination: '[[a note]]' }]);
+  it('returns a wikilink even when it is quoted in code', () => {
+    expect(extractLinkDestinations('```md\n[[a note]]\n```\n')).toEqual([{ kind: 'wikilink', destination: '[[a note]]' }]);
   });
 
-  it('still returns a wikilink after a line that only looks like a fence opener', () => {
-    expect(extractLinkDestinations('``` a`b\n[[a note]]\n```\n')).toEqual([{ kind: 'wikilink', destination: '[[a note]]' }]);
+  it('returns a reference definition written in angle brackets as the URL inside them', () => {
+    expect(extractLinkDestinations('[d]: <https://x.example/a>')).toEqual([
+      { kind: 'reference', destination: 'https://x.example/a' },
+    ]);
   });
 
-  it('leaves a wikilink quoted in inline code alone', () => {
-    expect(extractLinkDestinations('Type `[[` to pick a note, as in `[[wikilink]]`.')).toEqual([]);
-  });
-
-  it('leaves a wikilink inside a fenced block alone', () => {
-    expect(extractLinkDestinations('```md\n[[a note]]\n```\n')).toEqual([]);
-  });
-
-  it('still returns a wikilink that follows an unpaired backtick on its line', () => {
-    expect(extractLinkDestinations('Press ` then see [[a note]].')).toEqual([{ kind: 'wikilink', destination: '[[a note]]' }]);
+  it("returns GitHub's owner/repo@sha shorthand as the commit it links to", () => {
+    expect(extractLinkDestinations('Fixed in callumalpass/tasknotes@a1b2c3d4e5f6.')).toEqual([
+      { kind: 'shorthand', destination: 'https://github.com/callumalpass/tasknotes/commit/a1b2c3d4e5f6' },
+    ]);
   });
 
   it('strips sentence punctuation that trails a bare URL', () => {
@@ -316,6 +312,10 @@ describe('headingIds', () => {
     expect(headingIds('<!--\n## Hidden\n-->\n').has('hidden')).toBe(false);
   });
 
+  it('ignores a heading that shares its line with a closing HTML comment', () => {
+    expect(headingIds('<!-- c --># Heading\n').has('heading')).toBe(false);
+  });
+
   it('ignores a heading inside the front matter', () => {
     expect(headingIds('---\n# yaml comment\n---\n# Title\n').has('yaml-comment')).toBe(false);
   });
@@ -434,6 +434,22 @@ describe('checkReleaseNoteLinks', () => {
   it('flags raw HTML sitting between two backticks in separate paragraphs', () => {
     const body = 'A literal ` backtick.\n\n<a href="//evil.example/x">docs</a>\n\nThen run `npm test`.';
     expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual([expect.stringContaining('raw HTML')]);
+  });
+
+  it('flags raw HTML whose attribute holds a backtick', () => {
+    const body = 'See <a title="`" href="https&#58;//evil.example/">the docs</a> for details `';
+    expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual([expect.stringContaining('raw HTML')]);
+  });
+
+  it('flags raw HTML after a fence opened inside a list item', () => {
+    const body = '- item\n  ```\n  code\n\n<img src=x onerror=alert(1)>\n\n```\n';
+    expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual([expect.stringContaining('raw HTML')]);
+  });
+
+  it('flags raw HTML quoted in code, since no model of code is trusted', () => {
+    expect(checkReleaseNoteLinks(note('Use `<br>` for breaks.'), context()).findings).toEqual([
+      expect.stringContaining('raw HTML'),
+    ]);
   });
 
   it("accepts GitHub shorthand for this repository's issue", () => {
