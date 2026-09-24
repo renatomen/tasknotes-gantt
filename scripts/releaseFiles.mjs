@@ -26,7 +26,16 @@ import { classifyImageUrl, parseRawAssetUrl, isReleaseRef } from "./visualAssets
 /** Matches a per-version notes filename, e.g. `1.2.0.md` or `1.2.0-beta.1.md`. */
 export const RELEASE_FILE_RE = /^(\d+)\.(\d+)\.(\d+)(?:-([\w.]+))?\.md$/;
 
-const RELEASE_DATE_RE = /^<!--\s*release-date:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\s*-->\s*$/m;
+/**
+ * The version a per-version notes file documents, from its name.
+ * @param {string} fileName - a bare file name, e.g. `1.2.0-beta.1.md`
+ * @returns {string|null} null for any other file, such as `unreleased.md`
+ */
+export function releaseFileVersion(fileName) {
+  return RELEASE_FILE_RE.test(fileName) ? fileName.slice(0, -".md".length) : null;
+}
+
+const RELEASE_DATE_RE =/^<!--\s*release-date:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\s*-->\s*$/m;
 
 /**
  * Parse a semantic version string.
@@ -137,72 +146,122 @@ export function findRawHtml(content) {
   return null;
 }
 
-/**
- * An inline link or image `[text](url "title")`. The text may hold brackets
- * (`![arr[0]](url)`) but never `](`: otherwise a malformed link's text would
- * stretch to the next link's destination and hide its own from every check.
- */
-const INLINE_LINK_RE = /(!?)\[((?:[^\]\n]|\](?!\())*?)\]\(([^)\s]*)(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\)/g;
+/** A readable inline destination after `](`: `url` or `<url>`, then an optional title. */
+const INLINE_DESTINATION_RE = /\]\([ \t]*(<[^<>\n]*>|[^\s)]*)(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*\)/g;
+/** A reference definition's destination, on the label's line or the next. */
+const REFERENCE_DESTINATION_RE = /\]:[ \t]*(?:\r?\n[ \t]*)?(\S*)/g;
+/** An Obsidian wikilink or embed, which the in-app renderer follows. */
+const WIKILINK_RE = /!?\[\[[^\]\n]*(?:\]\])?/g;
 /** A CommonMark autolink: `<scheme:…>` or `<user@host>`. */
 const AUTOLINK_RE = /<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*|[^<>\s@]+@[^<>\s]+)>/g;
-/** A reference definition `[label]: url`. */
-const REFERENCE_DEFINITION_RE = /^ {0,3}\[[^\]\n]+\]:[ \t]*(\S+)/gm;
-/** Link syntax left over once every well-formed link has been consumed. */
+/** Link syntax left over once every readable link has been consumed. */
 const UNPARSED_LINK_RE = /\]\(/g;
 /** A URL or email address that GFM and Obsidian turn into a link without markup. */
 const BARE_LINK_RE = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.)[^\s<>]*|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 const TRAILING_PUNCTUATION_RE = /[.,:;!?'"*_~)\]]+$/;
+/** GitHub's cross-repository shorthand, `owner/repo#12` or `owner/repo@sha`, which release bodies link. */
+const REPO_SHORTHAND_RE = /(?<![\w./-])([A-Za-z0-9][\w.-]*)\/([\w.-]+?)(?:#(\d+)|@([0-9a-f]{7,40}))(?![\w-])/g;
 
 /** Strip fenced and inline code so tags/images inside them are ignored. */
 function stripCode(content) {
   return content.replace(/```[\s\S]*?```/g, "").replace(/`[^`]*`/g, "");
 }
 
+/** The index of the `[` that opens the bracket closed at `closeIndex`, or -1. */
+function openingBracket(text, closeIndex) {
+  let depth = 0;
+  for (let index = closeIndex; index >= 0; index--) {
+    if (text[index - 1] === "\\") continue;
+    if (text[index] === "]") depth++;
+    if (text[index] === "[") depth--;
+    if (depth === 0) return index;
+  }
+  return -1;
+}
+
+function inlineDestination(match, text) {
+  const open = openingBracket(text, match.index);
+  return { kind: open > 0 && text[open - 1] === "!" ? "image" : "link", destination: match[1] };
+}
+
+function shorthandDestination([, owner, repo, issue, sha]) {
+  const item = issue ? `issues/${issue}` : `commit/${sha}`;
+  return { kind: "shorthand", destination: `https://github.com/${owner}/${repo}/${item}` };
+}
+
+/** A fenced block, from its opening marker line to a line opening with the same marker. */
+const FENCED_BLOCK_RE = /^ {0,3}(`{3,}|~{3,})[\s\S]*?^ {0,3}\1/gm;
+/** A code span on one line, closed by a backtick run of exactly its opening length. */
+const CODE_SPAN_RE = /(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)/g;
+
 /**
- * Collect every match of `pattern` in `text` as a destination of `kind`, then
- * blank the matched span so a later, looser pattern cannot count it twice.
+ * `text` with fenced blocks and one-line code spans blanked, positions kept. A
+ * backtick that pairs with nothing on its line blanks nothing, so the error
+ * direction is examining too much, never too little.
  */
-function consumeMatches(text, pattern, toDestination) {
-  const found = [];
-  const masked = text.replace(pattern, (...args) => {
-    const match = args[0];
-    const index = args.at(-2);
-    found.push({ index, ...toDestination(args) });
-    return " ".repeat(match.length);
-  });
-  return { found, masked };
+function blankCode(text) {
+  const blank = (code) => code.replace(/[^\n]/g, " ");
+  return text.replace(FENCED_BLOCK_RE, blank).replace(CODE_SPAN_RE, blank);
 }
 
 /**
- * Every link destination a renderer would follow in release-notes markdown, in
- * document order: inline links and images, autolinks, reference definitions and
- * bare URLs or emails. Link syntax too malformed to parse is returned as
- * `unparsed` rather than dropped, so a caller can refuse what it cannot examine.
- * Fenced and inline code are ignored.
+ * Collect every match of `pattern` in `searched` (by default `text` itself), then
+ * blank the matched spans in `text` so a later, looser pattern cannot count them
+ * twice.
+ */
+function consumeMatches(text, pattern, toDestination, searched = text) {
+  const found = [];
+  const chars = text.split("");
+  for (const match of searched.matchAll(pattern)) {
+    found.push({ index: match.index, ...toDestination(match, text) });
+    chars.fill(" ", match.index, match.index + match[0].length);
+  }
+  return { found, masked: chars.join("") };
+}
+
+/**
+ * The passes, in order. Only the wikilink pass skips code: an Obsidian plugin's
+ * notes routinely quote `[[` in code, and a wikilink points into a vault, never at
+ * the web. Every pass that can yield a URL reads the raw text.
+ */
+const LINK_PASSES = [
+  { pattern: INLINE_DESTINATION_RE, toDestination: inlineDestination },
+  { pattern: REFERENCE_DESTINATION_RE, toDestination: ([, url]) => ({ kind: "reference", destination: url }) },
+  { pattern: WIKILINK_RE, toDestination: ([match]) => ({ kind: "wikilink", destination: match }), skipsCode: true },
+  { pattern: AUTOLINK_RE, toDestination: ([, url]) => ({ kind: "autolink", destination: url }) },
+  { pattern: UNPARSED_LINK_RE, toDestination: ([match]) => ({ kind: "unparsed", destination: match }) },
+  {
+    pattern: BARE_LINK_RE,
+    toDestination: ([match]) => ({ kind: "bare", destination: match.replace(TRAILING_PUNCTUATION_RE, "") }),
+  },
+  { pattern: REPO_SHORTHAND_RE, toDestination: shorthandDestination },
+];
+
+/**
+ * Every link destination a renderer could follow in release-notes markdown, in
+ * document order. Each pass anchors on a token that opens a link — `](`, `]:`,
+ * `[[`, `<scheme:`, a bare URL or email, GitHub's `owner/repo#N` — rather than
+ * modelling the grammar around it, and link syntax too malformed to read comes
+ * back as `unparsed`, so a caller can refuse what it cannot examine. Code is not
+ * stripped for any pass that can yield a URL: a stripper that mis-pairs one
+ * backtick would hide every link after it.
  * @param {string} content
- * @returns {Array<{kind:"link"|"image"|"autolink"|"reference"|"bare"|"unparsed", destination:string}>}
+ * @returns {Array<{kind:"link"|"image"|"reference"|"wikilink"|"autolink"|"unparsed"|"bare"|"shorthand", destination:string}>}
  */
 export function extractLinkDestinations(content) {
-  const passes = [
-    [INLINE_LINK_RE, ([, bang, , url]) => ({ kind: bang ? "image" : "link", destination: url })],
-    [AUTOLINK_RE, ([, url]) => ({ kind: "autolink", destination: url })],
-    [REFERENCE_DEFINITION_RE, ([, url]) => ({ kind: "reference", destination: url })],
-    [UNPARSED_LINK_RE, ([match]) => ({ kind: "unparsed", destination: match })],
-    [BARE_LINK_RE, ([match]) => ({ kind: "bare", destination: match.replace(TRAILING_PUNCTUATION_RE, "") })],
-  ];
-  let text = stripCode(content);
+  let text = content;
   const found = [];
-  for (const [pattern, toDestination] of passes) {
-    const pass = consumeMatches(text, pattern, toDestination);
+  for (const { pattern, toDestination, skipsCode } of LINK_PASSES) {
+    const pass = consumeMatches(text, pattern, toDestination, skipsCode ? blankCode(text) : text);
     found.push(...pass.found);
     text = pass.masked;
   }
   return found.toSorted((a, b) => a.index - b.index).map(({ kind, destination }) => ({ kind, destination }));
 }
 
-/** The destination of every markdown image in `content`. */
+/** The destination of every markdown image outside code in `content`. */
 function imageUrls(content) {
-  return extractLinkDestinations(content)
+  return extractLinkDestinations(stripCode(content))
     .filter((link) => link.kind === "image")
     .map((link) => link.destination);
 }
@@ -260,9 +319,8 @@ export function readReleaseEntries(releasesDir) {
   if (!fs.existsSync(releasesDir)) return [];
   const entries = [];
   for (const file of fs.readdirSync(releasesDir)) {
-    const match = RELEASE_FILE_RE.exec(file);
-    if (!match) continue; // skips unreleased.md and any non-version file
-    const version = file.slice(0, -3); // drop ".md"
+    const version = releaseFileVersion(file);
+    if (!version) continue; // skips unreleased.md and any non-version file
     const parsed = parseVersion(version);
     if (!parsed) continue;
     const raw = fs.readFileSync(path.join(releasesDir, file), "utf8");

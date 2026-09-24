@@ -5,9 +5,13 @@ import { join, resolve } from 'node:path';
 import {
   checkReleaseNoteLinks,
   classifyDestination,
+  GRANDFATHERED_NOTES,
+  hasExactPath,
   headingIds,
+  parseSiteHost,
   releaseNotesToCheck,
   releaseVersionOf,
+  repositoryLinkContext,
   type LinkContext,
 } from '../../scripts/check-release-note-links.mjs';
 import { extractLinkDestinations } from '../../scripts/releaseFiles.mjs';
@@ -88,13 +92,65 @@ describe('extractLinkDestinations', () => {
     expect(found.map((d) => d.kind).sort()).toEqual(['link', 'unparsed']);
   });
 
-  it('ignores destinations inside fenced and inline code', () => {
-    expect(extractLinkDestinations('```\n[a](x)\n```\n`[b](y)`')).toEqual([]);
+  it('examines link syntax inside code instead of trusting a code stripper', () => {
+    expect(extractLinkDestinations('```\n[a](x)\n```\n`[b](y)`').map((d) => d.destination)).toEqual(['x', 'y']);
+  });
+
+  it('still finds a link that follows an unpaired backtick', () => {
+    const found = extractLinkDestinations('Press the ` key.\n\n- [Docs](https://evil.example/)\n\nThen run `npm test`.');
+    expect(found).toEqual([{ kind: 'link', destination: 'https://evil.example/' }]);
   });
 
   it('keeps an image whose alt text contains brackets', () => {
     const found = extractLinkDestinations('![arr[0] view](https://x.example/i.png)');
     expect(found).toEqual([{ kind: 'image', destination: 'https://x.example/i.png' }]);
+  });
+
+  it('returns both the image and the link of a linked image', () => {
+    const found = extractLinkDestinations('[![alt](https://x.example/i.png)](https://x.example/page)');
+    expect(found).toEqual([
+      { kind: 'image', destination: 'https://x.example/i.png' },
+      { kind: 'link', destination: 'https://x.example/page' },
+    ]);
+  });
+
+  it.each([
+    ['inside a list item', '- [d]: features/calendars'],
+    ['inside a blockquote', '> [d]: features/calendars'],
+    ['with the destination on the next line', '[d]:\n  features/calendars'],
+    ['with an escaped bracket in its label', '[a\\]b]: features/calendars'],
+  ])('returns a reference definition %s', (_shape, markdown) => {
+    expect(extractLinkDestinations(markdown)).toEqual([{ kind: 'reference', destination: 'features/calendars' }]);
+  });
+
+  it('returns an Obsidian wikilink, which the in-app renderer follows', () => {
+    expect(extractLinkDestinations('See [[features/calendars]].')).toEqual([
+      { kind: 'wikilink', destination: '[[features/calendars]]' },
+    ]);
+  });
+
+  it('leaves a wikilink quoted in inline code alone', () => {
+    expect(extractLinkDestinations('Type `[[` to pick a note, as in `[[wikilink]]`.')).toEqual([]);
+  });
+
+  it('leaves a wikilink inside a fenced block alone', () => {
+    expect(extractLinkDestinations('```md\n[[a note]]\n```\n')).toEqual([]);
+  });
+
+  it('still returns a wikilink that follows an unpaired backtick on its line', () => {
+    expect(extractLinkDestinations('Press ` then see [[a note]].')).toEqual([{ kind: 'wikilink', destination: '[[a note]]' }]);
+  });
+
+  it('strips sentence punctuation that trails a bare URL', () => {
+    expect(extractLinkDestinations('(see https://x.example/page).')).toEqual([
+      { kind: 'bare', destination: 'https://x.example/page' },
+    ]);
+  });
+
+  it("returns GitHub's cross-repository shorthand as the URL it links to", () => {
+    expect(extractLinkDestinations('Fixed upstream in callumalpass/tasknotes#99.')).toEqual([
+      { kind: 'shorthand', destination: 'https://github.com/callumalpass/tasknotes/issues/99' },
+    ]);
   });
 });
 
@@ -204,6 +260,30 @@ describe('headingIds', () => {
   it('collects explicit ids and slugs of canonical headings only', () => {
     expect([...headingIds('# A b\n## Why: now { #why }\n## C *d*\n### 2. E-f\n')].sort()).toEqual(['2-e-f', 'a-b', 'why']);
   });
+
+  it('collects a heading that follows a closed code fence', () => {
+    expect(headingIds('```\ncode\n```\n## After the fence\n').has('after-the-fence')).toBe(true);
+  });
+
+  it('keeps a fence open across a marker line that carries an info string', () => {
+    expect(headingIds('```\n```md\n## Still code\n```\n').has('still-code')).toBe(false);
+  });
+
+  it('ignores a heading inside an HTML comment', () => {
+    expect(headingIds('<!--\n## Hidden\n-->\n').has('hidden')).toBe(false);
+  });
+
+  it('ignores a heading inside the front matter', () => {
+    expect(headingIds('---\n# yaml comment\n---\n# Title\n').has('yaml-comment')).toBe(false);
+  });
+
+  it('ignores an indented heading, which Python-Markdown does not render as one', () => {
+    expect(headingIds('  ## Indented\n').has('indented')).toBe(false);
+  });
+
+  it('does not read an attribute list glued to the heading text as an id', () => {
+    expect(headingIds('## Glued{#glued}\n').has('glued')).toBe(false);
+  });
 });
 
 describe('raw image assets', () => {
@@ -252,6 +332,14 @@ describe('repository links', () => {
     expect(reasonFor('https://github.com/renatomen/tasknotes-gantt/pull/490')).toBeUndefined();
   });
 
+  it("accepts a commit link on this plugin's repository", () => {
+    expect(reasonFor('https://github.com/renatomen/tasknotes-gantt/commit/329c001a')).toBeUndefined();
+  });
+
+  it('rejects a repository URL that only begins with this repository name', () => {
+    expect(reasonFor('https://github.com/renatomen/tasknotes-gantt-fork/issues/1')).toBe('foreign-host');
+  });
+
   it("rejects an issue link on another repository", () => {
     expect(reasonFor('https://github.com/callumalpass/tasknotes/issues/1')).toBe('foreign-host');
   });
@@ -277,7 +365,27 @@ describe('checkReleaseNoteLinks', () => {
 
   it('reports every failing destination, not only the first', () => {
     const body = '[a](/features/calendars/) [b](https://tnggantt.com/) [c](features/x.md)';
-    expect(checkReleaseNoteLinks(note(body), context()).findings).toHaveLength(3);
+    expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual([
+      'relative: /features/calendars/',
+      'foreign-host: https://tnggantt.com/',
+      'relative: features/x.md',
+    ]);
+  });
+
+  it('refuses a wikilink, which resolves nowhere outside a vault', () => {
+    expect(checkReleaseNoteLinks(note('[[features/calendars]]'), context()).findings).toEqual([
+      'wikilink: [[features/calendars]]',
+    ]);
+  });
+
+  it("refuses GitHub shorthand for another repository's issue", () => {
+    expect(checkReleaseNoteLinks(note('See callumalpass/tasknotes#99.'), context()).findings).toEqual([
+      'foreign-host: https://github.com/callumalpass/tasknotes/issues/99',
+    ]);
+  });
+
+  it("accepts GitHub shorthand for this repository's issue", () => {
+    expect(checkReleaseNoteLinks(note('See renatomen/tasknotes-gantt#311.'), context()).findings).toEqual([]);
   });
 
   it('flags a note whose release-date line has been blanked', () => {
@@ -308,13 +416,47 @@ describe('releaseVersionOf', () => {
 });
 
 describe('releaseNotesToCheck', () => {
-  it('selects the baseline note and every later one, skipping older and unversioned files', () => {
-    const files = ['0.1.0-beta.9.md', '0.1.0-beta.10.md', '0.1.0-beta.11.md', '0.2.0.md', 'unreleased.md', 'RELEASING.md'];
-    expect(releaseNotesToCheck(files, '0.1.0-beta.10')).toEqual(['0.1.0-beta.10.md', '0.1.0-beta.11.md', '0.2.0.md']);
+  it('selects every versioned note except the grandfathered, older and newer alike', () => {
+    const files = ['0.1.0-beta.1.md', '0.0.9.md', '0.2.0-rc.1.md', 'unreleased.md', 'RELEASING.md'];
+    expect(releaseNotesToCheck(files, ['0.1.0-beta.1.md'])).toEqual(['0.0.9.md', '0.2.0-rc.1.md']);
   });
 
-  it('refuses to run when the baseline note itself is missing', () => {
-    expect(() => releaseNotesToCheck(['0.1.0-beta.11.md'], '0.1.0-beta.10')).toThrow(/baseline/);
+  it('refuses to run when a grandfathered note is no longer present', () => {
+    expect(() => releaseNotesToCheck(['0.2.0.md'], ['0.1.0-beta.1.md'])).toThrow(/no longer present/);
+  });
+
+  it('refuses to run when no note is left to check', () => {
+    expect(() => releaseNotesToCheck(['0.1.0-beta.1.md', 'unreleased.md'], ['0.1.0-beta.1.md'])).toThrow(/no release notes/);
+  });
+
+  it.each(GRANDFATHERED_NOTES)('keeps %s grandfathered only while it still breaks the rule', (name) => {
+    const content = readFileSync(join(REPO_ROOT, 'docs/releases', name), 'utf8');
+    const { findings } = checkReleaseNoteLinks(content, repositoryLinkContext(releaseVersionOf(name)));
+    expect(findings).not.toEqual([]);
+  });
+});
+
+describe('hasExactPath', () => {
+  it('finds a committed file named with its exact case', () => {
+    expect(hasExactPath(REPO_ROOT, 'docs/media/bars-default-light.png')).toBe(true);
+  });
+
+  it('refuses a committed file named with the wrong case, which the published URL would 404 on', () => {
+    expect(hasExactPath(REPO_ROOT, 'docs/media/Bars-Default-Light.png')).toBe(false);
+  });
+
+  it('refuses a directory, which is not a page or an image', () => {
+    expect(hasExactPath(REPO_ROOT, 'docs/media')).toBe(false);
+  });
+});
+
+describe('parseSiteHost', () => {
+  it('reads the host name from the CNAME contents', () => {
+    expect(parseSiteHost('tngantt.com\n')).toBe('tngantt.com');
+  });
+
+  it('refuses CNAME contents that are not a host name', () => {
+    expect(() => parseSiteHost('https://tngantt.com/')).toThrow(/no host name/);
   });
 });
 
