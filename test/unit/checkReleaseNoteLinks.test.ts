@@ -129,6 +129,45 @@ describe('extractLinkDestinations', () => {
     ]);
   });
 
+  it('returns a link written inside the title of another link', () => {
+    const found = extractLinkDestinations('[x](https://tngantt.com/ "[y](https://evil.example/)")');
+    expect(found.map((d) => d.destination)).toEqual(['https://tngantt.com/', 'https://evil.example/']);
+  });
+
+  it('reads an angle-bracketed destination as the URL inside the brackets', () => {
+    expect(extractLinkDestinations('[x](<https://x.example/a>)')).toEqual([{ kind: 'link', destination: 'https://x.example/a' }]);
+  });
+
+  it('keeps an image whose alt text ends in an escaped bracket', () => {
+    expect(extractLinkDestinations('![alt\\]](https://x.example/i.png)')).toEqual([
+      { kind: 'image', destination: 'https://x.example/i.png' },
+    ]);
+  });
+
+  it('returns a reference definition with no destination as an empty one', () => {
+    expect(extractLinkDestinations('[d]:')).toEqual([{ kind: 'reference', destination: '' }]);
+  });
+
+  it('returns a GitHub @mention as the profile it links to', () => {
+    expect(extractLinkDestinations('Thanks to @donaldwdci.')).toEqual([
+      { kind: 'mention', destination: 'https://github.com/donaldwdci' },
+    ]);
+  });
+
+  it('returns cross-repository shorthand wrapped in underscore emphasis', () => {
+    expect(extractLinkDestinations('_callumalpass/tasknotes#99_')).toEqual([
+      { kind: 'shorthand', destination: 'https://github.com/callumalpass/tasknotes/issues/99' },
+    ]);
+  });
+
+  it('still returns a wikilink after an escaped backtick', () => {
+    expect(extractLinkDestinations('See \\` [[a note]] ` here.')).toEqual([{ kind: 'wikilink', destination: '[[a note]]' }]);
+  });
+
+  it('still returns a wikilink after a line that only looks like a fence opener', () => {
+    expect(extractLinkDestinations('``` a`b\n[[a note]]\n```\n')).toEqual([{ kind: 'wikilink', destination: '[[a note]]' }]);
+  });
+
   it('leaves a wikilink quoted in inline code alone', () => {
     expect(extractLinkDestinations('Type `[[` to pick a note, as in `[[wikilink]]`.')).toEqual([]);
   });
@@ -265,6 +304,10 @@ describe('headingIds', () => {
     expect(headingIds('```\ncode\n```\n## After the fence\n').has('after-the-fence')).toBe(true);
   });
 
+  it('keeps a fence open across a line of the other fence marker', () => {
+    expect(headingIds('```\n~~~\n## Still code\n```\n').has('still-code')).toBe(false);
+  });
+
   it('keeps a fence open across a marker line that carries an info string', () => {
     expect(headingIds('```\n```md\n## Still code\n```\n').has('still-code')).toBe(false);
   });
@@ -384,6 +427,15 @@ describe('checkReleaseNoteLinks', () => {
     ]);
   });
 
+  it('accepts an @mention, which credits a person', () => {
+    expect(checkReleaseNoteLinks(note('Thanks to @donaldwdci.'), context())).toEqual({ findings: [], checked: 1 });
+  });
+
+  it('flags raw HTML sitting between two backticks in separate paragraphs', () => {
+    const body = 'A literal ` backtick.\n\n<a href="//evil.example/x">docs</a>\n\nThen run `npm test`.';
+    expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual([expect.stringContaining('raw HTML')]);
+  });
+
   it("accepts GitHub shorthand for this repository's issue", () => {
     expect(checkReleaseNoteLinks(note('See renatomen/tasknotes-gantt#311.'), context()).findings).toEqual([]);
   });
@@ -443,6 +495,10 @@ describe('hasExactPath', () => {
 
   it('refuses a committed file named with the wrong case, which the published URL would 404 on', () => {
     expect(hasExactPath(REPO_ROOT, 'docs/media/Bars-Default-Light.png')).toBe(false);
+  });
+
+  it('refuses a path that continues past a file', () => {
+    expect(hasExactPath(REPO_ROOT, 'docs/media/bars-default-light.png/extra')).toBe(false);
   });
 
   it('refuses a directory, which is not a page or an image', () => {

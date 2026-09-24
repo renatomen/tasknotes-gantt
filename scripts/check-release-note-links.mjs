@@ -2,8 +2,8 @@
  * The release-notes link gate. Every link destination in a versioned release note
  * must resolve to something this repository controls: a page of the documentation
  * site (and, with a fragment, one of that page's headings), an image pinned to the
- * note's OWN release tag, or an issue, pull request or commit of this repository.
- * Anything else is refused, because nothing else examines this file — `mkdocs
+ * note's OWN release tag, an issue, pull request or commit of this repository, or
+ * an @mention crediting a person. Anything else is refused, because nothing else examines this file — `mkdocs
  * build` never sees `docs/releases/`, and the release-index check reads file
  * names only.
  *
@@ -61,7 +61,7 @@ const CANONICAL_HEADING_RE = /^[A-Za-z0-9][A-Za-z0-9 ,.:-]*$/;
  */
 
 /**
- * @typedef {{ ok: true, kind: 'site' | 'asset' | 'repo' } | { ok: false, reason: string }} Classification
+ * @typedef {{ ok: true, kind: 'site' | 'asset' | 'repo' | 'mention' } | { ok: false, reason: string }} Classification
  */
 
 const accept = (kind) => ({ ok: true, kind });
@@ -174,7 +174,15 @@ export function classifyDestination(destination, context) {
   return reject('foreign-host');
 }
 
-const REFUSED_KINDS = { unparsed: 'unparsed link syntax', wikilink: 'wikilink' };
+/**
+ * Kinds judged by their shape rather than by a destination. A mention credits a
+ * person, so it names a GitHub profile by design; the other two resolve nowhere.
+ */
+const KIND_VERDICTS = {
+  mention: accept('mention'),
+  unparsed: reject('unparsed link syntax'),
+  wikilink: reject('wikilink'),
+};
 
 /**
  * Every finding for one release note: a missing release-date line, raw HTML
@@ -191,7 +199,7 @@ export function checkReleaseNoteLinks(content, context) {
   if (html) findings.push(`raw HTML ${html}: links inside it are not examined`);
   const destinations = extractLinkDestinations(content);
   for (const { kind, destination } of destinations) {
-    const result = REFUSED_KINDS[kind] ? reject(REFUSED_KINDS[kind]) : classifyDestination(destination, context);
+    const result = KIND_VERDICTS[kind] ?? classifyDestination(destination, context);
     if (!result.ok) findings.push(`${result.reason}: ${destination}`);
   }
   return { findings, checked: destinations.length };

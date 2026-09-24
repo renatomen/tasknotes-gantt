@@ -133,7 +133,7 @@ export function stripDateComment(content) {
  * @returns {string|null}
  */
 export function findRawHtml(content) {
-  const withoutCode = stripCode(content);
+  const withoutCode = blankCode(content);
   const tagRe = /<\/?[a-zA-Z][^>]*>/g;
   let m;
   while ((m = tagRe.exec(withoutCode)) !== null) {
@@ -146,8 +146,12 @@ export function findRawHtml(content) {
   return null;
 }
 
-/** A readable inline destination after `](`: `url` or `<url>`, then an optional title. */
-const INLINE_DESTINATION_RE = /\]\([ \t]*(<[^<>\n]*>|[^\s)]*)(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*\)/g;
+/**
+ * A readable inline destination after `](`: `url` or `<url>`. The optional title
+ * and the closing `)` are only looked ahead at, so a link written inside a title
+ * stays in the text for the passes that follow.
+ */
+const INLINE_DESTINATION_RE = /\]\([ \t]*(<[^<>\n]*>|[^\s)]*)(?=(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*\))/g;
 /** A reference definition's destination, on the label's line or the next. */
 const REFERENCE_DESTINATION_RE = /\]:[ \t]*(?:\r?\n[ \t]*)?(\S*)/g;
 /** An Obsidian wikilink or embed, which the in-app renderer follows. */
@@ -160,7 +164,9 @@ const UNPARSED_LINK_RE = /\]\(/g;
 const BARE_LINK_RE = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.)[^\s<>]*|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 const TRAILING_PUNCTUATION_RE = /[.,:;!?'"*_~)\]]+$/;
 /** GitHub's cross-repository shorthand, `owner/repo#12` or `owner/repo@sha`, which release bodies link. */
-const REPO_SHORTHAND_RE = /(?<![\w./-])([A-Za-z0-9][\w.-]*)\/([\w.-]+?)(?:#(\d+)|@([0-9a-f]{7,40}))(?![\w-])/g;
+const REPO_SHORTHAND_RE = /(?<![A-Za-z0-9./-])([A-Za-z0-9][\w.-]*)\/([\w.-]+?)(?:#(\d+)|@([0-9a-f]{7,40}))(?![A-Za-z0-9-])/g;
+/** A GitHub @mention, which release bodies link to the person's profile. */
+const MENTION_RE = /(?<![A-Za-z0-9._%+@/`-])@([A-Za-z0-9][A-Za-z0-9-]{0,38})(?![A-Za-z0-9-])/g;
 
 /** Strip fenced and inline code so tags/images inside them are ignored. */
 function stripCode(content) {
@@ -179,9 +185,14 @@ function openingBracket(text, closeIndex) {
   return -1;
 }
 
+/** A destination written as `<url>`, which CommonMark reads as `url`. */
+function unwrapAngles(destination) {
+  return destination.replace(/^<(.*)>$/, "$1");
+}
+
 function inlineDestination(match, text) {
   const open = openingBracket(text, match.index);
-  return { kind: open > 0 && text[open - 1] === "!" ? "image" : "link", destination: match[1] };
+  return { kind: open > 0 && text[open - 1] === "!" ? "image" : "link", destination: unwrapAngles(match[1]) };
 }
 
 function shorthandDestination([, owner, repo, issue, sha]) {
@@ -190,9 +201,12 @@ function shorthandDestination([, owner, repo, issue, sha]) {
 }
 
 /** A fenced block, from its opening marker line to a line opening with the same marker. */
-const FENCED_BLOCK_RE = /^ {0,3}(`{3,}|~{3,})[\s\S]*?^ {0,3}\1/gm;
-/** A code span on one line, closed by a backtick run of exactly its opening length. */
-const CODE_SPAN_RE = /(?<!`)(`+)(?!`).*?(?<!`)\1(?!`)/g;
+const FENCED_BLOCK_RE = /^ {0,3}(`{3,}(?=[^`\n]*$)|~{3,})[\s\S]*?^ {0,3}\1/gm;
+/**
+ * A code span on one line, opened by an unescaped backtick run and closed by a
+ * run of exactly its length.
+ */
+const CODE_SPAN_RE = /(?<![`\\])(`+)(?!`).*?(?<!`)\1(?!`)/g;
 
 /**
  * `text` with fenced blocks and one-line code spans blanked, positions kept. A
@@ -226,13 +240,20 @@ function consumeMatches(text, pattern, toDestination, searched = text) {
  */
 const LINK_PASSES = [
   { pattern: INLINE_DESTINATION_RE, toDestination: inlineDestination },
-  { pattern: REFERENCE_DESTINATION_RE, toDestination: ([, url]) => ({ kind: "reference", destination: url }) },
+  {
+    pattern: REFERENCE_DESTINATION_RE,
+    toDestination: ([, url]) => ({ kind: "reference", destination: unwrapAngles(url) }),
+  },
   { pattern: WIKILINK_RE, toDestination: ([match]) => ({ kind: "wikilink", destination: match }), skipsCode: true },
   { pattern: AUTOLINK_RE, toDestination: ([, url]) => ({ kind: "autolink", destination: url }) },
   { pattern: UNPARSED_LINK_RE, toDestination: ([match]) => ({ kind: "unparsed", destination: match }) },
   {
     pattern: BARE_LINK_RE,
     toDestination: ([match]) => ({ kind: "bare", destination: match.replace(TRAILING_PUNCTUATION_RE, "") }),
+  },
+  {
+    pattern: MENTION_RE,
+    toDestination: ([, user]) => ({ kind: "mention", destination: `https://github.com/${user}` }),
   },
   { pattern: REPO_SHORTHAND_RE, toDestination: shorthandDestination },
 ];
@@ -256,7 +277,8 @@ export function extractLinkDestinations(content) {
     found.push(...pass.found);
     text = pass.masked;
   }
-  return found.toSorted((a, b) => a.index - b.index).map(({ kind, destination }) => ({ kind, destination }));
+  found.sort((a, b) => a.index - b.index);
+  return found.map(({ kind, destination }) => ({ kind, destination }));
 }
 
 /** The destination of every markdown image outside code in `content`. */
