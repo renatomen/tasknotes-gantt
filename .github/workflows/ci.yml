@@ -47,6 +47,10 @@ jobs:
         # so it never runs on the PR that adds a control in src/ — the drift
         # this guard exists to catch.
         run: node scripts/check-settings-coverage.mjs
+      - name: Assert every release-note link resolves
+        # Lives here, not in docs.yml: that workflow is filtered to website/**,
+        # so it never sees docs/releases/, and mkdocs never builds release notes.
+        run: node scripts/check-release-note-links.mjs
       - name: Lint
         run: npm run lint --if-present
       - name: Typecheck

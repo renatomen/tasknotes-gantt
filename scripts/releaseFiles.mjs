@@ -138,15 +138,73 @@ export function findRawHtml(content) {
 }
 
 /**
- * A markdown image reference `![alt](url)`, capturing the URL (no whitespace).
- * Alt text is matched lazily (`.*?`, no `s` flag → stays on one line) so brackets
- * inside alt text like `![arr[0]](url)` don't truncate the match.
+ * An inline link or image `[text](url "title")`. The text may hold brackets
+ * (`![arr[0]](url)`) but never `](`: otherwise a malformed link's text would
+ * stretch to the next link's destination and hide its own from every check.
  */
-const IMAGE_RE = /!\[.*?\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+const INLINE_LINK_RE = /(!?)\[((?:[^\]\n]|\](?!\())*?)\]\(([^)\s]*)(?:\s+(?:"[^"\n]*"|'[^'\n]*'))?\)/g;
+/** A CommonMark autolink: `<scheme:…>` or `<user@host>`. */
+const AUTOLINK_RE = /<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*|[^<>\s@]+@[^<>\s]+)>/g;
+/** A reference definition `[label]: url`. */
+const REFERENCE_DEFINITION_RE = /^ {0,3}\[[^\]\n]+\]:[ \t]*(\S+)/gm;
+/** Link syntax left over once every well-formed link has been consumed. */
+const UNPARSED_LINK_RE = /\]\(/g;
+/** A URL or email address that GFM and Obsidian turn into a link without markup. */
+const BARE_LINK_RE = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.)[^\s<>]*|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
+const TRAILING_PUNCTUATION_RE = /[.,:;!?'"*_~)\]]+$/;
 
 /** Strip fenced and inline code so tags/images inside them are ignored. */
 function stripCode(content) {
   return content.replace(/```[\s\S]*?```/g, "").replace(/`[^`]*`/g, "");
+}
+
+/**
+ * Collect every match of `pattern` in `text` as a destination of `kind`, then
+ * blank the matched span so a later, looser pattern cannot count it twice.
+ */
+function consumeMatches(text, pattern, toDestination) {
+  const found = [];
+  const masked = text.replace(pattern, (...args) => {
+    const match = args[0];
+    const index = args.at(-2);
+    found.push({ index, ...toDestination(args) });
+    return " ".repeat(match.length);
+  });
+  return { found, masked };
+}
+
+/**
+ * Every link destination a renderer would follow in release-notes markdown, in
+ * document order: inline links and images, autolinks, reference definitions and
+ * bare URLs or emails. Link syntax too malformed to parse is returned as
+ * `unparsed` rather than dropped, so a caller can refuse what it cannot examine.
+ * Fenced and inline code are ignored.
+ * @param {string} content
+ * @returns {Array<{kind:"link"|"image"|"autolink"|"reference"|"bare"|"unparsed", destination:string}>}
+ */
+export function extractLinkDestinations(content) {
+  const passes = [
+    [INLINE_LINK_RE, ([, bang, , url]) => ({ kind: bang ? "image" : "link", destination: url })],
+    [AUTOLINK_RE, ([, url]) => ({ kind: "autolink", destination: url })],
+    [REFERENCE_DEFINITION_RE, ([, url]) => ({ kind: "reference", destination: url })],
+    [UNPARSED_LINK_RE, ([match]) => ({ kind: "unparsed", destination: match })],
+    [BARE_LINK_RE, ([match]) => ({ kind: "bare", destination: match.replace(TRAILING_PUNCTUATION_RE, "") })],
+  ];
+  let text = stripCode(content);
+  const found = [];
+  for (const [pattern, toDestination] of passes) {
+    const pass = consumeMatches(text, pattern, toDestination);
+    found.push(...pass.found);
+    text = pass.masked;
+  }
+  return found.toSorted((a, b) => a.index - b.index).map(({ kind, destination }) => ({ kind, destination }));
+}
+
+/** The destination of every markdown image in `content`. */
+function imageUrls(content) {
+  return extractLinkDestinations(content)
+    .filter((link) => link.kind === "image")
+    .map((link) => link.destination);
 }
 
 /**
@@ -158,14 +216,11 @@ function stripCode(content) {
  * @returns {{url:string, reason:string}|null}
  */
 export function findInvalidImageRef(content) {
-  const text = stripCode(content);
-  IMAGE_RE.lastIndex = 0;
-  let m;
-  while ((m = IMAGE_RE.exec(text)) !== null) {
-    const c = classifyImageUrl(m[1]);
-    if (!c.ok) return { url: m[1], reason: c.reason };
+  for (const url of imageUrls(content)) {
+    const c = classifyImageUrl(url);
+    if (!c.ok) return { url, reason: c.reason };
     // Release notes must pin to an immutable tag/SHA, not a branch.
-    if (!isReleaseRef(c.ref)) return { url: m[1], reason: "branch-ref" };
+    if (!isReleaseRef(c.ref)) return { url, reason: "branch-ref" };
   }
   return null;
 }
@@ -181,12 +236,9 @@ export function findInvalidImageRef(content) {
  * @returns {{url:string, repoPath:string}|null}
  */
 export function findMissingAssetRefs(content, exists) {
-  const text = stripCode(content);
-  IMAGE_RE.lastIndex = 0;
-  let m;
-  while ((m = IMAGE_RE.exec(text)) !== null) {
-    const parsed = parseRawAssetUrl(m[1]);
-    if (parsed && !exists(parsed.repoPath)) return { url: m[1], repoPath: parsed.repoPath };
+  for (const url of imageUrls(content)) {
+    const parsed = parseRawAssetUrl(url);
+    if (parsed && !exists(parsed.repoPath)) return { url, repoPath: parsed.repoPath };
   }
   return null;
 }
