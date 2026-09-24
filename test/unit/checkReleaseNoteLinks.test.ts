@@ -491,7 +491,26 @@ describe('checkReleaseNoteLinks', () => {
   });
 
   it.each([
-    ['a backslash-escaped dash', 'Write to support@evil\\-corp.example.', '\\-'],
+    ['bare', 'Upstream fix: callumalpass/tasknotes/issues/1 now.', 'foreign-host: https://github.com/callumalpass/tasknotes/issues/1'],
+    ['in parentheses', 'Upstream fix (callumalpass/tasknotes/pull/2).', 'foreign-host: https://github.com/callumalpass/tasknotes/pull/2'],
+    ['after a host', 'See github.com/callumalpass/tasknotes/issues/1 now.', 'foreign-host: https://github.com/callumalpass/tasknotes/issues/1'],
+    ['for a discussion here', 'See renatomen/tasknotes-gantt/discussions/3 now.', 'repo-link-shape: https://github.com/renatomen/tasknotes-gantt/discussions/3'],
+  ])('refuses the owner/repo/issues/N path form %s', (_shape, body, finding) => {
+    expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual([finding]);
+  });
+
+  it("accepts the path form for this repository's issue", () => {
+    expect(checkReleaseNoteLinks(note('See renatomen/tasknotes-gantt/issues/311 now.'), context()).findings).toEqual([]);
+  });
+
+  it('refuses an email whose domain starts with a dot, which GitHub still links', () => {
+    expect(checkReleaseNoteLinks(note('Mail foo@.evil.example now.'), context()).findings).toEqual([
+      'relative: foo@.evil.example',
+    ]);
+  });
+
+  it.each([
+    ['a backslash-escaped dash','Write to support@evil\\-corp.example.', '\\-'],
     ['a backslash-escaped underscore', 'Write to support@evil\\_corp.example.', '\\_'],
     ['a backslash-escaped @', 'Write to support\\@evil.example.', '\\@'],
     ['a backslash-escaped #', 'See octocat/Hello-World\\#1.', '\\#'],

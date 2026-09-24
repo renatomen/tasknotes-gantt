@@ -176,19 +176,21 @@ const UNPARSED_LINK_RE = /\]\(/g;
  * Here and in every destination pattern, whitespace means ASCII whitespace only,
  * as in GFM: JavaScript's `\s` would end a URL at a no-break space GitHub keeps.
  */
-const BARE_LINK_RE = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.)[^ \t\n\r\f\v<]*|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
+const BARE_LINK_RE = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.)[^ \t\n\r\f\v<]*|[\w.+-]+@[\w-]*\.[\w.-]+/g;
 /**
  * The trailing characters GFM leaves out of a bare URL. Only these: a `)` or `]`
  * GitHub keeps must stay in the destination the gate examines.
  */
 const TRAILING_PUNCTUATION_RE = /[?!.,:*_~'"]+$/;
 /**
- * GitHub's cross-repository shorthand, `owner/repo#12` or `owner/repo@sha`, which
- * release bodies link. GitHub links it after a host or path and before a range
+ * GitHub's cross-repository shorthand, `owner/repo#12`, `owner/repo@sha` or the
+ * path form `owner/repo/issues/12`, which release bodies link. GitHub links it
+ * after a host or path and before a range
  * (`github.com/owner/repo#1-3`), so there is no leading boundary: the leftmost
  * match is the last `owner/repo` before the reference.
  */
-const REPO_SHORTHAND_RE = /([A-Za-z0-9][\w.-]*)\/([\w.-]+?)(?:#(\d+)|@([0-9a-f]{7,40}))(?![A-Za-z0-9])/g;
+const REPO_SHORTHAND_RE =
+  /([A-Za-z0-9][\w.-]*)\/([\w.-]+?)(?:#(\d+)|@([0-9a-f]{7,40})|\/(issues|pull|discussions)\/(\d+))(?![A-Za-z0-9])/g;
 /** A GitHub @mention, which release bodies link to the person's profile. */
 const MENTION_RE = /(?<![A-Za-z0-9._%+@/`-])@([A-Za-z0-9][A-Za-z0-9-]{0,38})(?![A-Za-z0-9-])/g;
 /** GitHub's `user@sha` shorthand, which links a commit in that user's fork. */
@@ -221,8 +223,8 @@ function inlineDestination(match, text) {
   return { kind: open > 0 && text[open - 1] === "!" ? "image" : "link", destination: unwrapAngles(match[1]) };
 }
 
-function shorthandDestination([, owner, repo, issue, sha]) {
-  const item = issue ? `issues/${issue}` : `commit/${sha}`;
+function shorthandDestination([, owner, repo, issue, sha, itemKind, itemNumber]) {
+  const item = issue ? `issues/${issue}` : sha ? `commit/${sha}` : `${itemKind}/${itemNumber}`;
   return { kind: "shorthand", destination: `https://github.com/${owner}/${repo}/${item}` };
 }
 
