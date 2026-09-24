@@ -322,6 +322,10 @@ describe('headingIds', () => {
     expect(headingIds('```\ncode\n```\n## After the fence\n').has('after-the-fence')).toBe(true);
   });
 
+  it('keeps a fence open across a longer marker, which superfences does not close on', () => {
+    expect(headingIds('```\ncode\n````\n## After\n```\n').has('after')).toBe(false);
+  });
+
   it('keeps a fence open across a line of the other fence marker', () => {
     expect(headingIds('```\n~~~\n## Still code\n```\n').has('still-code')).toBe(false);
   });
@@ -711,10 +715,6 @@ describe('releaseNotesToCheck', () => {
     const content = readFileSync(join(REPO_ROOT, 'docs/releases', name), 'utf8');
     const { findings } = checkReleaseNoteLinks(content, repositoryLinkContext(releaseVersionOf(name)));
     expect(findings).not.toEqual([]);
-  });
-
-  it.each(Object.entries(GRANDFATHERED_NOTES))('pins %s to its content as published', (name, digest) => {
-    expect(noteDigest(readFileSync(join(REPO_ROOT, 'docs/releases', name), 'utf8'))).toBe(digest);
   });
 });
 

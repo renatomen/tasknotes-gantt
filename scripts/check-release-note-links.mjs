@@ -115,10 +115,13 @@ function headingId(line) {
   return CANONICAL_HEADING_RE.test(heading[1]) ? slugify(heading[1]) : null;
 }
 
-/** The fence open after `line`: a fence closes only on a bare marker at least as long. */
+/**
+ * The fence open after `line`: a fence closes only on a bare marker exactly like
+ * its opener, as the site's superfences requires; a longer one keeps it open.
+ */
 function nextFence(openFence, [, marker, rest]) {
   if (openFence === null) return marker;
-  const closes = marker[0] === openFence[0] && marker.length >= openFence.length && rest.trim() === '';
+  const closes = marker === openFence && rest.trim() === '';
   return closes ? null : openFence;
 }
 
