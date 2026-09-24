@@ -14,6 +14,7 @@
  *
  * @module scripts/check-release-note-links
  */
+import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
@@ -305,18 +306,46 @@ export function parseSiteHost(cname) {
 }
 
 /**
- * The context that checks a note against this checkout.
+ * The context that checks a note against this checkout: site pages as they are
+ * here, and assets as committed under the note's own tag once it exists.
  * @param {string} version
+ * @param {GitRunner} [runGit]
  * @returns {LinkContext}
  */
-export function repositoryLinkContext(version) {
+export function repositoryLinkContext(version, runGit = runRepositoryGit) {
+  const tagged = taggedFiles(version, runGit);
   return {
     version,
     siteHost: parseSiteHost(readFileSync(join(SITE_DOCS_DIR, 'CNAME'), 'utf8')),
     readSitePage: (pagePath) =>
       hasExactPath(SITE_DOCS_DIR, pagePath) ? readFileSync(join(SITE_DOCS_DIR, pagePath), 'utf8') : null,
-    assetExists: (repoPath) => hasExactPath(repoRoot, repoPath),
+    assetExists: (repoPath) => (tagged ? tagged.has(repoPath) : hasExactPath(repoRoot, repoPath)),
   };
+}
+
+/** @typedef {(args: string[]) => { status: number | null, stdout: string }} GitRunner */
+
+/** @type {GitRunner} */
+function runRepositoryGit(args) {
+  return spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8' });
+}
+
+/**
+ * Every file committed under the note's own release tag, or null while that tag
+ * does not exist. Once it does, an image pinned to it is served from the tag's
+ * tree, so an asset added to the branch later is a 404 however present it is here.
+ * @param {string} version
+ * @param {GitRunner} runGit
+ * @returns {Set<string> | null}
+ */
+export function taggedFiles(version, runGit) {
+  const tag = `refs/tags/${version}`;
+  const probe = runGit(['rev-parse', '--verify', '--quiet', `${tag}^{tree}`]);
+  if (probe.status === 1) return null;
+  if (probe.status !== 0) throw new Error(`git could not resolve ${tag}`);
+  const listing = runGit(['ls-tree', '-r', '-z', '--name-only', tag]);
+  if (listing.status !== 0) throw new Error(`git could not list ${tag}`);
+  return new Set(listing.stdout.split('\0').filter(Boolean));
 }
 
 function main(args) {

@@ -13,6 +13,7 @@ import {
   releaseNotesToCheck,
   releaseVersionOf,
   repositoryLinkContext,
+  taggedFiles,
   type LinkContext,
 } from '../../scripts/check-release-note-links.mjs';
 import { extractLinkDestinations } from '../../scripts/releaseFiles.mjs';
@@ -237,7 +238,7 @@ describe('site links', () => {
   });
 
   it('rejects a site path that climbs out with a dot segment', () => {
-    expect(reasonFor('https://tngantt.com/features/../index/')).toBe('site-path-noncanonical');
+    expect(reasonFor('https://tngantt.com/features/../features/calendars/')).toBe('site-path-noncanonical');
   });
 
   it('rejects a URL naming an index page, which the site serves only at its directory', () => {
@@ -733,6 +734,35 @@ describe('hasExactPath', () => {
 
   it('refuses a directory, which is not a page or an image', () => {
     expect(hasExactPath(REPO_ROOT, 'docs/media')).toBe(false);
+  });
+});
+
+describe('taggedFiles', () => {
+  const git = (probeStatus: number | null, listing = '') => (args: string[]) =>
+    args[0] === 'rev-parse' ? { status: probeStatus, stdout: '' } : { status: 0, stdout: listing };
+
+  it('reads nothing from a tag that does not exist yet', () => {
+    expect(taggedFiles('9.9.9', git(1))).toBeNull();
+  });
+
+  it('lists every file committed under an existing tag', () => {
+    expect(taggedFiles('1.0.0', git(0, 'docs/media/a.png\0docs/media/b.gif\0'))).toEqual(
+      new Set(['docs/media/a.png', 'docs/media/b.gif']),
+    );
+  });
+
+  it('refuses to guess when git cannot resolve the tag', () => {
+    expect(() => taggedFiles('1.0.0', git(null))).toThrow(/could not resolve/);
+  });
+});
+
+describe('repositoryLinkContext', () => {
+  it("refuses an asset the note's existing tag does not hold, though the branch has it", () => {
+    expect(repositoryLinkContext('0.1.0-beta.10').assetExists('docs/media/calendar-editor-form.png')).toBe(false);
+  });
+
+  it("finds an asset the note's existing tag holds", () => {
+    expect(repositoryLinkContext('0.1.0-beta.10').assetExists('docs/media/bars-default-light.png')).toBe(true);
   });
 });
 
