@@ -182,8 +182,13 @@ const BARE_LINK_RE = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.)[^ \t\n\r\f\v<]*|[\w
  * GitHub keeps must stay in the destination the gate examines.
  */
 const TRAILING_PUNCTUATION_RE = /[?!.,:*_~'"]+$/;
-/** GitHub's cross-repository shorthand, `owner/repo#12` or `owner/repo@sha`, which release bodies link. */
-const REPO_SHORTHAND_RE = /(?<![A-Za-z0-9./-])([A-Za-z0-9][\w.-]*)\/([\w.-]+?)(?:#(\d+)|@([0-9a-f]{7,40}))(?![A-Za-z0-9-])/g;
+/**
+ * GitHub's cross-repository shorthand, `owner/repo#12` or `owner/repo@sha`, which
+ * release bodies link. GitHub links it after a host or path and before a range
+ * (`github.com/owner/repo#1-3`), so there is no leading boundary: the leftmost
+ * match is the last `owner/repo` before the reference.
+ */
+const REPO_SHORTHAND_RE = /([A-Za-z0-9][\w.-]*)\/([\w.-]+?)(?:#(\d+)|@([0-9a-f]{7,40}))(?![A-Za-z0-9])/g;
 /** A GitHub @mention, which release bodies link to the person's profile. */
 const MENTION_RE = /(?<![A-Za-z0-9._%+@/`-])@([A-Za-z0-9][A-Za-z0-9-]{0,38})(?![A-Za-z0-9-])/g;
 /** GitHub's `user@sha` shorthand, which links a commit in that user's fork. */

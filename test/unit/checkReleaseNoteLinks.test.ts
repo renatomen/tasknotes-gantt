@@ -480,6 +480,19 @@ describe('checkReleaseNoteLinks', () => {
   });
 
   it.each([
+    ['after a host', 'Fixed upstream in github.com/octocat/Hello-World#1.'],
+    ['after a path', 'Fixed upstream in forks/octocat/Hello-World#1.'],
+    ['after a dash', 'Fixed upstream in -octocat/Hello-World#1.'],
+    ['before a range', 'Fixed upstream in octocat/Hello-World#1-3.'],
+  ])("refuses another repository's shorthand written %s", (_shape, body) => {
+    expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual([
+      'foreign-host: https://github.com/octocat/Hello-World/issues/1',
+    ]);
+  });
+
+  it.each([
+    ['a backslash-escaped dash', 'Write to support@evil\\-corp.example.', '\\-'],
+    ['a backslash-escaped underscore', 'Write to support@evil\\_corp.example.', '\\_'],
     ['a backslash-escaped @', 'Write to support\\@evil.example.', '\\@'],
     ['a backslash-escaped #', 'See octocat/Hello-World\\#1.', '\\#'],
     ['a numeric character reference', 'Write to support&#64;evil.example.', '&#64;'],

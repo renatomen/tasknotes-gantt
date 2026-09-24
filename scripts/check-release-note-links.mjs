@@ -54,10 +54,10 @@ const FRONT_MATTER_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n/;
 const CANONICAL_HEADING_RE = /^[A-Za-z0-9][A-Za-z0-9 ,.:-]*$/;
 /**
  * Text GitHub decodes before it builds email and repository links, which the
- * raw-text passes cannot see through: a character reference, or a backslash
- * escape of a character those links are made of.
+ * raw-text passes cannot see through: a character reference, or any backslash
+ * escape CommonMark defines (every ASCII punctuation character).
  */
-const DECODED_BEFORE_LINKING_RE = /&(?:#\d+|#[xX][\dA-Fa-f]+|[A-Za-z][A-Za-z\d]*);|\\[@#/.:]/;
+const DECODED_BEFORE_LINKING_RE = /&(?:#\d+|#[xX][\dA-Fa-f]+|[A-Za-z][A-Za-z\d]*);|\\[!-/:-@[-`{-~]/;
 
 /**
  * @typedef {object} LinkContext
