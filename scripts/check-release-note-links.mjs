@@ -14,6 +14,7 @@
  *
  * @module scripts/check-release-note-links
  */
+import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -28,11 +29,26 @@ const SITE_DOCS_DIR = join(repoRoot, 'website/docs');
 /**
  * Published notes that predate the rule and still break it — `0.1.0-beta.1` links
  * to other hosts, `0.1.0-beta.3` pins its image under the legacy
- * `docs/releases/assets/`, `0.1.0-beta.8` quotes `[[` in code. Every other note,
- * including each one added later, is checked. The list only shrinks: a test fails
- * when an entry passes or is gone.
+ * `docs/releases/assets/`, `0.1.0-beta.8` quotes `[[` in code — each pinned to the
+ * digest of its content as published. An edit ends the exemption and the note is
+ * checked in full, so what is grandfathered is those findings, not the file. Every
+ * other note, including each one added later, is checked. The map only shrinks: a
+ * test fails when an entry passes or is gone.
  */
-export const GRANDFATHERED_NOTES = ['0.1.0-beta.1.md', '0.1.0-beta.3.md', '0.1.0-beta.8.md'];
+export const GRANDFATHERED_NOTES = {
+  '0.1.0-beta.1.md': '0b4e0f39a8a0af982bde03912b0882ba8fac82c5ab3509fc3762dba13e0f490c',
+  '0.1.0-beta.3.md': 'b9b472cfaf2b4711957352d8fbaa97ad4991f700c1ed92d5bc5e8cb343a0e295',
+  '0.1.0-beta.8.md': '6f3ded0397e638c403f15b44a1f6d8a7c84028daa1305064bac822b6f26ca810',
+};
+
+/**
+ * The digest a grandfathered note is pinned to, independent of line endings.
+ * @param {string} content
+ * @returns {string}
+ */
+export function noteDigest(content) {
+  return createHash('sha256').update(content.replaceAll('\r\n', '\n')).digest('hex');
+}
 
 const RAW_REPO_ROOT = `https://raw.githubusercontent.com/${REPO_SLUG}`;
 const SCHEME_RE = /^[A-Za-z][A-Za-z0-9+.-]*:/;
@@ -240,15 +256,18 @@ export function releaseVersionOf(filePath) {
 }
 
 /**
- * The release notes checked by default: every versioned note but the grandfathered.
+ * The release notes checked by default: every versioned note except a
+ * grandfathered one whose content is still exactly as pinned.
  * @param {string[]} fileNames - the entries of docs/releases/
- * @param {string[]} [grandfathered]
+ * @param {(name: string) => string} readNote
+ * @param {Record<string, string>} [grandfathered] - note name → pinned digest
  * @returns {string[]}
  */
-export function releaseNotesToCheck(fileNames, grandfathered = GRANDFATHERED_NOTES) {
-  const missing = grandfathered.filter((name) => !fileNames.includes(name));
+export function releaseNotesToCheck(fileNames, readNote, grandfathered = GRANDFATHERED_NOTES) {
+  const missing = Object.keys(grandfathered).filter((name) => !fileNames.includes(name));
   if (missing.length > 0) throw new Error(`grandfathered note(s) no longer present: ${missing.join(', ')}`);
-  const notes = fileNames.filter((name) => releaseFileVersion(name) !== null && !grandfathered.includes(name));
+  const isExempt = (name) => grandfathered[name] === noteDigest(readNote(name));
+  const notes = fileNames.filter((name) => releaseFileVersion(name) !== null && !(name in grandfathered && isExempt(name)));
   if (notes.length === 0) throw new Error('no release notes to check');
   return notes;
 }
@@ -299,7 +318,11 @@ export function repositoryLinkContext(version) {
 
 function main(args) {
   const files =
-    args.length > 0 ? args : releaseNotesToCheck(readdirSync(RELEASES_DIR)).map((name) => join(RELEASES_DIR, name));
+    args.length > 0
+      ? args
+      : releaseNotesToCheck(readdirSync(RELEASES_DIR), (name) => readFileSync(join(RELEASES_DIR, name), 'utf8')).map(
+          (name) => join(RELEASES_DIR, name),
+        );
   let exitCode = 0;
   for (const file of files) {
     const context = repositoryLinkContext(releaseVersionOf(file));

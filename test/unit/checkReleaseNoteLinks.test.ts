@@ -8,6 +8,7 @@ import {
   GRANDFATHERED_NOTES,
   hasExactPath,
   headingIds,
+  noteDigest,
   parseSiteHost,
   releaseNotesToCheck,
   releaseVersionOf,
@@ -678,23 +679,42 @@ describe('releaseVersionOf', () => {
 });
 
 describe('releaseNotesToCheck', () => {
-  it('selects every versioned note except the grandfathered, older and newer alike', () => {
+  const PUBLISHED = 'published body';
+  const pinned = { '0.1.0-beta.1.md': noteDigest(PUBLISHED) };
+  const readAs = (body: string) => () => body;
+
+  it('selects every versioned note except an unchanged grandfathered one, older and newer alike', () => {
     const files = ['0.1.0-beta.1.md', '0.0.9.md', '0.2.0-rc.1.md', 'unreleased.md', 'RELEASING.md'];
-    expect(releaseNotesToCheck(files, ['0.1.0-beta.1.md'])).toEqual(['0.0.9.md', '0.2.0-rc.1.md']);
+    expect(releaseNotesToCheck(files, readAs(PUBLISHED), pinned)).toEqual(['0.0.9.md', '0.2.0-rc.1.md']);
+  });
+
+  it('checks a grandfathered note again once its content changes', () => {
+    const files = ['0.1.0-beta.1.md', '0.2.0.md'];
+    expect(releaseNotesToCheck(files, readAs(`${PUBLISHED} [new](https://evil.example)`), pinned)).toEqual(files);
+  });
+
+  it('pins a grandfathered note regardless of its line endings', () => {
+    expect(noteDigest('a\r\nb\r\n')).toBe(noteDigest('a\nb\n'));
   });
 
   it('refuses to run when a grandfathered note is no longer present', () => {
-    expect(() => releaseNotesToCheck(['0.2.0.md'], ['0.1.0-beta.1.md'])).toThrow(/no longer present/);
+    expect(() => releaseNotesToCheck(['0.2.0.md'], readAs(PUBLISHED), pinned)).toThrow(/no longer present/);
   });
 
   it('refuses to run when no note is left to check', () => {
-    expect(() => releaseNotesToCheck(['0.1.0-beta.1.md', 'unreleased.md'], ['0.1.0-beta.1.md'])).toThrow(/no release notes/);
+    expect(() => releaseNotesToCheck(['0.1.0-beta.1.md', 'unreleased.md'], readAs(PUBLISHED), pinned)).toThrow(
+      /no release notes/,
+    );
   });
 
-  it.each(GRANDFATHERED_NOTES)('keeps %s grandfathered only while it still breaks the rule', (name) => {
+  it.each(Object.keys(GRANDFATHERED_NOTES))('keeps %s grandfathered only while it still breaks the rule', (name) => {
     const content = readFileSync(join(REPO_ROOT, 'docs/releases', name), 'utf8');
     const { findings } = checkReleaseNoteLinks(content, repositoryLinkContext(releaseVersionOf(name)));
     expect(findings).not.toEqual([]);
+  });
+
+  it.each(Object.entries(GRANDFATHERED_NOTES))('pins %s to its content as published', (name, digest) => {
+    expect(noteDigest(readFileSync(join(REPO_ROOT, 'docs/releases', name), 'utf8'))).toBe(digest);
   });
 });
 
