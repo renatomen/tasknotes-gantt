@@ -479,6 +479,18 @@ describe('checkReleaseNoteLinks', () => {
     );
   });
 
+  it.each([
+    ['a backslash-escaped @', 'Write to support\\@evil.example.', '\\@'],
+    ['a backslash-escaped #', 'See octocat/Hello-World\\#1.', '\\#'],
+    ['a numeric character reference', 'Write to support&#64;evil.example.', '&#64;'],
+    ['a hex character reference', 'Write to support&#x40;evil.example.', '&#x40;'],
+    ['a named character reference', 'See octocat&sol;Hello-World#1.', '&sol;'],
+  ])('refuses %s, which GitHub decodes before linking', (_shape, body, token) => {
+    expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual(
+      expect.arrayContaining([`${token}: GitHub decodes it before linking, so links built from it are not examined`]),
+    );
+  });
+
   it('accepts a link followed by closing punctuation', () => {
     const body = '(see [Calendars](https://tngantt.com/features/calendars/)).';
     expect(checkReleaseNoteLinks(note(body), context())).toEqual({ findings: [], checked: 1 });
@@ -519,7 +531,9 @@ describe('checkReleaseNoteLinks', () => {
 
   it('flags raw HTML whose attribute holds a backtick', () => {
     const body = 'See <a title="`" href="https&#58;//evil.example/">the docs</a> for details `';
-    expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual([expect.stringContaining('raw HTML')]);
+    expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual(
+      expect.arrayContaining([expect.stringContaining('raw HTML')]),
+    );
   });
 
   it('flags raw HTML after a fence opened inside a list item', () => {

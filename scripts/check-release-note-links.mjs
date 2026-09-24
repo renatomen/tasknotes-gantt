@@ -52,6 +52,12 @@ const FRONT_MATTER_RE = /^---\r?\n[\s\S]*?\r?\n---\r?\n/;
  * fragment target rather than approximated.
  */
 const CANONICAL_HEADING_RE = /^[A-Za-z0-9][A-Za-z0-9 ,.:-]*$/;
+/**
+ * Text GitHub decodes before it builds email and repository links, which the
+ * raw-text passes cannot see through: a character reference, or a backslash
+ * escape of a character those links are made of.
+ */
+const DECODED_BEFORE_LINKING_RE = /&(?:#\d+|#[xX][\dA-Fa-f]+|[A-Za-z][A-Za-z\d]*);|\\[@#/.:]/;
 
 /**
  * @typedef {object} LinkContext
@@ -202,6 +208,8 @@ export function checkReleaseNoteLinks(content, context) {
   if (!extractReleaseDate(content)) findings.push('missing or malformed <!-- release-date: YYYY-MM-DD --> line');
   const html = findHtmlTag(content);
   if (html) findings.push(`raw HTML ${html}: links inside it are not examined`);
+  const decoded = DECODED_BEFORE_LINKING_RE.exec(content);
+  if (decoded) findings.push(`${decoded[0]}: GitHub decodes it before linking, so links built from it are not examined`);
   const destinations = extractLinkDestinations(content);
   for (const { kind, destination } of destinations) {
     const result = KIND_VERDICTS[kind] ?? classifyDestination(destination, context);
