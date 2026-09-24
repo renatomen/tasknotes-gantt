@@ -757,12 +757,22 @@ describe('taggedFiles', () => {
 });
 
 describe('repositoryLinkContext', () => {
+  const taggedWith = (...files: string[]) => (args: string[]) =>
+    args[0] === 'rev-parse' ? { status: 0, stdout: '' } : { status: 0, stdout: files.map((file) => `${file}\0`).join('') };
+  const untagged = () => ({ status: 1, stdout: '' });
+
   it("refuses an asset the note's existing tag does not hold, though the branch has it", () => {
-    expect(repositoryLinkContext('0.1.0-beta.10').assetExists('docs/media/calendar-editor-form.png')).toBe(false);
+    const context = repositoryLinkContext('0.1.0-beta.10', taggedWith('docs/media/older.png'));
+    expect(context.assetExists('docs/media/bars-default-light.png')).toBe(false);
   });
 
   it("finds an asset the note's existing tag holds", () => {
-    expect(repositoryLinkContext('0.1.0-beta.10').assetExists('docs/media/bars-default-light.png')).toBe(true);
+    const context = repositoryLinkContext('0.1.0-beta.10', taggedWith('docs/media/older.png'));
+    expect(context.assetExists('docs/media/older.png')).toBe(true);
+  });
+
+  it('looks in the checkout while the note has no tag yet', () => {
+    expect(repositoryLinkContext('9.9.9', untagged).assetExists('docs/media/bars-default-light.png')).toBe(true);
   });
 });
 
@@ -809,5 +819,10 @@ describe('the command', () => {
     const workflow = readFileSync(join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8');
     expect(workflow).toMatch(/^on:\n {2}pull_request:\n/m);
     expect(workflow).toMatch(/^ {8}run: node scripts\/check-release-note-links\.mjs$/m);
+  });
+
+  it('runs with the full history the tag lookup needs', () => {
+    const workflow = readFileSync(join(REPO_ROOT, '.github/workflows/ci.yml'), 'utf8');
+    expect(workflow).toMatch(/^ {10}fetch-depth: 0$/m);
   });
 });
