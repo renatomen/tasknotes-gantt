@@ -228,11 +228,16 @@ function endOfConsumedSpan(text, source, index) {
   return end;
 }
 
+/** What may follow a consumed link without GFM reading the two as one bare URL. */
+const LINK_TRAILER_RE = /^[)?!.,:*_~'"]*$/;
+
 /**
  * Collect every match of `pattern` in `source` (by default `text`), then blank the
  * matched spans in `text` so a later, looser pattern cannot count them twice. A
- * match that starts inside a consumed span is not taken; the search resumes where
- * that span ends, so a link written straight after it is still found.
+ * match that starts inside a consumed span is skipped, resuming where that span
+ * ends, when the rest of the run outside consumed spans is only closing
+ * parentheses or punctuation. Anything more means GFM may have read no link there
+ * at all and linked the whole run, so the whole run is taken.
  */
 function consumeMatches(text, pattern, toDestination, source = text) {
   const found = [];
@@ -240,8 +245,10 @@ function consumeMatches(text, pattern, toDestination, source = text) {
   const search = new RegExp(pattern.source, pattern.flags);
   let match;
   while ((match = search.exec(source)) !== null) {
-    if (text[match.index] !== source[match.index]) {
-      search.lastIndex = endOfConsumedSpan(text, source, match.index);
+    const spanEnd = endOfConsumedSpan(text, source, match.index);
+    const trailer = text.slice(spanEnd, match.index + match[0].length).replaceAll(" ", "");
+    if (spanEnd > match.index && LINK_TRAILER_RE.test(trailer)) {
+      search.lastIndex = spanEnd;
       continue;
     }
     found.push({ index: match.index, ...toDestination(match, text) });

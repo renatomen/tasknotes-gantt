@@ -459,12 +459,29 @@ describe('checkReleaseNoteLinks', () => {
   });
 
   it.each([
-    ['a bare URL after an inline link', '[docs](https://tngantt.com/features/calendars/)https://evil.example/x', 'foreign-host: https://evil.example/x'],
-    ['a bare URL after an autolink', '<https://tngantt.com/features/calendars/>https://evil.example/x', 'foreign-host: https://evil.example/x'],
-    ['an email after an inline link', '[docs](https://tngantt.com/features/calendars/)evil@evil.example', 'relative: evil@evil.example'],
-    ['a broken page after a comma', '[docs](https://tngantt.com/features/calendars/),https://tngantt.com/no-such-page/', 'site-page-missing: https://tngantt.com/no-such-page/'],
-  ])('still examines %s written with no space between', (_shape, body, finding) => {
-    expect(checkReleaseNoteLinks(note(body), context()).findings).toContain(finding);
+    ['a bare URL after an inline link', '[docs](https://tngantt.com/features/calendars/)https://evil.example/x', 'https://evil.example/x'],
+    ['a bare URL after an autolink', '<https://tngantt.com/features/calendars/>https://evil.example/x', 'https://evil.example/x'],
+    ['an email after an inline link', '[docs](https://tngantt.com/features/calendars/)evil@evil.example', 'evil@evil.example'],
+    ['a broken page after a comma', '[docs](https://tngantt.com/features/calendars/),https://tngantt.com/no-such-page/', 'no-such-page'],
+  ])('still examines %s written with no space between', (_shape, body, fragment) => {
+    expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual(
+      expect.arrayContaining([expect.stringContaining(fragment)]),
+    );
+  });
+
+  it.each([
+    ['an escaped opening bracket', 'Docs \\[here](https://tngantt.com)@evil.example now.'],
+    ['no opening bracket', 'Docs here](https://tngantt.com)@evil.example now.'],
+    ['an opening bracket GitHub does not pair', 'Docs [a]b](https://tngantt.com)@evil.example now.'],
+  ])('reads the whole run GitHub links when a destination has %s', (_shape, body) => {
+    expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual(
+      expect.arrayContaining(['foreign-host: https://tngantt.com)@evil.example']),
+    );
+  });
+
+  it('accepts a link followed by closing punctuation', () => {
+    const body = '(see [Calendars](https://tngantt.com/features/calendars/)).';
+    expect(checkReleaseNoteLinks(note(body), context())).toEqual({ findings: [], checked: 1 });
   });
 
   it('reads a > as part of a bare URL, as GFM does', () => {
