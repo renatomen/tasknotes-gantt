@@ -439,6 +439,22 @@ describe('checkReleaseNoteLinks', () => {
     ]);
   });
 
+  it.each([
+    ['a bare URL', 'See https://tngantt.com @evil.example now.'],
+    ['a reference definition', '[a]: https://tngantt.com @evil.example'],
+    ['a bare URL with an ideographic space', 'See https://tngantt.com　@evil.example now.'],
+  ])('reads a non-ASCII space as part of %s, as GitHub does', (_shape, body) => {
+    expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual([
+      expect.stringMatching(/^foreign-host: https:\/\/tngantt\.com.@evil\.example$/),
+    ]);
+  });
+
+  it("refuses @-prefixed shorthand for another repository's issue", () => {
+    expect(checkReleaseNoteLinks(note('Fixed upstream in @evil/repo#12.'), context()).findings).toEqual([
+      'foreign-host: https://github.com/evil/repo/issues/12',
+    ]);
+  });
+
   it('refuses fork-commit shorthand, whose repository the note cannot name', () => {
     expect(checkReleaseNoteLinks(note('Fixed in fariasfc@329c001a.'), context()).findings).toEqual([
       'fork-commit shorthand: fariasfc@329c001a',

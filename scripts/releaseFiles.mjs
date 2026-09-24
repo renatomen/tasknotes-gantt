@@ -161,18 +161,22 @@ export function findHtmlTag(text) {
  * and the closing `)` are only looked ahead at, so a link written inside a title
  * stays in the text for the passes that follow.
  */
-const INLINE_DESTINATION_RE = /\]\([ \t]*(<[^<>\n]*>|[^\s)]*)(?=(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*\))/g;
+const INLINE_DESTINATION_RE = /\]\([ \t]*(<[^<>\n]*>|[^ \t\n\r\f\v)]*)(?=(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*\))/g;
 /** A reference definition's destination, on the label's line or the next. */
-const REFERENCE_DESTINATION_RE = /\]:[ \t]*(?:\r?\n[ \t]*)?(\S*)/g;
+const REFERENCE_DESTINATION_RE = /\]:[ \t]*(?:\r?\n[ \t]*)?([^ \t\n\r\f\v]*)/g;
 /** An Obsidian wikilink or embed, which the in-app renderer follows. */
 const WIKILINK_RE = /!?\[\[[^\]\n]*(?:\]\])?/g;
 /** A CommonMark autolink: `<scheme:…>` or `<user@host>`. */
-const AUTOLINK_RE = /<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^<>\s]*|[^<>\s@]+@[^<>\s]+)>/g;
+const AUTOLINK_RE = /<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^<> \t\n\r\f\v]*|[^<> \t\n\r\f\v@]+@[^<> \t\n\r\f\v]+)>/g;
 const WHOLE_AUTOLINK_RE = new RegExp(`^${AUTOLINK_RE.source}$`);
 /** Link syntax left over once every readable link has been consumed. */
 const UNPARSED_LINK_RE = /\]\(/g;
-/** A URL or email address that GFM and Obsidian turn into a link without markup. */
-const BARE_LINK_RE = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.)[^\s<>]*|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
+/**
+ * A URL or email address that GFM and Obsidian turn into a link without markup.
+ * Here and in every destination pattern, whitespace means ASCII whitespace only,
+ * as in GFM: JavaScript's `\s` would end a URL at a no-break space GitHub keeps.
+ */
+const BARE_LINK_RE = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.)[^ \t\n\r\f\v<>]*|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 /**
  * The trailing characters GFM leaves out of a bare URL. Only these: a `)` or `]`
  * GitHub keeps must stay in the destination the gate examines.
@@ -245,12 +249,12 @@ const LINK_PASSES = [
     pattern: BARE_LINK_RE,
     toDestination: ([match]) => ({ kind: "bare", destination: match.replace(TRAILING_PUNCTUATION_RE, "") }),
   },
+  { pattern: REPO_SHORTHAND_RE, toDestination: shorthandDestination },
+  { pattern: FORK_COMMIT_RE, toDestination: ([match]) => ({ kind: "fork-commit", destination: match }) },
   {
     pattern: MENTION_RE,
     toDestination: ([, user]) => ({ kind: "mention", destination: `https://github.com/${user}` }),
   },
-  { pattern: REPO_SHORTHAND_RE, toDestination: shorthandDestination },
-  { pattern: FORK_COMMIT_RE, toDestination: ([match]) => ({ kind: "fork-commit", destination: match }) },
 ];
 
 /**
