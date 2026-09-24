@@ -188,11 +188,14 @@ export function classifyDestination(destination, context) {
 /**
  * Kinds judged by their shape rather than by a destination. A mention credits a
  * person, so it names a GitHub profile by design. A fork commit points into a
- * repository the note cannot name, and the other two resolve nowhere.
+ * repository the note cannot name. A reference definition may serve an image as
+ * well as a link, which its destination alone cannot tell, and no note uses one.
+ * The other two resolve nowhere.
  */
 const KIND_VERDICTS = {
   'fork-commit': reject('fork-commit shorthand'),
   mention: accept('mention'),
+  reference: reject('reference-style link'),
   unparsed: reject('unparsed link syntax'),
   wikilink: reject('wikilink'),
 };
@@ -219,7 +222,8 @@ export function checkReleaseNoteLinks(content, context) {
   const destinations = extractLinkDestinations(content);
   for (const { kind, destination } of destinations) {
     const result = KIND_VERDICTS[kind] ?? classifyDestination(destination, context);
-    if (!result.ok) findings.push(`${result.reason}: ${destination}`);
+    const verdict = kind === 'image' && result.ok && result.kind !== 'asset' ? reject('image-not-an-asset') : result;
+    if (!verdict.ok) findings.push(`${verdict.reason}: ${destination}`);
   }
   return { findings, checked: destinations.length };
 }

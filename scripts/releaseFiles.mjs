@@ -166,8 +166,11 @@ const INLINE_DESTINATION_RE = /\]\([ \t]*(<[^<>\n]*>|[^ \t\n\r\f\v)]*)(?=(?:[ \t
 const REFERENCE_DESTINATION_RE = /\]:[ \t]*(?:\r?\n[ \t]*)?([^ \t\n\r\f\v]*)/g;
 /** An Obsidian wikilink or embed, which the in-app renderer follows. */
 const WIKILINK_RE = /!?\[\[[^\]\n]*(?:\]\])?/g;
-/** A CommonMark autolink: `<scheme:…>` or `<user@host>`. */
-const AUTOLINK_RE = /<([A-Za-z][A-Za-z0-9+.-]{1,31}:[^<> \t\n\r\f\v]*|[^<> \t\n\r\f\v@]+@[^<> \t\n\r\f\v]+)>/g;
+/**
+ * An autolink, `<scheme:…>` or `<user@host>`. The scheme is any run Obsidian's
+ * parser would take, not only CommonMark's letter-led one, so `<_://…>` is read.
+ */
+const AUTOLINK_RE = /<([^<> \t\n\r\f\v:]+:[^<> \t\n\r\f\v]*|[^<> \t\n\r\f\v@]+@[^<> \t\n\r\f\v]+)>/g;
 const WHOLE_AUTOLINK_RE = new RegExp(`^${AUTOLINK_RE.source}$`);
 /** Link syntax left over once every readable link has been consumed. */
 const UNPARSED_LINK_RE = /\]\(/g;
@@ -182,7 +185,8 @@ const BARE_LINK_RE = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.)[^ \t\n\r\f\v<]*|[\w
  * Obsidian's in common. A character one of them keeps, such as `)`, `]` or a
  * quote, stays in the destination the gate examines.
  */
-const TRAILING_PUNCTUATION_RE = /[?!.,:*_~]+$/;
+const URL_TRAILING_CHARS = "?!.,:*_~";
+const TRAILING_PUNCTUATION_RE = new RegExp(`[${URL_TRAILING_CHARS}]+$`);
 /**
  * GitHub's cross-repository shorthand, `owner/repo#12`, `owner/repo@sha` or the
  * path form `owner/repo/issues/12`, which release bodies link. GitHub links it
@@ -191,11 +195,11 @@ const TRAILING_PUNCTUATION_RE = /[?!.,:*_~]+$/;
  * match is the last `owner/repo` before the reference.
  */
 const REPO_SHORTHAND_RE =
-  /([A-Za-z0-9][\w.-]*)\/([\w.-]+?)(?:#(\d+)|@([0-9a-f]{7,40})|\/(issues|pull|discussions)\/(\d+))(?![A-Za-z0-9])/gi;
+  /([a-z0-9][\w.-]*)\/([\w.-]+?)(?:#(\d+)|@([0-9a-f]{7,40})|\/(issues|pull|discussions)\/(\d+))(?![a-z0-9])/gi;
 /** A GitHub @mention, which release bodies link to the person's profile. */
 const MENTION_RE = /(?<![A-Za-z0-9._%+@/`-])@([A-Za-z0-9][A-Za-z0-9-]{0,38})(?![A-Za-z0-9-])/g;
 /** GitHub's `user@sha` shorthand, which links a commit in that user's fork. */
-const FORK_COMMIT_RE = /(?<![A-Za-z0-9./@-])[A-Za-z0-9][A-Za-z0-9-]*@[0-9a-f]{7,40}(?![A-Za-z0-9-])/g;
+const FORK_COMMIT_RE = /(?<![a-z0-9./@-])[a-z0-9][a-z0-9-]*@[0-9a-f]{7,40}(?![a-z0-9-])/gi;
 
 /** Strip fenced and inline code so tags/images inside them are ignored. */
 function stripCode(content) {
@@ -242,8 +246,11 @@ function endOfConsumedSpan(text, source, index) {
   return end;
 }
 
-/** What may follow a consumed link without GFM reading the two as one bare URL. */
-const LINK_TRAILER_RE = /^[)?!.,:*_~'"]*$/;
+/**
+ * What may follow a consumed link without a renderer reading the two as one bare
+ * URL: its closing parenthesis and the characters every renderer trims.
+ */
+const LINK_TRAILER_RE = new RegExp(`^[)${URL_TRAILING_CHARS}]*$`);
 
 /**
  * Collect every match of `pattern` in `source` (by default `text`), then blank the

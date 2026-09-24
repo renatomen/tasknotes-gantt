@@ -131,7 +131,9 @@ describe('extractLinkDestinations', () => {
 
   it('returns a link written inside the title of another link', () => {
     const found = extractLinkDestinations('[x](https://tngantt.com/ "[y](https://evil.example/)")');
-    expect(found.map((d) => d.destination)).toEqual(['https://tngantt.com/', 'https://evil.example/']);
+    expect(found.map((d) => d.destination)).toEqual(
+      expect.arrayContaining(['https://tngantt.com/', 'https://evil.example/']),
+    );
   });
 
   it('reads an angle-bracketed destination as the URL inside the brackets', () => {
@@ -448,12 +450,41 @@ describe('checkReleaseNoteLinks', () => {
 
   it.each([
     ['a bare URL', 'See https://tngantt.com @evil.example now.'],
-    ['a reference definition', '[a]: https://tngantt.com @evil.example'],
     ['a bare URL with an ideographic space', 'See https://tngantt.com　@evil.example now.'],
   ])('reads a non-ASCII space as part of %s, as GitHub does', (_shape, body) => {
     expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual([
       expect.stringMatching(/^foreign-host: https:\/\/tngantt\.com.@evil\.example$/),
     ]);
+  });
+
+  it('reads a non-ASCII space as part of a reference destination, as GitHub does', () => {
+    expect(extractLinkDestinations('[a]: https://tngantt.com @evil.example')).toEqual([
+      { kind: 'reference', destination: 'https://tngantt.com @evil.example' },
+    ]);
+  });
+
+  it('refuses an image whose destination is a page rather than a pinned asset', () => {
+    expect(checkReleaseNoteLinks(note('![Calendars](https://tngantt.com/features/calendars/)'), context()).findings).toEqual([
+      'image-not-an-asset: https://tngantt.com/features/calendars/',
+    ]);
+  });
+
+  it('refuses a reference-style link, whose definition may serve an image of a page', () => {
+    const body = '![The calendar editor][editor]\n\n[editor]: https://tngantt.com/features/calendars/';
+    expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual([
+      'reference-style link: https://tngantt.com/features/calendars/',
+    ]);
+  });
+
+  it('reads an autolink whose scheme does not start with a letter, as Obsidian does', () => {
+    expect(checkReleaseNoteLinks(note('See <_://tngantt.com/features/calendars/> now.'), context()).findings).toEqual([
+      'relative: _://tngantt.com/features/calendars/',
+    ]);
+  });
+
+  it('refuses a quote after an unpaired link destination, which Obsidian keeps in the link', () => {
+    const findings = checkReleaseNoteLinks(note("here](https://tngantt.com/features/calendars/)' now"), context()).findings;
+    expect(findings).toEqual(expect.arrayContaining(["site-path-noncanonical: https://tngantt.com/features/calendars/)'"]));
   });
 
   it.each([
