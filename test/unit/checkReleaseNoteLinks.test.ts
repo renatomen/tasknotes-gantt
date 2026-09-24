@@ -430,7 +430,21 @@ describe('repository links', () => {
 describe('checkReleaseNoteLinks', () => {
   it('passes a note whose every destination resolves', () => {
     const body = `- A thing. [Read more](https://tngantt.com/features/calendars/) ([#311](${ISSUES}/311))`;
-    expect(checkReleaseNoteLinks(note(body), context())).toEqual({ findings: [], checked: 2 });
+    expect(checkReleaseNoteLinks(note(body), context())).toEqual({ findings: [], checked: 3 });
+  });
+
+  it('refuses an issue reference the in-app view would link to a non-issue', () => {
+    expect(checkReleaseNoteLinks(note('Fixed a thing (#0).'), context()).findings).toEqual([
+      `repo-link-shape: ${ISSUES}/0`,
+    ]);
+  });
+
+  it('accepts an issue reference to this repository', () => {
+    expect(checkReleaseNoteLinks(note('Fixed a thing (#311, #489).'), context())).toEqual({ findings: [], checked: 2 });
+  });
+
+  it('does not read a hex colour as an issue reference', () => {
+    expect(extractLinkDestinations('color: "#2a9d8f"')).toEqual([]);
   });
 
   it('reports every failing destination, not only the first', () => {

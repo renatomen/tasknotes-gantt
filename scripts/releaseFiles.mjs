@@ -21,6 +21,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { REPO_URL } from "./repoInfo.mjs";
 import { classifyImageUrl, parseRawAssetUrl, isReleaseRef } from "./visualAssets.mjs";
 
 /** Matches a per-version notes filename, e.g. `1.2.0.md` or `1.2.0-beta.1.md`. */
@@ -198,6 +199,12 @@ const REPO_SHORTHAND_RE =
   /([a-z0-9][\w.-]*)\/([\w.-]+?)(?:#(\d+)|@([0-9a-f]{7,40})|\/(issues|pull|discussions)\/(\d+))(?![a-z0-9])/gi;
 /** A GitHub @mention, which release bodies link to the person's profile. */
 const MENTION_RE = /(?<![A-Za-z0-9._%+@/`-])@([A-Za-z0-9][A-Za-z0-9-]{0,38})(?![A-Za-z0-9-])/g;
+/**
+ * A `#12` issue reference. GitHub links it in a release body, and the in-app view
+ * turns parenthesized ones into links to this repository's issues, so each one is
+ * a destination.
+ */
+const ISSUE_REF_RE = /(?<![\w&])#(\d+)(?![\w-])/g;
 /** GitHub's `user@sha` shorthand, which links a commit in that user's fork. */
 const FORK_COMMIT_RE = /(?<![a-z0-9./@-])[a-z0-9][a-z0-9-]*@[0-9a-f]{7,40}(?![a-z0-9-])/gi;
 
@@ -303,6 +310,7 @@ const LINK_PASSES = [
     pattern: MENTION_RE,
     toDestination: ([, user]) => ({ kind: "mention", destination: `https://github.com/${user}` }),
   },
+  { pattern: ISSUE_REF_RE, toDestination: ([, issue]) => ({ kind: "issue-ref", destination: `${REPO_URL}/issues/${issue}` }) },
 ];
 
 /**
