@@ -458,6 +458,15 @@ describe('checkReleaseNoteLinks', () => {
     );
   });
 
+  it.each([
+    ['a bare URL after an inline link', '[docs](https://tngantt.com/features/calendars/)https://evil.example/x', 'foreign-host: https://evil.example/x'],
+    ['a bare URL after an autolink', '<https://tngantt.com/features/calendars/>https://evil.example/x', 'foreign-host: https://evil.example/x'],
+    ['an email after an inline link', '[docs](https://tngantt.com/features/calendars/)evil@evil.example', 'relative: evil@evil.example'],
+    ['a broken page after a comma', '[docs](https://tngantt.com/features/calendars/),https://tngantt.com/no-such-page/', 'site-page-missing: https://tngantt.com/no-such-page/'],
+  ])('still examines %s written with no space between', (_shape, body, finding) => {
+    expect(checkReleaseNoteLinks(note(body), context()).findings).toContain(finding);
+  });
+
   it('reads a > as part of a bare URL, as GFM does', () => {
     expect(checkReleaseNoteLinks(note('See https://tngantt.com/features/calendars/>next'), context()).findings).toEqual([
       'site-path-noncanonical: https://tngantt.com/features/calendars/>next',

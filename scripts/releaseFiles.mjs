@@ -221,16 +221,29 @@ function shorthandDestination([, owner, repo, issue, sha]) {
   return { kind: "shorthand", destination: `https://github.com/${owner}/${repo}/${item}` };
 }
 
+/** The first index at or after `index` that no earlier pass consumed. */
+function endOfConsumedSpan(text, source, index) {
+  let end = index;
+  while (end < text.length && text[end] !== source[end]) end++;
+  return end;
+}
+
 /**
- * Collect every match of `pattern` in `source` (by default `text`) that does not
- * start inside a span already consumed, then blank the matched spans in `text` so
- * a later, looser pattern cannot count them twice.
+ * Collect every match of `pattern` in `source` (by default `text`), then blank the
+ * matched spans in `text` so a later, looser pattern cannot count them twice. A
+ * match that starts inside a consumed span is not taken; the search resumes where
+ * that span ends, so a link written straight after it is still found.
  */
 function consumeMatches(text, pattern, toDestination, source = text) {
   const found = [];
   const chars = text.split("");
-  for (const match of source.matchAll(pattern)) {
-    if (text[match.index] !== source[match.index]) continue; // starts inside a span already consumed
+  const search = new RegExp(pattern.source, pattern.flags);
+  let match;
+  while ((match = search.exec(source)) !== null) {
+    if (text[match.index] !== source[match.index]) {
+      search.lastIndex = endOfConsumedSpan(text, source, match.index);
+      continue;
+    }
     found.push({ index: match.index, ...toDestination(match, text) });
     chars.fill(" ", match.index, match.index + match[0].length);
   }
