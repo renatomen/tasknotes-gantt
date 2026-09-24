@@ -449,6 +449,21 @@ describe('checkReleaseNoteLinks', () => {
     ]);
   });
 
+  it.each([
+    ['an inline destination', 'Docs https://tngantt.com/features/calendars/](https://tngantt.com/)'],
+    ['a reference destination', 'Docs https://tngantt.com/features/calendars/]:https://tngantt.com/'],
+  ])('reads a bare URL that runs into %s at its full length', (_shape, body) => {
+    expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual(
+      expect.arrayContaining([expect.stringMatching(/^site-path-noncanonical: https:\/\/tngantt\.com\/features\/calendars\/\]/)]),
+    );
+  });
+
+  it('reads a > as part of a bare URL, as GFM does', () => {
+    expect(checkReleaseNoteLinks(note('See https://tngantt.com/features/calendars/>next'), context()).findings).toEqual([
+      'site-path-noncanonical: https://tngantt.com/features/calendars/>next',
+    ]);
+  });
+
   it("refuses @-prefixed shorthand for another repository's issue", () => {
     expect(checkReleaseNoteLinks(note('Fixed upstream in @evil/repo#12.'), context()).findings).toEqual([
       'foreign-host: https://github.com/evil/repo/issues/12',

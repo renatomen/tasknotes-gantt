@@ -176,7 +176,7 @@ const UNPARSED_LINK_RE = /\]\(/g;
  * Here and in every destination pattern, whitespace means ASCII whitespace only,
  * as in GFM: JavaScript's `\s` would end a URL at a no-break space GitHub keeps.
  */
-const BARE_LINK_RE = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.)[^ \t\n\r\f\v<>]*|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
+const BARE_LINK_RE = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.)[^ \t\n\r\f\v<]*|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
 /**
  * The trailing characters GFM leaves out of a bare URL. Only these: a `)` or `]`
  * GitHub keeps must stay in the destination the gate examines.
@@ -222,20 +222,26 @@ function shorthandDestination([, owner, repo, issue, sha]) {
 }
 
 /**
- * Collect every match of `pattern` in `text`, then blank the matched spans so a
- * later, looser pattern cannot count them twice.
+ * Collect every match of `pattern` in `source` (by default `text`) that does not
+ * start inside a span already consumed, then blank the matched spans in `text` so
+ * a later, looser pattern cannot count them twice.
  */
-function consumeMatches(text, pattern, toDestination) {
+function consumeMatches(text, pattern, toDestination, source = text) {
   const found = [];
   const chars = text.split("");
-  for (const match of text.matchAll(pattern)) {
+  for (const match of source.matchAll(pattern)) {
+    if (text[match.index] !== source[match.index]) continue; // starts inside a span already consumed
     found.push({ index: match.index, ...toDestination(match, text) });
     chars.fill(" ", match.index, match.index + match[0].length);
   }
   return { found, masked: chars.join("") };
 }
 
-/** The passes, in order; each reads the raw text, code included. */
+/**
+ * The passes, in order; each reads the raw text, code included. The bare-URL pass
+ * matches against the unmasked text, so a blanked span never ends a URL that GFM
+ * would carry through it.
+ */
 const LINK_PASSES = [
   { pattern: INLINE_DESTINATION_RE, toDestination: inlineDestination },
   {
@@ -248,6 +254,7 @@ const LINK_PASSES = [
   {
     pattern: BARE_LINK_RE,
     toDestination: ([match]) => ({ kind: "bare", destination: match.replace(TRAILING_PUNCTUATION_RE, "") }),
+    readsRaw: true,
   },
   { pattern: REPO_SHORTHAND_RE, toDestination: shorthandDestination },
   { pattern: FORK_COMMIT_RE, toDestination: ([match]) => ({ kind: "fork-commit", destination: match }) },
@@ -271,8 +278,8 @@ const LINK_PASSES = [
 export function extractLinkDestinations(content) {
   let text = content;
   const found = [];
-  for (const { pattern, toDestination } of LINK_PASSES) {
-    const pass = consumeMatches(text, pattern, toDestination);
+  for (const { pattern, toDestination, readsRaw } of LINK_PASSES) {
+    const pass = consumeMatches(text, pattern, toDestination, readsRaw ? content : text);
     found.push(...pass.found);
     text = pass.masked;
   }
