@@ -173,11 +173,17 @@ const WHOLE_AUTOLINK_RE = new RegExp(`^${AUTOLINK_RE.source}$`);
 const UNPARSED_LINK_RE = /\]\(/g;
 /** A URL or email address that GFM and Obsidian turn into a link without markup. */
 const BARE_LINK_RE = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.)[^\s<>]*|[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g;
-const TRAILING_PUNCTUATION_RE = /[.,:;!?'"*_~)\]]+$/;
+/**
+ * The trailing characters GFM leaves out of a bare URL. Only these: a `)` or `]`
+ * GitHub keeps must stay in the destination the gate examines.
+ */
+const TRAILING_PUNCTUATION_RE = /[?!.,:*_~'"]+$/;
 /** GitHub's cross-repository shorthand, `owner/repo#12` or `owner/repo@sha`, which release bodies link. */
 const REPO_SHORTHAND_RE = /(?<![A-Za-z0-9./-])([A-Za-z0-9][\w.-]*)\/([\w.-]+?)(?:#(\d+)|@([0-9a-f]{7,40}))(?![A-Za-z0-9-])/g;
 /** A GitHub @mention, which release bodies link to the person's profile. */
 const MENTION_RE = /(?<![A-Za-z0-9._%+@/`-])@([A-Za-z0-9][A-Za-z0-9-]{0,38})(?![A-Za-z0-9-])/g;
+/** GitHub's `user@sha` shorthand, which links a commit in that user's fork. */
+const FORK_COMMIT_RE = /(?<![A-Za-z0-9./@-])[A-Za-z0-9][A-Za-z0-9-]*@[0-9a-f]{7,40}(?![A-Za-z0-9-])/g;
 
 /** Strip fenced and inline code so tags/images inside them are ignored. */
 function stripCode(content) {
@@ -244,6 +250,7 @@ const LINK_PASSES = [
     toDestination: ([, user]) => ({ kind: "mention", destination: `https://github.com/${user}` }),
   },
   { pattern: REPO_SHORTHAND_RE, toDestination: shorthandDestination },
+  { pattern: FORK_COMMIT_RE, toDestination: ([match]) => ({ kind: "fork-commit", destination: match }) },
 ];
 
 /**

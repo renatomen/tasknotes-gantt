@@ -177,8 +177,20 @@ describe('extractLinkDestinations', () => {
   });
 
   it('strips sentence punctuation that trails a bare URL', () => {
-    expect(extractLinkDestinations('(see https://x.example/page).')).toEqual([
+    expect(extractLinkDestinations('see https://x.example/page.')).toEqual([
       { kind: 'bare', destination: 'https://x.example/page' },
+    ]);
+  });
+
+  it('keeps a trailing bracket in a bare URL, as GitHub does', () => {
+    expect(extractLinkDestinations('see https://x.example/page] now')).toEqual([
+      { kind: 'bare', destination: 'https://x.example/page]' },
+    ]);
+  });
+
+  it("returns GitHub's user@sha fork-commit shorthand", () => {
+    expect(extractLinkDestinations('Fixed in fariasfc@329c001a.')).toEqual([
+      { kind: 'fork-commit', destination: 'fariasfc@329c001a' },
     ]);
   });
 
@@ -424,6 +436,18 @@ describe('checkReleaseNoteLinks', () => {
   it("refuses GitHub shorthand for another repository's issue", () => {
     expect(checkReleaseNoteLinks(note('See callumalpass/tasknotes#99.'), context()).findings).toEqual([
       'foreign-host: https://github.com/callumalpass/tasknotes/issues/99',
+    ]);
+  });
+
+  it('refuses fork-commit shorthand, whose repository the note cannot name', () => {
+    expect(checkReleaseNoteLinks(note('Fixed in fariasfc@329c001a.'), context()).findings).toEqual([
+      'fork-commit shorthand: fariasfc@329c001a',
+    ]);
+  });
+
+  it('refuses a bare site URL whose trailing bracket GitHub keeps in the link', () => {
+    expect(checkReleaseNoteLinks(note('see https://tngantt.com/features/calendars/] for details'), context()).findings).toEqual([
+      'site-path-noncanonical: https://tngantt.com/features/calendars/]',
     ]);
   });
 

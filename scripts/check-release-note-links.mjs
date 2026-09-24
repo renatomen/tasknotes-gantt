@@ -179,9 +179,11 @@ export function classifyDestination(destination, context) {
 
 /**
  * Kinds judged by their shape rather than by a destination. A mention credits a
- * person, so it names a GitHub profile by design; the other two resolve nowhere.
+ * person, so it names a GitHub profile by design. A fork commit points into a
+ * repository the note cannot name, and the other two resolve nowhere.
  */
 const KIND_VERDICTS = {
+  'fork-commit': reject('fork-commit shorthand'),
   mention: accept('mention'),
   unparsed: reject('unparsed link syntax'),
   wikilink: reject('wikilink'),
