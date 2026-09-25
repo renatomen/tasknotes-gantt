@@ -732,8 +732,10 @@ Plan `docs/plans/2026-06-20-001-feat-gantt-non-fs-dependency-authoring-plan.md`;
 and R9 of `docs/brainstorms/2026-06-18-gantt-dependency-types-and-scheduling-requirements.md`.
 - **Create (was #86):** map SVAR's start and end drag handles to FINISHTOFINISH, STARTTOSTART and
   STARTTOFINISH, and write the chosen reltype to TaskNotes `blockedBy`.
-- **Edit (was #87):** change an existing link's reltype from the Gantt, set or clear its gap
-  (lag/lead), and persist it through `blockedBy`.
+- **Edit (was #87):** change an existing link's reltype from the Gantt, set or clear its gap, and
+  persist it through `blockedBy`. The issue said "lag/lead". The plan's KTD6 narrows this unit to
+  lag (≥0) and clear, and exposes lead (a negative gap) only if the TaskNotes round-trip proves
+  trivial. Otherwise lead stays the follow-up in "P6 — Dependency authoring residuals".
 
 **Gate:** do not ship before upstream TaskNotes computes blocked state per reltype
 (`renatomen/tasknotes#10`, still OPEN on 2026-09-26). Until then TaskNotes treats every edge as
