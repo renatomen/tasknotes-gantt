@@ -8,9 +8,10 @@ plausibly wanted. Lightweight alternative to opening GitHub issues prematurely (
   then **delete the entry here**. The issue tracker holds *active* work; this file holds *parked* work.
 - Each entry links its **source plan** — the full context (KTDs, scope, test scenarios) lives there.
 - `→ #N` means "would nest under existing issue/epic #N if promoted."
-- Last swept: **2026-06-29** (from all of `docs/plans/` + `docs/brainstorms/`). Already-tracked items
-  (dependency M3/M4 #86–90, agent-parity #62, scheduling #63/#88, upstream `tasknotes#10`) and
-  already-shipped/non-goal items are intentionally **not** listed here.
+- Last swept: **2026-06-29** (from all of `docs/plans/` + `docs/brainstorms/`). Already-shipped and
+  non-goal items are intentionally **not** listed here. The dependency, agent-parity and scheduling
+  work once tracked as GitHub issues #53, #62, #63 and #86–#91 moved here on 2026-09-26 (see
+  "Migrated from GitHub Issues"). The upstream gate `tasknotes#10` stays in the TaskNotes repo.
 
 ---
 
@@ -667,6 +668,106 @@ so at equal stacking it painted *above* the bars rather than below.
 would be a fourth surface encoding calendar identity by colour (after bars, columns and markers);
 whether it earns that channel is a question that redesign should answer first.
 
+### Migrated from GitHub Issues (2026-09-26)
+
+The four entries below replace GitHub issues #53, #62, #63 and #86–#91, which were moved here and
+then deleted from GitHub on 2026-09-26. Older plans still cite those numbers; read each one as the
+entry that names it. Every entry was checked against `main` at `51267f37` on the day of the move:
+**none of this work has started**. Two epics are folded in:
+- **TaskNotes-companion epic (#53)**, plan `docs/plans/2026-06-16-001-feat-tasknotes-companion-gantt-plan.md`.
+  Milestones 0–2 (#54–#61) shipped. Its remaining milestones are the agent-parity and Tier-1
+  scheduling entries.
+- **RFC 9253 dependency epic (#91)**, requirements `docs/brainstorms/2026-06-18-gantt-dependency-types-and-scheduling-requirements.md`.
+  M1 read fidelity (#81, #82) and M2 FS authoring (#83–#85) shipped. The chart renders all four
+  reltypes and authors FS only. Its remaining milestones are the non-FS-authoring and
+  dependency-aware-cascade entries.
+
+### P3 — Agent parity: every controller operation as an Obsidian command and a JS API method (was #62)
+
+Goal (plan `2026-06-16-001` U9, R8–R11): one action layer. Every UI action has a matching Obsidian
+command and JS API method that call the same `GanttController` operation. The plugin runs no HTTP
+server of its own. In read-only mode every surface refuses mutations: it returns "unsupported" and
+writes nothing. The read/query surface was meant to ship first and the mutating surface after the
+write path. Tests: command/API/UI parity through the same controller operation; read-only
+rejection on every surface; capability and version introspection on the API.
+
+State on 2026-09-26: `src/commands/` and `src/api/` do not exist and the plugin exposes no public
+API. The existing commands (release notes, focus task, calendars, source switcher) open pickers or
+modals, and none calls a controller operation. A controller exists only per Bases view
+(`register.ts` constructs one per view), so the unit first needs a plugin-level route to a
+controller. The read-only guard exists inside the controller (`capabilities.write`), but only the
+UI reaches it.
+
+### P3 — Tier-1 scheduling engine: parent roll-up and cascade to a fixed point (was #63)
+
+Goal (plan `2026-06-16-001` U10, R12, R13, R15):
+- **Roll-up:** a parent's start and end are the min and max over its child **edges**. A
+  multi-parent child counts toward every parent.
+- **Cascade:** children and dependents shift when a parent or predecessor moves, across the combined
+  hierarchy and dependency graph.
+- **Convergence:** both run to a fixed point, with a max-iteration ceiling and a DAG-wide cycle
+  guard.
+- **Persistence:** results go through the controller write path, so a UI drag and an agent-triggered
+  cascade converge.
+- **Snapshot rules:** the engine's own correlation-tagged writes do not invalidate its snapshot. A
+  genuine external change during a run aborts and retries a bounded number of times, and never
+  livelocks.
+
+Tests: AE5 (roll-up), AE4 (UI vs agent cascade parity), multi-parent edge iteration, fixed-point
+convergence, snapshot abort-retry that ignores self-writes, the livelock bound, and read-only
+rejection.
+
+State on 2026-09-26: there is no `src/scheduling/` and no engine. What ships instead is the
+**parent drag cascade**: subtree move, ancestor extend and shrink-fit, gated by the per-view
+ask/auto/never option `tngantt_parentDateCascade` (`cascadeGate.ts`, `dragCascadeLane.ts`). It is
+not a computed roll-up; parents render at their own dates.
+
+**Open maintainer decision** (recorded on the old issues): whether this entry's dependency-cascade
+half folds into the dependency-aware engine below (keeping only roll-up here), or stays separate
+and runs first. Build one shared engine either way.
+
+### P3 — Non-FS dependency authoring: create FF/SS/SF links and edit reltype and gap (was #86, #87)
+
+Plan `docs/plans/2026-06-20-001-feat-gantt-non-fs-dependency-authoring-plan.md`; requirements R8
+and R9.
+- **Create (was #86):** map SVAR's start and end drag handles to FINISHTOFINISH, STARTTOSTART and
+  STARTTOFINISH, and write the chosen reltype to TaskNotes `blockedBy`.
+- **Edit (was #87):** change an existing link's reltype from the Gantt, set or clear its gap
+  (lag/lead), and persist it through `blockedBy`.
+
+**Gate:** do not ship before upstream TaskNotes computes blocked state per reltype
+(`renatomen/tasknotes#10`, still OPEN on 2026-09-26). Until then TaskNotes treats every edge as
+Finish-to-Start.
+
+State on 2026-09-26: authoring is FS-only.
+- `classifyLinkCreate` (`cascadeGate.ts`) returns null for any non-`e2s` link.
+- The add-link interceptor shows "Only Finish-to-Start links can be created for now."
+- `GanttController.addDependency` hard-codes `FINISHTOSTART`.
+- Unit tests pin the rejection.
+- The data layer already accepts a reltype (`TaskNotesSource.addDependency`), but not a gap.
+- There is no link editor and no update-dependency method; the gap is read and shown in the tooltip
+  only.
+
+### P3 — Dependency-aware cascade: reltype- and gap-aware engine, drag wiring, violation handling (was #88, #89, #90)
+
+Requirements R10 and R11 (same brainstorm). Unlike non-FS authoring, this work does not wait
+for `tasknotes#10`: the Gantt's own engine is reltype-aware whatever TaskNotes does.
+- **Engine (was #88):** a pure engine. Given the source graph and a moved task, it computes
+  dependent reschedules that honour each reltype (FS/FF/SS/SF) and gap. It works over source
+  tasks, never render instances, has a cycle guard, and is fully unit-tested with no UI. Share it
+  with the Tier-1 engine above.
+- **Drag wiring (was #89):** run the engine on drag and resize commit, gated by a per-view
+  ask/auto/never mode that reuses the parent-cascade confirm modal. `never` shows an advisory
+  indicator and writes nothing, `auto` enforces, and `ask` confirms and then writes. Persist
+  through the write path.
+- **Violations (was #90):** when a manual drag breaks a reltype-and-gap constraint, surface it
+  under that same gated model. A completed predecessor does not block or gate its dependents
+  (cf. TaskNotes issue-1878).
+
+State on 2026-09-26: nothing reschedules along dependency edges. The ask/auto/never option and
+`CascadeConfirmModal` exist for parent dates only, and there is no dependency-cascade mode key.
+Reltype and gap are parsed and rendered, never scheduled by.
+
 ## Deferred Codex review threads (2026-07-25 backlog resolution)
 
 Left open deliberately during the Codex-backlog resolution pass — acknowledged, not fixed:
@@ -831,7 +932,7 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
 
 ## Low priority
 
-### P6 — Dependency authoring residuals  → #91
+### P6 — Dependency authoring residuals  → nests under "Non-FS dependency authoring" (was epic #91)
 - Per-reltype visual styling (color/dash per reltype, beyond anchor geometry). Source:
   `docs/plans/2026-06-18-004-feat-gantt-dependency-read-fidelity-plan.md`.
 - Lead (negative gap) support — M3 ships lag only. Source:
@@ -942,7 +1043,7 @@ Low-value or condition-gated; kept here so nothing is lost. Not actionable until
 - **Full plugin-guidelines code-pattern refactor** (sentence-case UI text); **mobile polish** — `2026-06-20-002`.
 - **Dependabot deferred re-evaluations** — vite/svelte-plugin majors (#163), js-yaml 3.x istanbul instance — revisit when upstreams ship non-breaking patched lines — `2026-06-28-003`, `2026-06-29-002`.
 - **Update #161 bug report** stale SVAR version refs (2.3.0 → 2.7.0) — `2026-06-25-001` (#161 closed; low value).
-- **Tier-2 scheduling** (critical path/chain, capacity); **NLP task entry**; **webhook/calendar recompute triggers** — `2026-06-16-001` (already recorded as #53 scope wall; long-horizon).
+- **Tier-2 scheduling** (critical path/chain, capacity); **NLP task entry**; **webhook/calendar recompute triggers** — `2026-06-16-001` (the scope wall of the former TaskNotes-companion epic #53; long-horizon).
 - **Visual assets — day-scale before/after** (0.1.0-beta.10, #252): a short before/after (wide vs compact day columns) for the "Day opens at its narrowest columns" change; skipped in the release-notes draft as marginal/subtle, capture with the deferred motion-GIF batch (maximized window).
 
 ### Whole-bar move of an inferred task silently materialises the derived edge
