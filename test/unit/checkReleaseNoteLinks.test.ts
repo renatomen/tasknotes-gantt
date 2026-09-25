@@ -447,6 +447,27 @@ describe('checkReleaseNoteLinks', () => {
     expect(extractLinkDestinations('color: "#2a9d8f"')).toEqual([]);
   });
 
+  it('refuses an issue reference followed by a hyphen', () => {
+    expect(checkReleaseNoteLinks(note('Fixed a range (#0-999).'), context())).toEqual({
+      findings: [`repo-link-shape: ${ISSUES}/0`],
+      checked: 1,
+    });
+  });
+
+  it('does not read a numeric HTML entity or a word-joined hash as an issue reference', () => {
+    expect(extractLinkDestinations('&#35; and a#5')).toEqual([]);
+  });
+
+  it('refuses an issue reference inside angle brackets the in-app view would make an autolink', () => {
+    expect(checkReleaseNoteLinks(note('a <(#12)> b'), context()).findings).toEqual([
+      'unparsed link syntax: <(#12)>',
+    ]);
+  });
+
+  it('accepts a parenthesized issue reference outside angle brackets', () => {
+    expect(checkReleaseNoteLinks(note('a (#12) b'), context())).toEqual({ findings: [], checked: 1 });
+  });
+
   it('reports every failing destination, not only the first', () => {
     const body = '[a](/features/calendars/) [b](https://tnggantt.com/) [c](features/x.md)';
     expect(checkReleaseNoteLinks(note(body), context()).findings).toEqual([

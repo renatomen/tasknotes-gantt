@@ -204,7 +204,12 @@ const MENTION_RE = /(?<![A-Za-z0-9._%+@/`-])@([A-Za-z0-9][A-Za-z0-9-]{0,38})(?![
  * turns parenthesized ones into links to this repository's issues, so each one is
  * a destination.
  */
-const ISSUE_REF_RE = /(?<![\w&])#(\d+)(?![\w-])/g;
+const ISSUE_REF_RE = /(?<![\w&])#(\d+)(?!\w)/g;
+/**
+ * An angle-bracket run holding a `(#12` reference: the in-app view writes a URL
+ * into it, which turns the whole run into one autolink its parser cannot follow.
+ */
+const ANGLED_ISSUE_REF_RE = /<[^<> \t\n\r\f\v]*\(#\d[^<> \t\n\r\f\v]*>/g;
 /** GitHub's `user@sha` shorthand, which links a commit in that user's fork. */
 const FORK_COMMIT_RE = /(?<![a-z0-9./@-])[a-z0-9][a-z0-9-]*@[0-9a-f]{7,40}(?![a-z0-9-])/gi;
 
@@ -297,6 +302,7 @@ const LINK_PASSES = [
     toDestination: ([, url]) => ({ kind: "reference", destination: unwrapAngles(url) }),
   },
   { pattern: WIKILINK_RE, toDestination: ([match]) => ({ kind: "wikilink", destination: match }) },
+  { pattern: ANGLED_ISSUE_REF_RE, toDestination: ([match]) => ({ kind: "unparsed", destination: match }) },
   { pattern: AUTOLINK_RE, toDestination: ([, url]) => ({ kind: "autolink", destination: url }) },
   { pattern: UNPARSED_LINK_RE, toDestination: ([match]) => ({ kind: "unparsed", destination: match }) },
   {
