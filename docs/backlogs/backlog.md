@@ -264,6 +264,22 @@ line or visibly separated) and pin the swatch's rendered size in `gantt-calendar
 Surfaced during U4 of `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`;
 the calendar-sets page documents the shipped behaviour.
 
+### P2 — The release-note link gate checks repository links by URL shape, not existence (2026-09-25)
+
+`scripts/check-release-note-links.mjs` accepts a github.com issue, pull-request or commit link
+(`classifyRepoLink`) when its path matches `REPO_ITEM_PATH_RE`, and the `#N` issue refs that
+`extractLinkDestinations` (`scripts/releaseFiles.mjs`) reads pass the same shape test. Nothing
+asks GitHub whether the item exists, so a mistyped number or SHA ships as a dead link. Raised by
+the cross-model peer and again by hosted Codex on #500 (U7 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`), and **accepted by the
+maintainer on 2026-09-25** (the gate makes no network request). Mitigation, so far for
+0.1.0-beta.11 only, set by the same ruling rather than by the plan's U8 text: after it is
+published, every github.com destination the extractor returns is to be requested, following redirects (GitHub sends `/issues/N` for a pull request on to
+`/pull/N`), and must end in a 200. That catches a number or SHA that names nothing, not one that
+names the wrong existing item. `docs/releases/RELEASING.md` has no such step yet, so a later
+release gets no check unless one is added: add it (or script it) before the next release, and
+promote this entry if a dead repository link ever reaches a published note.
+
 ### P1 — Schedule validation (errors & warnings), with swapped dates as the first slice (2026-08-10)
 Per-task validation with two severities, surfaced as a badge **left of the gantt bar**
 (hover for a description naming what's wrong). Example warnings: subtask ends beyond
