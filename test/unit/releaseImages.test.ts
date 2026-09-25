@@ -46,6 +46,11 @@ describe("findInvalidImageRef", () => {
     expect(findInvalidImageRef(content)).toBeNull();
   });
 
+  it("still validates an image wrapped in a link", () => {
+    const url = "https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/x.gif";
+    expect(findInvalidImageRef(`[![x](${url})](https://tngantt.com/)`)).toMatchObject({ reason: "mutable-ref" });
+  });
+
   it("still validates an image whose alt text contains brackets", () => {
     // A valid URL with bracketed alt text passes...
     expect(findInvalidImageRef(`![arr[0] view](${TAG_URL})`)).toBeNull();

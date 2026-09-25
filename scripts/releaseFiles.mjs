@@ -21,12 +21,22 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import { REPO_URL } from "./repoInfo.mjs";
 import { classifyImageUrl, parseRawAssetUrl, isReleaseRef } from "./visualAssets.mjs";
 
 /** Matches a per-version notes filename, e.g. `1.2.0.md` or `1.2.0-beta.1.md`. */
 export const RELEASE_FILE_RE = /^(\d+)\.(\d+)\.(\d+)(?:-([\w.]+))?\.md$/;
 
-const RELEASE_DATE_RE = /^<!--\s*release-date:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\s*-->\s*$/m;
+/**
+ * The version a per-version notes file documents, from its name.
+ * @param {string} fileName - a bare file name, e.g. `1.2.0-beta.1.md`
+ * @returns {string|null} null for any other file, such as `unreleased.md`
+ */
+export function releaseFileVersion(fileName) {
+  return RELEASE_FILE_RE.test(fileName) ? fileName.slice(0, -".md".length) : null;
+}
+
+const RELEASE_DATE_RE =/^<!--\s*release-date:\s*([0-9]{4}-[0-9]{2}-[0-9]{2})\s*-->\s*$/m;
 
 /**
  * Parse a semantic version string.
@@ -124,29 +134,219 @@ export function stripDateComment(content) {
  * @returns {string|null}
  */
 export function findRawHtml(content) {
-  const withoutCode = stripCode(content);
-  const tagRe = /<\/?[a-zA-Z][^>]*>/g;
+  return findHtmlTag(stripCode(content));
+}
+
+/**
+ * Find the first raw HTML tag opener anywhere in `text`, code included, ignoring
+ * only whole autolinks. The `>` is optional: an HTML block whose tag never closes
+ * still renders. Returns the tag text up to its `>` or line end, or null.
+ * @param {string} text
+ * @returns {string|null}
+ */
+export function findHtmlTag(text) {
+  const tagRe = /<\/?[a-zA-Z][^>\n]*>?/g;
   let m;
-  while ((m = tagRe.exec(withoutCode)) !== null) {
+  while ((m = tagRe.exec(text)) !== null) {
     const tag = m[0];
-    // Allow autolinks: <https://…>, <http://…>, <mailto:…>, <user@host>.
-    if (/^<(https?:\/\/|mailto:)/i.test(tag)) continue;
-    if (/^<[^>\s@]+@[^>\s]+>$/.test(tag)) continue;
+    // Only a whole autolink is allowed: judging by its opening alone would let
+    // `<mailto: <img …>` skip the real tag the match runs on into.
+    if (WHOLE_AUTOLINK_RE.test(tag)) continue;
     return tag;
   }
   return null;
 }
 
 /**
- * A markdown image reference `![alt](url)`, capturing the URL (no whitespace).
- * Alt text is matched lazily (`.*?`, no `s` flag → stays on one line) so brackets
- * inside alt text like `![arr[0]](url)` don't truncate the match.
+ * A readable inline destination after `](`: `url` or `<url>`. The optional title
+ * and the closing `)` are only looked ahead at, so a link written inside a title
+ * stays in the text for the passes that follow.
  */
-const IMAGE_RE = /!\[.*?\]\(([^)\s]+)(?:\s+"[^"]*")?\)/g;
+const INLINE_DESTINATION_RE = /\]\([ \t]*(<[^<>\n]*>|[^ \t\n\r\f\v)]*)(?=(?:[ \t]+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?[ \t]*\))/g;
+/** A reference definition's destination, on the label's line or the next. */
+const REFERENCE_DESTINATION_RE = /\]:[ \t]*(?:\r?\n[ \t]*)?([^ \t\n\r\f\v]*)/g;
+/** An Obsidian wikilink or embed, which the in-app renderer follows. */
+const WIKILINK_RE = /!?\[\[[^\]\n]*(?:\]\])?/g;
+/**
+ * An autolink, `<scheme:…>` or `<user@host>`. The scheme is any run Obsidian's
+ * parser would take, not only CommonMark's letter-led one, so `<_://…>` is read.
+ */
+const AUTOLINK_RE = /<([^<> \t\n\r\f\v:]+:[^<> \t\n\r\f\v]*|[^<> \t\n\r\f\v@]+@[^<> \t\n\r\f\v]+)>/g;
+const WHOLE_AUTOLINK_RE = new RegExp(`^${AUTOLINK_RE.source}$`);
+/** Link syntax left over once every readable link has been consumed. */
+const UNPARSED_LINK_RE = /\]\(/g;
+/**
+ * A URL or email address that GFM and Obsidian turn into a link without markup.
+ * Here and in every destination pattern, whitespace means ASCII whitespace only,
+ * as in GFM: JavaScript's `\s` would end a URL at a no-break space GitHub keeps.
+ */
+const BARE_LINK_RE = /(?:[A-Za-z][A-Za-z0-9+.-]*:\/\/|www\.)[^ \t\n\r\f\v<]*|[\w.+-]+@[\w-]*\.[\w.-]+/g;
+/**
+ * The trailing characters every renderer leaves out of a bare URL: GFM's set and
+ * Obsidian's in common. A character one of them keeps, such as `)`, `]` or a
+ * quote, stays in the destination the gate examines.
+ */
+const URL_TRAILING_CHARS = "?!.,:*_~";
+const TRAILING_PUNCTUATION_RE = new RegExp(`[${URL_TRAILING_CHARS}]+$`);
+/**
+ * GitHub's cross-repository shorthand, `owner/repo#12`, `owner/repo@sha` or the
+ * path form `owner/repo/issues/12`, which release bodies link. GitHub links it
+ * after a host or path and before a range
+ * (`github.com/owner/repo#1-3`), so there is no leading boundary: the leftmost
+ * match is the last `owner/repo` before the reference.
+ */
+const REPO_SHORTHAND_RE =
+  /([a-z0-9][\w.-]*)\/([\w.-]+?)(?:#(\d+)|@([0-9a-f]{7,40})|\/(issues|pull|discussions)\/(\d+))(?![a-z0-9])/gi;
+/** A GitHub @mention, which release bodies link to the person's profile. */
+const MENTION_RE = /(?<![A-Za-z0-9._%+@/`-])@([A-Za-z0-9][A-Za-z0-9-]{0,38})(?![A-Za-z0-9-])/g;
+/**
+ * A `#12` issue reference. GitHub links it in a release body, and the in-app view
+ * turns parenthesized ones into links to this repository's issues, so each one is
+ * a destination.
+ */
+const ISSUE_REF_RE = /(?<![\w&])#(\d+)(?!\w)/g;
+/**
+ * An angle-bracket run holding a `(#12` reference: the in-app view writes a URL
+ * into it, which turns the whole run into one autolink its parser cannot follow.
+ */
+const ANGLED_ISSUE_REF_RE = /<[^<> \t\n\r\f\v]*\(#\d[^<> \t\n\r\f\v]*>/g;
+/** GitHub's `user@sha` shorthand, which links a commit in that user's fork. */
+const FORK_COMMIT_RE = /(?<![a-z0-9./@-])[a-z0-9][a-z0-9-]*@[0-9a-f]{7,40}(?![a-z0-9-])/gi;
 
 /** Strip fenced and inline code so tags/images inside them are ignored. */
 function stripCode(content) {
   return content.replace(/```[\s\S]*?```/g, "").replace(/`[^`]*`/g, "");
+}
+
+/** The index of the `[` that opens the bracket closed at `closeIndex`, or -1. */
+function openingBracket(text, closeIndex) {
+  let depth = 0;
+  for (let index = closeIndex; index >= 0; index--) {
+    if (text[index - 1] === "\\") continue;
+    if (text[index] === "]") depth++;
+    if (text[index] === "[") depth--;
+    if (depth === 0) return index;
+  }
+  return -1;
+}
+
+/** A destination written as `<url>`, which CommonMark reads as `url`. */
+function unwrapAngles(destination) {
+  return destination.replace(/^<(.*)>$/, "$1");
+}
+
+function inlineDestination(match, text) {
+  const open = openingBracket(text, match.index);
+  return { kind: open > 0 && text[open - 1] === "!" ? "image" : "link", destination: unwrapAngles(match[1]) };
+}
+
+function shorthandItem(issue, sha, itemKind, itemNumber) {
+  if (issue) return `issues/${issue}`;
+  if (sha) return `commit/${sha}`;
+  return `${itemKind.toLowerCase()}/${itemNumber}`;
+}
+
+function shorthandDestination([, owner, repo, issue, sha, itemKind, itemNumber]) {
+  const item = shorthandItem(issue, sha, itemKind, itemNumber);
+  return { kind: "shorthand", destination: `https://github.com/${owner}/${repo}/${item}` };
+}
+
+/** The first index at or after `index` that no earlier pass consumed. */
+function endOfConsumedSpan(text, source, index) {
+  let end = index;
+  while (end < text.length && text[end] !== source[end]) end++;
+  return end;
+}
+
+/**
+ * What may follow a consumed link without a renderer reading the two as one bare
+ * URL: its closing parenthesis and the characters every renderer trims.
+ */
+const LINK_TRAILER_RE = new RegExp(`^[)${URL_TRAILING_CHARS}]*$`);
+
+/**
+ * Collect every match of `pattern` in `source` (by default `text`), then blank the
+ * matched spans in `text` so a later, looser pattern cannot count them twice. A
+ * match that starts inside a consumed span is skipped, resuming where that span
+ * ends, when the rest of the run outside consumed spans is only closing
+ * parentheses or punctuation. Anything more means GFM may have read no link there
+ * at all and linked the whole run, so the whole run is taken.
+ */
+function consumeMatches(text, pattern, toDestination, source = text) {
+  const found = [];
+  const chars = text.split("");
+  const search = new RegExp(pattern.source, pattern.flags);
+  let match;
+  while ((match = search.exec(source)) !== null) {
+    const spanEnd = endOfConsumedSpan(text, source, match.index);
+    const trailer = text.slice(spanEnd, match.index + match[0].length).replaceAll(" ", "");
+    if (spanEnd > match.index && LINK_TRAILER_RE.test(trailer)) {
+      search.lastIndex = spanEnd;
+      continue;
+    }
+    found.push({ index: match.index, ...toDestination(match, text) });
+    chars.fill(" ", match.index, match.index + match[0].length);
+  }
+  return { found, masked: chars.join("") };
+}
+
+/**
+ * The passes, in order; each reads the raw text, code included. The bare-URL pass
+ * matches against the unmasked text, so a blanked span never ends a URL that GFM
+ * would carry through it.
+ */
+const LINK_PASSES = [
+  { pattern: INLINE_DESTINATION_RE, toDestination: inlineDestination },
+  {
+    pattern: REFERENCE_DESTINATION_RE,
+    toDestination: ([, url]) => ({ kind: "reference", destination: unwrapAngles(url) }),
+  },
+  { pattern: WIKILINK_RE, toDestination: ([match]) => ({ kind: "wikilink", destination: match }) },
+  { pattern: ANGLED_ISSUE_REF_RE, toDestination: ([match]) => ({ kind: "unparsed", destination: match }) },
+  { pattern: AUTOLINK_RE, toDestination: ([, url]) => ({ kind: "autolink", destination: url }) },
+  { pattern: UNPARSED_LINK_RE, toDestination: ([match]) => ({ kind: "unparsed", destination: match }) },
+  {
+    pattern: BARE_LINK_RE,
+    toDestination: ([match]) => ({ kind: "bare", destination: match.replace(TRAILING_PUNCTUATION_RE, "") }),
+    readsRaw: true,
+  },
+  { pattern: REPO_SHORTHAND_RE, toDestination: shorthandDestination },
+  { pattern: FORK_COMMIT_RE, toDestination: ([match]) => ({ kind: "fork-commit", destination: match }) },
+  {
+    pattern: MENTION_RE,
+    toDestination: ([, user]) => ({ kind: "mention", destination: `https://github.com/${user}` }),
+  },
+  { pattern: ISSUE_REF_RE, toDestination: ([, issue]) => ({ kind: "issue-ref", destination: `${REPO_URL}/issues/${issue}` }) },
+];
+
+/**
+ * Every link destination a renderer could follow in release-notes markdown, in
+ * document order. Each pass anchors on a token that opens a link — `](`, `]:`,
+ * `[[`, `<scheme:`, a bare URL or email, GitHub's `owner/repo#N` — rather than
+ * modelling the grammar around it, and link syntax too malformed to read comes
+ * back as `unparsed`, so a caller can refuse what it cannot examine. Code is
+ * never stripped: every model of where code ends has hidden live links behind a
+ * mis-paired backtick or fence, so link syntax quoted in code is examined too.
+ * @param {string} content
+ * @returns {Array<{kind:"link"|"image"|"reference"|"wikilink"|"autolink"|"unparsed"|"bare"|"shorthand", destination:string}>}
+ */
+export function extractLinkDestinations(content) {
+  let text = content;
+  const found = [];
+  for (const { pattern, toDestination, readsRaw } of LINK_PASSES) {
+    const pass = consumeMatches(text, pattern, toDestination, readsRaw ? content : text);
+    found.push(...pass.found);
+    text = pass.masked;
+  }
+  found.sort((a, b) => a.index - b.index);
+  return found.map(({ kind, destination }) => ({ kind, destination }));
+}
+
+/** The destination of every markdown image outside code in `content`. */
+function imageUrls(content) {
+  return extractLinkDestinations(stripCode(content))
+    .filter((link) => link.kind === "image")
+    .map((link) => link.destination);
 }
 
 /**
@@ -158,14 +358,11 @@ function stripCode(content) {
  * @returns {{url:string, reason:string}|null}
  */
 export function findInvalidImageRef(content) {
-  const text = stripCode(content);
-  IMAGE_RE.lastIndex = 0;
-  let m;
-  while ((m = IMAGE_RE.exec(text)) !== null) {
-    const c = classifyImageUrl(m[1]);
-    if (!c.ok) return { url: m[1], reason: c.reason };
+  for (const url of imageUrls(content)) {
+    const c = classifyImageUrl(url);
+    if (!c.ok) return { url, reason: c.reason };
     // Release notes must pin to an immutable tag/SHA, not a branch.
-    if (!isReleaseRef(c.ref)) return { url: m[1], reason: "branch-ref" };
+    if (!isReleaseRef(c.ref)) return { url, reason: "branch-ref" };
   }
   return null;
 }
@@ -181,12 +378,9 @@ export function findInvalidImageRef(content) {
  * @returns {{url:string, repoPath:string}|null}
  */
 export function findMissingAssetRefs(content, exists) {
-  const text = stripCode(content);
-  IMAGE_RE.lastIndex = 0;
-  let m;
-  while ((m = IMAGE_RE.exec(text)) !== null) {
-    const parsed = parseRawAssetUrl(m[1]);
-    if (parsed && !exists(parsed.repoPath)) return { url: m[1], repoPath: parsed.repoPath };
+  for (const url of imageUrls(content)) {
+    const parsed = parseRawAssetUrl(url);
+    if (parsed && !exists(parsed.repoPath)) return { url, repoPath: parsed.repoPath };
   }
   return null;
 }
@@ -208,9 +402,8 @@ export function readReleaseEntries(releasesDir) {
   if (!fs.existsSync(releasesDir)) return [];
   const entries = [];
   for (const file of fs.readdirSync(releasesDir)) {
-    const match = RELEASE_FILE_RE.exec(file);
-    if (!match) continue; // skips unreleased.md and any non-version file
-    const version = file.slice(0, -3); // drop ".md"
+    const version = releaseFileVersion(file);
+    if (!version) continue; // skips unreleased.md and any non-version file
     const parsed = parseVersion(version);
     if (!parsed) continue;
     const raw = fs.readFileSync(path.join(releasesDir, file), "utf8");
