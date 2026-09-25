@@ -693,8 +693,8 @@ write path. Tests: command/API/UI parity through the same controller operation; 
 rejection on every surface; capability and version introspection on the API.
 
 State on 2026-09-26: `src/commands/` and `src/api/` do not exist and the plugin exposes no public
-API. The existing commands (release notes, focus task, calendars, source switcher) open pickers or
-modals, and none calls a controller operation. A controller exists only per Bases view
+API. The existing commands (release notes, focus task, calendars, source switcher) open views,
+pickers or modals, or create and open notes, and none calls a controller operation. A controller exists only per Bases view
 (`register.ts` constructs one per view), so the unit first needs a plugin-level route to a
 controller. The read-only guard exists inside the controller (`capabilities.write`), but only the
 UI reaches it.
