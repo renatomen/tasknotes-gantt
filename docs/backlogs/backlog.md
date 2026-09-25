@@ -685,7 +685,7 @@ entry that names it. Every entry was checked against `main` at `51267f37` on the
 
 ### P3 — Agent parity: every controller operation as an Obsidian command and a JS API method (was #62)
 
-Goal (plan `2026-06-16-001` U9, R8–R11): one action layer. Every UI action has a matching Obsidian
+Goal (plan `docs/plans/2026-06-16-001-feat-tasknotes-companion-gantt-plan.md` U9, R8–R11): one action layer. Every UI action has a matching Obsidian
 command and JS API method that call the same `GanttController` operation. The plugin runs no HTTP
 server of its own. In read-only mode every surface refuses mutations: it returns "unsupported" and
 writes nothing. The read/query surface was meant to ship first and the mutating surface after the
@@ -701,7 +701,7 @@ UI reaches it.
 
 ### P3 — Tier-1 scheduling engine: parent roll-up and cascade to a fixed point (was #63)
 
-Goal (plan `2026-06-16-001` U10, R12, R13, R15):
+Goal (plan `docs/plans/2026-06-16-001-feat-tasknotes-companion-gantt-plan.md` U10, R12, R13, R15):
 - **Roll-up:** a parent's start and end are the min and max over its child **edges**. A
   multi-parent child counts toward every parent.
 - **Cascade:** children and dependents shift when a parent or predecessor moves, across the combined
