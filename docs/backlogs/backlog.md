@@ -745,8 +745,10 @@ State on 2026-09-26: authoring is FS-only.
 - `GanttController.addDependency` hard-codes `FINISHTOSTART`.
 - Unit tests pin the rejection.
 - The data layer already accepts a reltype (`TaskNotesSource.addDependency`), but not a gap.
-- There is no link editor and no update-dependency method; the gap is read and shown in the tooltip
-  only.
+- There is no link editor and no update-dependency method. The gap is read-only on two render
+  paths: the link tooltip shows it, and `renderLinkProduct` (`InstanceExpansion.ts`) converts a
+  day-exact ISO duration into SVAR's numeric `lag` on the rendered link. Editing the gap must keep
+  both paths in step.
 
 ### P3 — Dependency-aware cascade: reltype- and gap-aware engine, drag wiring, violation handling (was #88, #89, #90)
 
