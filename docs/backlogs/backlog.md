@@ -729,7 +729,7 @@ and runs first. Build one shared engine either way.
 ### P3 — Non-FS dependency authoring: create FF/SS/SF links and edit reltype and gap (was #86, #87)
 
 Plan `docs/plans/2026-06-20-001-feat-gantt-non-fs-dependency-authoring-plan.md`; requirements R8
-and R9.
+and R9 of `docs/brainstorms/2026-06-18-gantt-dependency-types-and-scheduling-requirements.md`.
 - **Create (was #86):** map SVAR's start and end drag handles to FINISHTOFINISH, STARTTOSTART and
   STARTTOFINISH, and write the chosen reltype to TaskNotes `blockedBy`.
 - **Edit (was #87):** change an existing link's reltype from the Gantt, set or clear its gap
@@ -750,7 +750,8 @@ State on 2026-09-26: authoring is FS-only.
 
 ### P3 — Dependency-aware cascade: reltype- and gap-aware engine, drag wiring, violation handling (was #88, #89, #90)
 
-Requirements R10 and R11 (same brainstorm). Unlike non-FS authoring, this work does not wait
+Requirements R10 and R11 of
+`docs/brainstorms/2026-06-18-gantt-dependency-types-and-scheduling-requirements.md`. Unlike non-FS authoring, this work does not wait
 for `tasknotes#10`: the Gantt's own engine is reltype-aware whatever TaskNotes does.
 - **Engine (was #88):** a pure engine. Given the source graph and a moved task, it computes
   dependent reschedules that honour each reltype (FS/FF/SS/SF) and gap. It works over source
