@@ -675,7 +675,8 @@ then deleted from GitHub on 2026-09-26. Older plans still cite those numbers; re
 entry that names it. Every entry was checked against `main` at `51267f37` on the day of the move:
 **none of this work has started**. Two epics are folded in:
 - **TaskNotes-companion epic (#53)**, plan `docs/plans/2026-06-16-001-feat-tasknotes-companion-gantt-plan.md`.
-  Milestones 0–2 (#54–#61) shipped. Its remaining milestones are the agent-parity and Tier-1
+  Milestones 0–2 (#54–#61) shipped, except U9's read/query surface: the plan scheduled it in
+  Milestone 1 and it never shipped. Its remaining work is the agent-parity and Tier-1
   scheduling entries.
 - **RFC 9253 dependency epic (#91)**, requirements `docs/brainstorms/2026-06-18-gantt-dependency-types-and-scheduling-requirements.md`.
   M1 read fidelity (#81, #82) and M2 FS authoring (#83–#85) shipped. The chart renders all four
@@ -759,10 +760,12 @@ Requirements R10 and R11 of
 for `tasknotes#10`: the Gantt's own engine is reltype-aware whatever TaskNotes does.
 - **Engine (was #88):** a pure engine. Given the source graph and a moved task, it computes
   dependent reschedules that honour each reltype (FS/FF/SS/SF) and gap. It works over source
-  tasks, never render instances, has a cycle guard, and is fully unit-tested with no UI. Share it
-  with the Tier-1 engine above.
-- **Drag wiring (was #89):** run the engine on drag and resize commit, gated by a per-view
-  ask/auto/never mode that reuses the parent-cascade confirm modal. `never` shows an advisory
+  tasks, never render instances, has a cycle guard, and is fully unit-tested with no UI. A
+  completed predecessor never holds a dependent back (R11, AE6). Share it with the Tier-1 engine
+  above.
+- **Drag wiring (was #89):** run the engine on drag and resize commit. The brainstorm's key
+  decision: gate it with the **existing** per-view ask/auto/never mode (`tngantt_parentDateCascade`)
+  and its confirm modal, not a second control. `never` shows an advisory
   indicator and writes nothing, `auto` enforces, and `ask` confirms and then writes. Persist
   through the write path.
 - **Violations (was #90):** when a manual drag breaks a reltype-and-gap constraint, surface it
@@ -770,7 +773,7 @@ for `tasknotes#10`: the Gantt's own engine is reltype-aware whatever TaskNotes d
   (cf. TaskNotes issue-1878).
 
 State on 2026-09-26: nothing reschedules along dependency edges. The ask/auto/never option and
-`CascadeConfirmModal` exist for parent dates only, and there is no dependency-cascade mode key.
+`CascadeConfirmModal` exist, but today they govern parent dates only.
 Reltype and gap are parsed and rendered, never scheduled by.
 
 ## Deferred Codex review threads (2026-07-25 backlog resolution)
@@ -937,7 +940,7 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
 
 ## Low priority
 
-### P6 — Dependency authoring residuals  → nests under "Non-FS dependency authoring" (was epic #91)
+### P6 — Dependency authoring residuals  → nests under the migrated dependency entries (was epic #91); the command half of keyboard/command authoring is also covered by "Agent parity"
 - Per-reltype visual styling (color/dash per reltype, beyond anchor geometry). Source:
   `docs/plans/2026-06-18-004-feat-gantt-dependency-read-fidelity-plan.md`.
 - Lead (negative gap) support — M3 ships lag only. Source:
