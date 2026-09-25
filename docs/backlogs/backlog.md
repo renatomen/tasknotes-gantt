@@ -273,8 +273,8 @@ asks GitHub whether the item exists, so a mistyped number or SHA ships as a dead
 the cross-model peer and again by hosted Codex on #500 (U7 of
 `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`), and **accepted by the
 maintainer on 2026-09-25** (the gate makes no network request). Mitigation, so far for
-0.1.0-beta.11 only: at its tag step (U8 of that plan) every github.com destination the extractor
-returns is requested, following redirects (GitHub sends `/issues/N` for a pull request on to
+0.1.0-beta.11 only, set by the same ruling rather than by the plan's U8 text: after it is
+published, every github.com destination the extractor returns is to be requested, following redirects (GitHub sends `/issues/N` for a pull request on to
 `/pull/N`), and must end in a 200. That catches a number or SHA that names nothing, not one that
 names the wrong existing item. `docs/releases/RELEASING.md` has no such step yet, so a later
 release gets no check unless one is added: add it (or script it) before the next release, and
