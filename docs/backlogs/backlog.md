@@ -264,6 +264,18 @@ line or visibly separated) and pin the swatch's rendered size in `gantt-calendar
 Surfaced during U4 of `docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`;
 the calendar-sets page documents the shipped behaviour.
 
+### P2 — The release-note link gate checks repository links by URL shape, not existence (2026-09-25)
+
+`scripts/check-release-note-links.mjs` accepts a github.com issue, pull-request or commit link
+(`classifyRepoLink`) when its path matches `REPO_ITEM_PATH_RE`, and the `#N` issue refs that
+`extractLinkDestinations` (`scripts/releaseFiles.mjs`) reads pass the same shape test. Nothing
+asks GitHub whether the item exists, so a mistyped number or SHA ships as a dead link. Raised by
+the cross-model peer and again by hosted Codex on #500 (U7 of
+`docs/plans/2026-09-20-002-docs-calendar-feature-documentation-plan.md`), and **accepted by the
+maintainer on 2026-09-25** (the gate makes no network request). Mitigation: every release verifies its note's github.com links at the tag step (U8 d of
+that plan) by requesting each destination the extractor returns and requiring a 200. Promote if a
+dead repository link ever reaches a published note.
+
 ### P1 — Schedule validation (errors & warnings), with swapped dates as the first slice (2026-08-10)
 Per-task validation with two severities, surfaced as a badge **left of the gantt bar**
 (hover for a description naming what's wrong). Example warnings: subtask ends beyond
