@@ -87,6 +87,30 @@ export function evaluateProductionAudit(report, exceptions, bundleText) {
   return { blocking, stale, bundled };
 }
 
+/**
+ * Parse `npm audit --json` output, refusing anything that is not an audit report.
+ * npm exits non-zero both when it finds advisories and when the audit itself
+ * fails, so the exit status cannot tell the two apart; the report's shape can.
+ *
+ * @param {string} text - raw stdout of `npm audit --omit=dev --json`
+ * @returns {object} the parsed report
+ */
+export function parseAuditReport(text) {
+  let report;
+  try {
+    report = JSON.parse(text);
+  } catch {
+    throw new Error(`npm audit output is not JSON: ${String(text).slice(0, 200)}`);
+  }
+  if (report?.error) {
+    throw new Error(`npm audit failed: ${report.error.code ?? ''} ${report.error.summary ?? ''}`.trim());
+  }
+  if (typeof report?.vulnerabilities !== 'object' || report.vulnerabilities === null) {
+    throw new Error('npm audit output has no vulnerabilities object');
+  }
+  return report;
+}
+
 function runProductionAudit() {
   const result = spawnSync('npm', ['audit', '--omit=dev', '--json'], {
     cwd: repoRoot,
@@ -95,7 +119,7 @@ function runProductionAudit() {
     maxBuffer: 64 * 1024 * 1024,
   });
   if (result.error) throw result.error;
-  return JSON.parse(result.stdout);
+  return parseAuditReport(result.stdout);
 }
 
 function main(args) {

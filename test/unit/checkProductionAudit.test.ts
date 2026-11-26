@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   evaluateProductionAudit,
+  parseAuditReport,
   type AuditException,
 } from '../../scripts/check-production-audit.mjs';
 
@@ -94,6 +95,26 @@ describe('evaluateProductionAudit', () => {
     const result = evaluateProductionAudit(zodReport, [zodException], 'class ZodError extends Error {}');
 
     expect(result.bundled).toEqual([{ advisory: 'GHSA-mrhx-c7xc-m3w5', package: 'zod', marker: 'ZodError' }]);
+  });
+});
+
+describe('parseAuditReport', () => {
+  it('refuses an npm error response instead of reading it as zero advisories', () => {
+    expect(() => parseAuditReport('{"error":{"code":"E503","summary":"Service Unavailable"}}')).toThrow(/E503/);
+  });
+
+  it('refuses output that carries no vulnerabilities object', () => {
+    expect(() => parseAuditReport('{}')).toThrow(/vulnerabilities/);
+  });
+
+  it('refuses output that is not JSON', () => {
+    expect(() => parseAuditReport('npm ERR! network')).toThrow(/not JSON/);
+  });
+
+  it('returns a report that lists vulnerabilities', () => {
+    const text = JSON.stringify(zodReport);
+
+    expect(parseAuditReport(text)).toEqual(zodReport);
   });
 });
 
