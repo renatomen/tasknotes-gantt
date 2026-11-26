@@ -7,7 +7,7 @@
  * The reviews themselves are agentic and run outside git; this script only
  * makes an unreviewed push mechanically impossible by demanding receipts.
  *
- *   node scripts/check-review-receipts.mjs author <family> [--replace]
+ *   node scripts/check-review-receipts.mjs author <family>
  *   node scripts/check-review-receipts.mjs record <layer>   # after a clean review of HEAD
  *   node scripts/check-review-receipts.mjs check            # pre-push hook entry point
  *
@@ -22,7 +22,8 @@
  * commit sha. Peer entries carry { at, family, authors, findings? }; legacy
  * entries mean Codex reviewing Claude authors. Independence is judged when
  * recorded, so every ref carrying a commit gets the same receipt verdict.
- * The authors key holds declarations by full local branch ref.
+ * Per-commit declarations live in review-authors.json in the git common directory,
+ * shared by every linked worktree and preserved through history rewrites.
  *
  * A receipt attests that the chain of reviews ending at that commit was run
  * clean - reviews diff against the previously receipted or pushed state, so
@@ -76,15 +77,6 @@ function gitDir() {
 
 function headSha() {
   return git(['rev-parse', 'HEAD']).trim();
-}
-
-function currentBranchRef() {
-  try {
-    return git(['symbolic-ref', '--quiet', 'HEAD']).trim();
-  } catch {
-    console.error('a current branch is required; check out a branch and run node scripts/check-review-receipts.mjs author <family>');
-    process.exit(1);
-  }
 }
 
 function receiptPath() {
@@ -219,10 +211,10 @@ function validAuthors(authors) {
 function peerIndependenceProblem(family, authors) {
   if (!MODEL_FAMILIES.includes(family)) return 'invalid peer family; the wrapper must attest codex or claude';
   if (!validAuthors(authors)) return 'missing or invalid author set; run node scripts/check-review-receipts.mjs author <family>, then rerun the peer wrapper';
-  if (MODEL_FAMILIES.every((candidate) => authors.includes(candidate))) return "both families authored this branch; no eligible peer is available; each family's work must land on its own branch; --replace is only for a branch name recreated from the default branch before any commit";
+  if (MODEL_FAMILIES.every((candidate) => authors.includes(candidate))) return "both families authored the reviewed range; no eligible peer is available; each family's work must land on its own branch";
   if (!authors.includes(family)) return null;
   const other = MODEL_FAMILIES.find((candidate) => candidate !== family);
-  return 'peer family ' + family + ' authored this branch; run bash scripts/cross-model-peer-review.sh <base> <out> --peer ' + other + ' --record';
+  return 'peer family ' + family + ' authored the reviewed range; run bash scripts/cross-model-peer-review.sh <base> <out> --peer ' + other + ' --record';
 }
 
 export function evaluatePeerFamilies(store, shas) {
@@ -240,49 +232,81 @@ export function evaluatePeerFamilies(store, shas) {
   return problems;
 }
 
-function authorReplacementProblem() {
-  let defaultRef;
+function authorPath() {
+  return join(git(['rev-parse', '--git-common-dir']).trim(), 'review-authors.json');
+}
+
+function readAuthors() {
   try {
-    defaultRef = git(['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']).trim();
-    git(['rev-parse', '--verify', `${defaultRef}^{commit}`]);
-  } catch {
-    return 'cannot resolve the origin default branch; --replace refused';
-  }
-  try {
-    git(['merge-base', '--is-ancestor', 'HEAD', defaultRef]);
-    return null;
-  } catch {
-    return 'branch has commits outside the origin default branch or ancestry cannot be verified; --replace refused';
+    return JSON.parse(readFileSync(authorPath(), 'utf8')).authors;
+  } catch (error) {
+    if (error.code === 'ENOENT') return {};
+    throw error;
   }
 }
 
-function declareAuthor(family, replace) {
+function writeAuthors(authors) {
+  writeFileSync(authorPath(), JSON.stringify({ authors }, null, 2) + '\n');
+}
+
+function originDefaultBranch() {
+  try {
+    const ref = git(['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']).trim();
+    return git(['rev-parse', '--verify', ref + '^{commit}']).trim();
+  } catch {
+    console.error('cannot resolve the origin default branch; authorship range is unknown');
+    process.exit(1);
+  }
+}
+
+function commitsOutsideDefault(base, tip = 'HEAD') {
+  return git(['rev-list', base + '..' + tip, '--not', originDefaultBranch()]).trim().split('\n').filter(Boolean);
+}
+
+function declareAuthor(family) {
   if (!MODEL_FAMILIES.includes(family)) {
     console.error('unknown author family "' + family + '" — expected codex or claude');
     process.exit(1);
   }
-  const ref = currentBranchRef();
-  const replacementProblem = replace ? authorReplacementProblem() : null;
-  if (replacementProblem !== null) {
-    console.error(replacementProblem);
-    process.exit(1);
-  }
-  const store = readReceipts();
-  const authors = replace ? [] : (store.authors?.[ref] ?? []);
-  store.authors = { ...store.authors, [ref]: [...new Set([...authors, family])] };
-  writeFileSync(receiptPath(), JSON.stringify(store, null, 2) + '\n');
-  console.log('declared ' + family + ' authorship for ' + ref);
+  const authors = readAuthors();
+  const commits = commitsOutsideDefault(originDefaultBranch());
+  for (const sha of commits) authors[sha] = [...new Set([...(authors[sha] ?? []), family])];
+  writeAuthors(authors);
+  console.log('declared ' + family + ' authorship for ' + commits.length + ' commit(s)');
 }
 
-function printPeerAuthors(family) {
-  const ref = currentBranchRef();
-  const authors = readReceipts().authors?.[ref];
-  const problem = peerIndependenceProblem(family, authors);
-  if (problem !== null) {
-    console.error(ref + ': ' + problem);
+function copyRewrittenAuthors() {
+  const authors = readAuthors();
+  const rewritten = readFileSync(0, 'utf8');
+  for (const line of rewritten.trim().split('\n')) {
+    const [oldSha, newSha] = line.trim().split(/\s+/);
+    if (!authors[oldSha]) continue;
+    authors[newSha] = [...new Set([...(authors[newSha] ?? []), ...authors[oldSha]])];
+  }
+  writeAuthors(authors);
+}
+
+function printPeerAuthors(family, base, tip) {
+  if (!base || !tip) {
+    console.error('peer-authors requires a base and reviewed commit');
     process.exit(1);
   }
-  console.log(JSON.stringify(authors));
+  const declarations = readAuthors();
+  const authors = new Set();
+  for (const sha of commitsOutsideDefault(base, tip)) {
+    if (!validAuthors(declarations[sha])) {
+      console.error(sha.slice(0, 7) + ': undeclared commit; run node scripts/check-review-receipts.mjs author <family>');
+      process.exit(1);
+    }
+    for (const author of declarations[sha]) authors.add(author);
+  }
+  const union = [...authors];
+  const problem = peerIndependenceProblem(family, union);
+  if (problem !== null) {
+    console.error(problem);
+    process.exit(1);
+  }
+  console.log(JSON.stringify(union));
 }
 
 function attestedPeer(sha) {
@@ -482,11 +506,12 @@ if (isDirectRun) {
   // unusable value into the digest guard instead.
   const findings = ackIndex === -1 ? '' : (process.argv[ackIndex + 1] || 'missing');
   if (command === 'record') record(layer, sha ?? headSha(), findings);
-  else if (command === 'author') declareAuthor(layer, process.argv.includes('--replace'));
-  else if (command === 'peer-authors') printPeerAuthors(layer);
+  else if (command === 'author') declareAuthor(layer);
+  else if (command === 'peer-authors') printPeerAuthors(layer, sha, process.argv[5]);
+  else if (command === 'post-rewrite') copyRewrittenAuthors();
   else if (command === 'check') check();
   else {
-    console.error('usage: check-review-receipts.mjs author <family> [--replace] | peer-authors <family> | record <layer> | check');
+    console.error('usage: check-review-receipts.mjs author <family> | peer-authors <family> <base> <tip> | post-rewrite | record <layer> | check');
     process.exit(1);
   }
 }

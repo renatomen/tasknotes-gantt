@@ -68,7 +68,9 @@ function commitFile(path: string, body: string | Buffer, message: string): strin
   writeFileSync(full, body);
   git(['add', path]);
   git(['commit', '-q', '--no-verify', '-m', message]);
-  return git(['rev-parse', 'HEAD']);
+  const sha = git(['rev-parse', 'HEAD']);
+  if (existsSync(join(repo, '.git', 'review-authors.json'))) declareAuthors(['claude'], [sha]);
+  return sha;
 }
 
 /**
@@ -104,6 +106,7 @@ exit "\${PEER_STUB_EXIT:-0}"
 }
 
 interface StubOpts {
+  base?: string;
   peer?: string;
   record?: boolean;
   acknowledge?: boolean;
@@ -125,7 +128,7 @@ function stubbedEnv(): Record<string, string | undefined> {
 
 function runWrapper(response: string, opts: StubOpts = {}): Run {
   writeFileSync(responseFile, response);
-  const args = [WRAPPER, 'origin/main', join(repo, '..', 'peer-out.md')];
+  const args = [WRAPPER, opts.base ?? 'origin/main', join(repo, '..', 'peer-out.md')];
   if (opts.peer !== undefined) args.push('--peer', opts.peer);
   if (opts.record) args.push('--record');
   if (opts.acknowledge) args.push('--acknowledge');
@@ -175,11 +178,12 @@ function receipts(): Record<string, Record<string, PeerReceipt>> {
   return JSON.parse(readFileSync(path, 'utf8')).receipts ?? {};
 }
 
-function declareAuthors(authors: string[]): void {
-  writeFileSync(join(repo, '.git', 'review-receipts.json'), JSON.stringify({
-    receipts: receipts(),
-    authors: { [git(['symbolic-ref', 'HEAD'])]: authors },
-  }));
+function declareAuthors(authors: string[], shas?: string[]): void {
+  const path = join(repo, '.git', 'review-authors.json');
+  const stored = existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')).authors : {};
+  const commits = shas ?? git(['rev-list', 'origin/main..HEAD']).split('\n').filter(Boolean);
+  for (const sha of commits) stored[sha] = authors;
+  writeFileSync(path, JSON.stringify({ authors: stored }));
 }
 
 const CLEAN = 'SAW-DIFF: @@SENTINEL@@\n\nNothing found.\n\nVERDICT: CLEAN';
@@ -272,6 +276,7 @@ beforeEach(() => {
   git(['commit', '-q', '--no-verify', '-m', 'gate']);
   git(['remote', 'add', 'origin', origin]);
   git(['push', '-q', '--no-verify', '-u', 'origin', 'main']);
+  git(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main']);
   // Reviewable work on top of the pushed state — deliberately MORE THAN ONE
   // FILE. With a single small file the whole diff is seven lines, so truncating
   // the staged payload removes nothing and a completeness assertion cannot
@@ -297,7 +302,7 @@ afterAll(() => {
 
 describe('cross-model peer review wrapper', () => {
   it.each([false, true])('refuses an undeclared author before reviewing (record: %s)', (record) => {
-    writeFileSync(join(repo, '.git', 'review-receipts.json'), JSON.stringify({ receipts: {} }));
+    rmSync(join(repo, '.git', 'review-authors.json'));
 
     const run = runExpectingRefusal(CLEAN, { record });
 
@@ -318,14 +323,83 @@ describe('cross-model peer review wrapper', () => {
     expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
   });
 
-  it.each([false, true])('refuses detached HEAD before reviewing (record: %s)', (record) => {
-    git(['checkout', '-q', '--detach']);
+  it('refuses an undeclared ancestor even when the reviewed tip is declared', () => {
+    const ancestor = git(['rev-parse', 'HEAD~1']);
+    const path = join(repo, '.git', 'review-authors.json');
+    const stored = JSON.parse(readFileSync(path, 'utf8'));
+    delete stored.authors[ancestor];
+    writeFileSync(path, JSON.stringify(stored));
 
-    const run = runExpectingRefusal(CLEAN, { record });
+    const run = runExpectingRefusal(CLEAN, { record: true });
 
     expect(run.status).toBe(2);
+    expect(run.stderr).toContain(ancestor.slice(0, 7));
     expect(run.stderr).toContain('author <family>');
     expect(existsSync(promptFile)).toBe(false);
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  it.each(['codex', 'claude'])('refuses a %s peer when separate commits contribute both author families', (peer) => {
+    declareAuthors(['codex'], [git(['rev-parse', 'HEAD~1'])]);
+
+    const run = runExpectingRefusal(CLEAN, { peer, record: true });
+
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('no eligible peer');
+    expect(existsSync(promptFile)).toBe(false);
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  it('checks declarations only in the range the peer will review', () => {
+    const base = git(['rev-parse', 'HEAD~1']);
+    declareAuthors(['codex'], [base]);
+
+    const run = runWrapper(CLEAN, { base });
+
+    expect(run.status).toBe(0);
+    expect(readFileSync(promptFile + '.route', 'utf8')).toBe('codex');
+  });
+
+  it('excludes merged main commits from the union and requires a declaration for the merge itself', () => {
+    const base = git(['rev-parse', 'origin/main']);
+    const topic = git(['rev-parse', 'HEAD']);
+    declareAuthors(['codex']);
+    git(['checkout', '-q', '-b', 'main-advance', base]);
+    const mainCommit = commitFile('main-advance.txt', 'already reviewed on main\n', 'advance main');
+    git(['push', '-q', '--no-verify', 'origin', 'HEAD:main']);
+    const path = join(repo, '.git', 'review-authors.json');
+    const stored = JSON.parse(readFileSync(path, 'utf8'));
+    delete stored.authors[mainCommit];
+    writeFileSync(path, JSON.stringify(stored));
+    git(['checkout', '-q', '-b', 'topic', topic]);
+    git(['merge', '-q', '--no-ff', 'origin/main', '-m', 'merge main']);
+    const merge = git(['rev-parse', 'HEAD']);
+
+    const refused = runExpectingRefusal(CLEAN, { base, peer: 'claude', record: true });
+
+    expect(refused.status).toBe(2);
+    expect(refused.stderr).toContain(merge.slice(0, 7));
+    expect(refused.stderr).toContain('author <family>');
+    expect(existsSync(promptFile)).toBe(false);
+    expect(receipts()[merge]?.['cross-model-peer']).toBeUndefined();
+
+    execFileSync(process.execPath, [join(repo, 'scripts', 'check-review-receipts.mjs'), 'author', 'codex'], {
+      cwd: repo, env: childEnv, encoding: 'utf8',
+    });
+    const reviewed = runWrapper(CLEAN, { base, peer: 'claude', record: true });
+
+    expect(reviewed.status).toBe(0);
+    expect(receipts()[merge]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'claude', authors: ['codex'] });
+    expect(JSON.parse(readFileSync(path, 'utf8')).authors[mainCommit]).toBeUndefined();
+  });
+
+  it('reviews declared commits on detached HEAD without a branch authorship set', () => {
+    git(['checkout', '-q', '--detach']);
+
+    const run = runWrapper(CLEAN);
+
+    expect(run.status).toBe(0);
+    expect(existsSync(promptFile)).toBe(true);
     expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
   });
 
@@ -348,12 +422,11 @@ describe('cross-model peer review wrapper', () => {
     expect(run.status).toBe(2);
     expect(run.stderr).toContain('no eligible peer');
     expect(run.stderr).toContain("each family's work must land on its own branch");
-    expect(run.stderr).toContain('--replace is only for a branch name recreated from the default branch before any commit');
     expect(existsSync(promptFile)).toBe(false);
     expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
   });
 
-  it('attests the author set read before reviewing even if the branch declaration changes during review', () => {
+  it('attests the range union read before reviewing even if commit declarations grow during review', () => {
     const run = runWrapper(CLEAN, {
       record: true,
       sideEffect: `node "${posix(join(repo, 'scripts', 'check-review-receipts.mjs'))}" author codex`,
@@ -363,8 +436,8 @@ describe('cross-model peer review wrapper', () => {
     expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({
       at: expect.any(String), family: 'codex', authors: ['claude'],
     });
-    const stored = JSON.parse(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8'));
-    expect(stored.authors['refs/heads/main']).toEqual(['claude', 'codex']);
+    const stored = JSON.parse(readFileSync(join(repo, '.git', 'review-authors.json'), 'utf8'));
+    expect(stored.authors[git(['rev-parse', 'HEAD'])]).toEqual(['claude', 'codex']);
   });
 
   it('defaults to the unchanged Codex read-only command', () => {
@@ -1027,6 +1100,7 @@ describe('cross-model peer review wrapper', () => {
     git(['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-q', '--no-verify', '-m', 'nested'], nested);
     git(['add', 'vendor/lib']);
     git(['commit', '-q', '--no-verify', '-m', 'add submodule pointer']);
+    declareAuthors(['claude']);
 
     const run = runExpectingRefusal(CLEAN, { record: true });
 
@@ -1044,6 +1118,7 @@ describe('cross-model peer review wrapper', () => {
     git(['-c', 'user.email=t@e.com', '-c', 'user.name=T', 'commit', '-q', '--no-verify', '-m', 'nested'], nested);
     git(['add', 'vendor/lib']);
     git(['commit', '-q', '--no-verify', '-m', 'add submodule pointer']);
+    declareAuthors(['claude']);
     git(['config', 'diff.relative', 'true']);
 
     const run = runExpectingRefusal(CLEAN, { record: true, cwd: join(repo, 'docs') });
@@ -1204,6 +1279,7 @@ describe('cross-model peer review wrapper', () => {
       pushAll();
       git(['mv', 'docs/media/old.png', 'docs/media/new.png']);
       git(['commit', '-q', '--no-verify', '-m', 'rename the screenshot']);
+      declareAuthors(['claude']);
 
       runWrapper(CLEAN, { record: true });
 
@@ -1230,6 +1306,7 @@ describe('cross-model peer review wrapper', () => {
       pushAll();
       git(['mv', 'big.md', 'moved.md']);
       git(['commit', '-q', '--no-verify', '-m', 'move it']);
+      declareAuthors(['claude']);
 
       runWrapper(CLEAN, { record: true });
 
@@ -1243,6 +1320,7 @@ describe('cross-model peer review wrapper', () => {
       pushAll();
       git(['rm', '-q', 'docs/media/gone.png', '.gitattributes']);
       git(['commit', '-q', '--no-verify', '-m', 'drop the image and its rule']);
+      declareAuthors(['claude']);
 
       runWrapper(CLEAN, { record: true });
 
@@ -1269,6 +1347,7 @@ describe('cross-model peer review wrapper', () => {
       pushAll();
       git(['rm', '-q', 'docs/media/gone.png']);
       git(['commit', '-q', '--no-verify', '-m', 'drop the screenshot']);
+      declareAuthors(['claude']);
 
       runWrapper(CLEAN, { record: true });
 

@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync, openSync, closeSync, readdirSync, statSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync, openSync, closeSync, readdirSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -71,11 +71,9 @@ interface ReviewEntry {
 }
 
 type ReceiptLayers = Record<string, string | ReviewEntry>;
-const defaultAuthors = () => Object.fromEntries(['main', 'probe', 'a', 'b'].map((branch) => ['refs/heads/' + branch, ['claude']]));
-
 /** Put a controlled receipt store in place; `{}` means nothing is receipted. */
-function writeReceipts(receipts: Record<string, ReceiptLayers>, authors: Record<string, string[]> = defaultAuthors()): void {
-  writeFileSync(join(repo, '.git', 'review-receipts.json'), JSON.stringify({ receipts, authors }, null, 2));
+function writeReceipts(receipts: Record<string, ReceiptLayers>): void {
+  writeFileSync(join(repo, '.git', 'review-receipts.json'), JSON.stringify({ receipts }, null, 2));
 }
 
 /** The receipt store as written on disk — the only proof a write did NOT happen. */
@@ -91,12 +89,13 @@ function runScript(
   args: string[],
   stdin: string | number = '',
   extraEnv: Record<string, string> = {},
+  cwd = repo,
 ): Run {
   const env = { ...childEnv, ...extraEnv };
   const options =
     typeof stdin === 'number'
-      ? { cwd: repo, encoding: 'utf8' as const, stdio: [stdin, 'pipe', 'pipe'] as Array<number | 'pipe'>, env }
-      : { cwd: repo, input: stdin, encoding: 'utf8' as const, stdio: ['pipe', 'pipe', 'pipe'] as Array<number | 'pipe'>, env };
+      ? { cwd, encoding: 'utf8' as const, stdio: [stdin, 'pipe', 'pipe'] as Array<number | 'pipe'>, env }
+      : { cwd, input: stdin, encoding: 'utf8' as const, stdio: ['pipe', 'pipe', 'pipe'] as Array<number | 'pipe'>, env };
   try {
     const stdout = execFileSync('node', [SCRIPT, ...args], options);
     return { status: 0, stdout: stdout ?? '', stderr: '' };
@@ -613,9 +612,9 @@ describe('check-review-receipts check', () => {
   });
 });
 
-describe('branch author declarations', () => {
-  it('checks legacy receipts without requiring current branch authorship', () => {
-    writeReceipts({ [docsCommit]: clean() }, {});
+describe('peer receipt independence', () => {
+  it('checks legacy receipts without requiring current commit declarations', () => {
+    writeReceipts({ [docsCommit]: clean() });
 
     const run = runCheck(refLine(docsCommit, baseCommit));
 
@@ -625,7 +624,7 @@ describe('branch author declarations', () => {
 
   it.each([['claude', 'codex', 0], ['codex', 'codex', 1], ['codex', 'claude', 0]])(
     'checks recorded %s authorship with a %s peer', (author, family, status) => {
-      writeReceipts({ [docsCommit]: { ...clean(), 'cross-model-peer': { at: 'now', family, authors: [author] } } }, {});
+      writeReceipts({ [docsCommit]: { ...clean(), 'cross-model-peer': { at: 'now', family, authors: [author] } } });
 
       const run = runCheck(refLine(docsCommit, baseCommit));
 
@@ -662,7 +661,7 @@ describe('branch author declarations', () => {
   });
 
   it.each(['2026-07-29T00:00:00.000Z', { at: 'now', findings: 'a'.repeat(64) }])('treats a legacy peer as Codex reviewing Claude authors (%j)', (peer) => {
-    writeReceipts({ [docsCommit]: { ...clean(), 'cross-model-peer': peer } }, { 'refs/heads/probe': ['codex'] });
+    writeReceipts({ [docsCommit]: { ...clean(), 'cross-model-peer': peer } });
 
     const run = runCheck(refLine(docsCommit, baseCommit));
 
@@ -671,7 +670,7 @@ describe('branch author declarations', () => {
   });
 
   it('uses the receipt once when two pushed branches share a commit', () => {
-    writeReceipts({ [docsCommit]: clean() }, { 'refs/heads/a': ['claude'], 'refs/heads/b': ['codex'] });
+    writeReceipts({ [docsCommit]: clean() });
     const input = refLine(docsCommit, baseCommit, 'refs/heads/a') +
       'refs/heads/b ' + docsCommit + ' refs/heads/destination ' + baseCommit + '\n';
 
@@ -683,9 +682,7 @@ describe('branch author declarations', () => {
 
   it.each([0, 1])('gives the same verdict %s to branch, non-HEAD tag and raw-SHA pushes', (status) => {
     const family = status === 0 ? 'claude' : 'codex';
-    writeReceipts({ [codeCommit]: { ...clean(), 'cross-model-peer': { at: 'now', family, authors: ['codex'] } } }, {
-      'refs/heads/main': ['claude'], 'refs/heads/topic': ['codex', 'claude'],
-    });
+    writeReceipts({ [codeCommit]: { ...clean(), 'cross-model-peer': { at: 'now', family, authors: ['codex'] } } });
     expect(git(['rev-parse', 'HEAD'])).not.toBe(codeCommit);
     const inputs = [
       refLine(codeCommit, ZERO, 'refs/heads/topic'),
@@ -703,111 +700,11 @@ describe('branch author declarations', () => {
   });
 
   it('checks manual HEAD and pushed tags without looking up a current branch', () => {
-    writeReceipts({ [git(['rev-parse', 'HEAD'])]: clean(), [codeCommit]: clean() }, {});
+    writeReceipts({ [git(['rev-parse', 'HEAD'])]: clean(), [codeCommit]: clean() });
     git(['checkout', '-q', '--detach']);
     try {
       expect(runCheck('').status).toBe(0);
       expect(runCheck(refLine(tagObject, ZERO, 'refs/tags/probe-tag')).status).toBe(0);
-    } finally {
-      git(['checkout', '-q', 'main']);
-    }
-  });
-
-  it('rejects unsupported authors without writing the store', () => {
-    const before = readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8');
-
-    const run = runScript(['author', 'gpt']);
-
-    expect(run.status).toBe(1);
-    expect(run.stderr).toContain('codex');
-    expect(run.stderr).toContain('claude');
-    expect(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).toBe(before);
-  });
-
-  it('adds and deduplicates author families while preserving receipts and other branches', () => {
-    writeReceipts({ [docsCommit]: clean() }, { 'refs/heads/other': ['claude'] });
-
-    for (const family of ['codex', 'claude', 'codex']) expect(runScript(['author', family]).status).toBe(0);
-
-    const stored = JSON.parse(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8'));
-    expect(stored.authors).toEqual({ 'refs/heads/main': ['codex', 'claude'], 'refs/heads/other': ['claude'] });
-    expect(stored.receipts).toEqual({ [docsCommit]: clean() });
-  });
-
-  describe('replacing a branch author set', () => {
-    beforeEach(() => {
-      git(['update-ref', 'refs/remotes/origin/trunk', codeCommit]);
-      git(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk']);
-      writeReceipts({ [docsCommit]: clean() }, {
-        'refs/heads/main': ['claude', 'codex'], 'refs/heads/other': ['claude'],
-        'refs/heads/recreated': ['claude', 'codex'],
-      });
-    });
-
-    it.each(['codex', 'claude'])('refuses --replace by %s when the branch has its own commits and preserves the store', (family) => {
-      const before = readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8');
-
-      const run = runScript(['author', family, '--replace']);
-
-      expect(run.status).toBe(1);
-      expect(run.stderr).toContain('branch has commits outside the origin default branch');
-      expect(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).toBe(before);
-    });
-
-    it.each(['at', 'behind'])('replaces a recreated branch author set with HEAD %s the default branch, preserving receipts and other branches', (position) => {
-      git(['checkout', '-q', '-b', 'recreated', position === 'at' ? codeCommit : baseCommit]);
-      try {
-        const run = runScript(['author', 'codex', '--replace']);
-
-        expect(run.status).toBe(0);
-        const stored = JSON.parse(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8'));
-        expect(stored.authors).toEqual({
-          'refs/heads/main': ['claude', 'codex'], 'refs/heads/other': ['claude'],
-          'refs/heads/recreated': ['codex'],
-        });
-        expect(stored.receipts).toEqual({ [docsCommit]: clean() });
-      } finally {
-        git(['checkout', '-q', 'main']);
-        git(['branch', '-D', 'recreated']);
-      }
-    });
-
-    it.each(['missing symbolic ref', 'dangling target'])('refuses --replace when the default branch cannot be resolved (%s) and preserves the store', (problem) => {
-      if (problem === 'missing symbolic ref') git(['symbolic-ref', '--delete', 'refs/remotes/origin/HEAD']);
-      else git(['update-ref', '-d', 'refs/remotes/origin/trunk']);
-      const before = readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8');
-
-      const run = runScript(['author', 'codex', '--replace']);
-
-      expect(run.status).toBe(1);
-      expect(run.stderr).toContain('cannot resolve the origin default branch');
-      expect(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).toBe(before);
-    });
-  });
-
-  it('writes only the git-local receipt store when declaring authorship', () => {
-    const snapshot = () => Object.fromEntries(readdirSync(repo, { recursive: true })
-      .map(String)
-      .filter((path) => path.replaceAll('\\', '/') !== '.git/review-receipts.json' && statSync(join(repo, path)).isFile())
-      .map((path) => [path, readFileSync(join(repo, path)).toString('base64')]));
-    const before = snapshot();
-
-    const run = runScript(['author', 'codex']);
-
-    expect(run.status).toBe(0);
-    expect(snapshot()).toEqual(before);
-    expect(JSON.parse(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).authors['refs/heads/main']).toContain('codex');
-  });
-
-  it('refuses to declare authorship on detached HEAD', () => {
-    git(['checkout', '-q', '--detach']);
-    try {
-      const before = readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8');
-      const run = runScript(['author', 'codex']);
-
-      expect(run.status).toBe(1);
-      expect(run.stderr).toContain('branch');
-      expect(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).toBe(before);
     } finally {
       git(['checkout', '-q', 'main']);
     }
@@ -874,5 +771,203 @@ describe('branch author declarations', () => {
     expect(run.status).toBe(1);
     expect(run.stderr).toContain(guidance);
     expect(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).toBe(before);
+  });
+});
+
+
+describe('per-commit author declarations', () => {
+  let primaryRepo: string;
+  let fixtureRoot: string;
+  let topicBase: string;
+  let first: string;
+  let second: string;
+
+  const authorPath = (cwd = repo): string => join(resolve(cwd, git(['rev-parse', '--git-common-dir'], cwd)), 'review-authors.json');
+  const authors = (cwd = repo): Record<string, string[]> => JSON.parse(readFileSync(authorPath(cwd), 'utf8')).authors;
+  const writeAuthors = (entries: Record<string, string[]>): void => writeFileSync(authorPath(), JSON.stringify({ authors: entries }));
+  const peerAuthors = (family: string, base = topicBase, tip = git(['rev-parse', 'HEAD']), cwd = repo): Run =>
+    runScript(['peer-authors', family, base, tip], '', {}, cwd);
+
+  function installRewriteHook(): void {
+    mkdirSync(join(repo, '.husky'), { recursive: true });
+    mkdirSync(join(repo, 'scripts'), { recursive: true });
+    const hook = join(repo, '.husky', 'post-rewrite');
+    writeFileSync(hook, readFileSync(resolve('.husky/post-rewrite')));
+    chmodSync(hook, 0o755);
+    writeFileSync(join(repo, 'scripts', 'check-review-receipts.mjs'), readFileSync(SCRIPT));
+    git(['config', 'core.hooksPath', '.husky']);
+  }
+
+  function advanceDefault(): void {
+    git(['checkout', '-q', 'main']);
+    const newer = commitFile('main-only.md', 'reviewed on main\n', 'advance main');
+    git(['update-ref', 'refs/remotes/origin/trunk', newer]);
+    git(['checkout', '-q', 'topic']);
+  }
+
+  beforeEach(() => {
+    primaryRepo = repo;
+    fixtureRoot = mkdtempSync(join(tmpdir(), 'commit-authors-'));
+    repo = join(fixtureRoot, 'repo');
+    mkdirSync(repo);
+    git(['init', '-q', '-b', 'main']);
+    git(['config', 'user.email', 'probe@example.invalid']);
+    git(['config', 'user.name', 'Probe']);
+    git(['config', 'commit.gpgsign', 'false']);
+    topicBase = commitFile('README.md', 'base\n', 'base');
+    git(['update-ref', 'refs/remotes/origin/trunk', topicBase]);
+    git(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk']);
+    git(['checkout', '-q', '-b', 'topic']);
+    first = commitFile('one.md', 'one\n', 'first');
+    second = commitFile('two.md', 'two\n', 'second');
+    writeReceipts({ [second]: clean() });
+  });
+
+  afterEach(() => {
+    repo = primaryRepo;
+    rmSync(fixtureRoot, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+  });
+
+  it('rejects unsupported authors without writing either store', () => {
+    const before = readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8');
+
+    const run = runScript(['author', 'gpt']);
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('codex');
+    expect(run.stderr).toContain('claude');
+    expect(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).toBe(before);
+    expect(readdirSync(join(repo, '.git'))).not.toContain('review-authors.json');
+  });
+
+  it('declares both undeclared commits and adds families to existing declarations', () => {
+    expect(runScript(['author', 'codex']).status).toBe(0);
+    expect(authors()).toEqual({ [first]: ['codex'], [second]: ['codex'] });
+    const third = commitFile('three.md', 'three\n', 'third');
+
+    expect(runScript(['author', 'claude']).status).toBe(0);
+    expect(runScript(['author', 'claude']).status).toBe(0);
+
+    expect(authors()).toEqual({ [first]: ['codex', 'claude'], [second]: ['codex', 'claude'], [third]: ['claude'] });
+    for (const family of ['codex', 'claude']) {
+      const run = peerAuthors(family);
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('no eligible peer');
+    }
+  });
+
+  it.each(['rename', 'new branch'])('keeps declarations after %s at the same HEAD', (operation) => {
+    expect(runScript(['author', 'codex']).status).toBe(0);
+    const before = authors();
+    if (operation === 'rename') git(['branch', '-m', 'renamed']);
+    else git(['checkout', '-q', '-b', 'new-topic']);
+
+    const run = peerAuthors('claude');
+
+    expect(run.status).toBe(0);
+    expect(JSON.parse(run.stdout)).toEqual(['codex']);
+    expect(authors()).toEqual(before);
+  });
+
+  it('shares commit declarations between linked worktrees', () => {
+    const linked = join(fixtureRoot, 'linked');
+    git(['worktree', 'add', '-q', '--detach', linked, second]);
+    expect(runScript(['author', 'codex'], '', {}, linked).status).toBe(0);
+
+    const run = peerAuthors('claude');
+
+    expect(run.status).toBe(0);
+    expect(JSON.parse(run.stdout)).toEqual(['codex']);
+    expect(authors(linked)).toEqual({ [first]: ['codex'], [second]: ['codex'] });
+    expect(authorPath(linked)).toBe(authorPath());
+    expect(readdirSync(resolve(linked, git(['rev-parse', '--git-dir'], linked)))).not.toContain('review-authors.json');
+  });
+
+  it('writes only review-authors.json in the git common directory', () => {
+    const snapshot = (): Record<string, string> => Object.fromEntries(readdirSync(repo, { recursive: true })
+      .map(String)
+      .filter((path) => path.replaceAll('\\', '/') !== '.git/review-authors.json' && statSync(join(repo, path)).isFile())
+      .map((path) => [path, readFileSync(join(repo, path)).toString('base64')]));
+    const before = snapshot();
+
+    const run = runScript(['author', 'codex']);
+
+    expect(run.status).toBe(0);
+    expect(snapshot()).toEqual(before);
+    expect(authors()).toEqual({ [first]: ['codex'], [second]: ['codex'] });
+    expect(JSON.parse(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8'))).toEqual({ receipts: { [second]: clean() } });
+  });
+
+  it('refuses an undeclared commit even when another commit in the range is declared', () => {
+    writeAuthors({ [second]: ['codex'] });
+
+    const run = peerAuthors('claude');
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(first.slice(0, 7));
+    expect(run.stderr).toContain('author <family>');
+  });
+
+  it('uses only declarations in the reviewed range', () => {
+    writeAuthors({ [first]: ['claude'], [second]: ['codex'] });
+
+    const run = peerAuthors('claude', first);
+
+    expect(run.status).toBe(0);
+    expect(JSON.parse(run.stdout)).toEqual(['codex']);
+  });
+
+  it('keeps the old family through an amend and adds the family that amended it', () => {
+    installRewriteHook();
+    expect(runScript(['author', 'codex']).status).toBe(0);
+    git(['commit', '-q', '--amend', '--no-verify', '-m', 'amended by another family']);
+    const amended = git(['rev-parse', 'HEAD']);
+    expect(amended).not.toBe(second);
+    expect(authors()[amended]).toEqual(['codex']);
+
+    expect(runScript(['author', 'claude']).status).toBe(0);
+
+    expect(authors()[amended]).toEqual(['codex', 'claude']);
+    for (const family of ['codex', 'claude']) {
+      const run = peerAuthors(family);
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('no eligible peer');
+    }
+  });
+
+  it('keeps each declared family when two commits are rebased onto newer main', () => {
+    installRewriteHook();
+    writeAuthors({ [first]: ['claude'], [second]: ['codex'] });
+    advanceDefault();
+
+    git(['rebase', 'refs/remotes/origin/trunk']);
+
+    const rewritten = git(['rev-list', '--reverse', 'refs/remotes/origin/trunk..HEAD']).split('\n');
+    expect(rewritten).toHaveLength(2);
+    expect(rewritten).not.toContain(first);
+    expect(rewritten).not.toContain(second);
+    expect(authors()[rewritten[0]]).toEqual(['claude']);
+    expect(authors()[rewritten[1]]).toEqual(['codex']);
+  });
+
+  it('unions both old families when a rebase squashes their commits', () => {
+    installRewriteHook();
+    writeAuthors({ [first]: ['claude'], [second]: ['codex'] });
+    advanceDefault();
+    const editor = join(fixtureRoot, 'sequence-editor.cjs');
+    writeFileSync(editor, "const fs = require('fs'); const p = process.argv[2]; const s = fs.readFileSync(p, 'utf8'); let n = 0; fs.writeFileSync(p, s.replace(/^pick /gm, () => ++n === 2 ? 'squash ' : 'pick '));");
+
+    execFileSync('git', ['rebase', '-i', 'refs/remotes/origin/trunk'], {
+      cwd: repo, encoding: 'utf8', env: { ...childEnv, GIT_SEQUENCE_EDITOR: 'node "' + editor.replaceAll('\\', '/') + '"', GIT_EDITOR: 'true' },
+    });
+
+    const rewritten = git(['rev-list', 'refs/remotes/origin/trunk..HEAD']).split('\n');
+    expect(rewritten).toHaveLength(1);
+    expect(authors()[rewritten[0]]).toEqual(['claude', 'codex']);
+    for (const family of ['codex', 'claude']) {
+      const run = peerAuthors(family);
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('no eligible peer');
+    }
   });
 });

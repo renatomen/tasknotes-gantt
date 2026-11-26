@@ -343,14 +343,24 @@ describe('SessionStart heartbeat hook', () => {
     expect(steps.find((step) => step.includes('gh api graphql'))).toContain('pageInfo { hasNextPage endCursor }');
   });
 
-  it('declares the branch author once before launching a peer from outside the author set', () => {
+  it('declares every topic commit before layer one and chooses a peer outside the reviewed range union', () => {
     const contract = heartbeatContract(ROOT_FROM_HOOK);
 
     const declaration = positionOf(contract, `cd ${shellQuoted(ROOT_FROM_HOOK)} && node scripts/check-review-receipts.mjs author <family>`);
+    const layerOne = positionOf(contract, 'record ce-code-review');
     const launch = positionOf(contract, 'bash scripts/cross-model-peer-review.sh');
-    expect(contract).toContain('declare the branch author once');
+    expect(contract).toContain('declare every commit outside the origin default branch');
+    expect(contract).toContain('Run author again after any change, including an amend or rebase edit');
+    expect(contract).toContain('declarations only grow');
+    expect(contract).toContain('review-authors.json in the Git common directory');
+    expect(contract).toContain('post-rewrite preserves families when commit SHAs change');
+    expect(contract).toContain('commits reachable from the origin default branch are excluded');
+    expect(contract).toContain('If both families occur in that union, no peer is eligible');
+    expect(declaration).toBeLessThan(layerOne);
     expect(declaration).toBeLessThan(launch);
-    expect(numberedSteps(contract).find((step) => step.includes('cross-model-peer-review.sh'))).toContain('--peer <a family that did not author the branch>');
+    expect(numberedSteps(contract).find((step) => step.includes('cross-model-peer-review.sh'))).toContain('--peer <a family outside the reviewed range union>');
+    expect(contract).not.toContain('declare the branch author once');
+    expect(contract).not.toContain('--replace');
   });
 
   it('launches the peer wrapper without acknowledging, and says what acknowledging really accepts', () => {

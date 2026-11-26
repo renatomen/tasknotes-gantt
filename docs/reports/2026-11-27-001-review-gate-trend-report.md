@@ -1,45 +1,37 @@
 # Review-gate trend report — 2026-11-27
 
-Rank 7 covers `scripts/cross-model-peer-review.sh` and `scripts/check-review-receipts.mjs`, as recorded in [the maintainability baseline](2026-08-15-001-maintainability-rediagnosis.md). This change adds branch authorship and an alternate reviewer route. Independence is judged when the peer review is recorded, and each non-deletion pushed ref tip is checked using its receipt's family and author set.
+Rank 7 covers `scripts/cross-model-peer-review.sh` and `scripts/check-review-receipts.mjs`, as recorded in [the maintainability baseline](2026-08-15-001-maintainability-rediagnosis.md). This change adds per-commit authorship and an alternate reviewer route. Independence is judged when the peer review is recorded, and every non-deletion pushed ref tip is checked using its own receipt's family and author union.
 
-The comparison point is `origin/main` at `1cbe431abde1704ebdb33eb931bd637a8a0ed1db`. The measurements describe the shipping state at `HEAD` (`06ba0cd`). The registry uses the main-side commit as the report anchor: trend reporting counts merged ranked-file changes after the anchor, so a branch-only anchor would make the normal CI command fail before this PR merges. The report-delivering merge is excluded from that count by the trend mechanism.
+The comparison point is `origin/main` at `1cbe431abde1704ebdb33eb931bd637a8a0ed1db`. These are **shipping-state measurements of the working tree**, including the uncommitted amendments. They are not measurements of the current committed `HEAD`. The registry retains the main-side comparison commit as its report anchor, so the trend mechanism can resolve it before this change merges.
 
-## Measurements
+## Shipping measurements
 
-| Metric | 2026-08-15 baseline | Before this change | Shipping state at HEAD | Change from before |
+| File | Lines (`wc -l`) | Added vs origin/main | Deleted vs origin/main | Concerns |
 |---|---:|---:|---:|---:|
-| Peer wrapper lines | 490 | 598 | 615 | +17 |
-| Receipts script lines | 291 | 378 | 492 | +114 |
-| Wrapper distinct literal exit codes, including success | 21 | 21 | 21 | 0 |
-| Wrapper literal nonzero exit sites | approximately 39 | 43 | 45 | +2 |
+| `scripts/cross-model-peer-review.sh` | 617 | 31 | 12 | 10 |
+| `scripts/check-review-receipts.mjs` | 517 | 152 | 13 | 7 |
 
-Line counts use `wc -l`, including comments and blank lines. Exit codes are distinct numeric literals following `exit`; refusal sites are occurrences of a literal nonzero `exit`, including multiple sites sharing a status. These are reproducible syntactic counts, not a count of every conditional path or helper-function return. The old report's approximate refusal count is retained as historical context, not asserted to use this exact convention.
+The wrapper has **21 distinct literal exit codes**, including success, and **45 literal nonzero exit sites**. Its codes are `0` and `2` through `21`. Unsupported peer selection and the pre-review author-union check use the existing unavailable-route status, `2`; the adapter adds no status code.
 
-Reproduce from the repository root in Git Bash:
+Line counts include comments and blank lines. Exit codes are distinct numeric literals following `exit`; refusal sites are occurrences of a literal nonzero `exit`, including multiple sites sharing a status. These are syntactic counts, not a count of every conditional path or helper-function return.
+
+Reproduce the shipping figures from the repository root in Git Bash:
 
 ```bash
-trend_base=1cbe431abde1704ebdb33eb931bd637a8a0ed1db
 wc -l scripts/cross-model-peer-review.sh scripts/check-review-receipts.mjs
-git diff --numstat origin/main...HEAD -- scripts/cross-model-peer-review.sh
-git diff --numstat origin/main...HEAD -- scripts/check-review-receipts.mjs
-git show "$trend_base":scripts/cross-model-peer-review.sh | wc -l
-git show "$trend_base":scripts/check-review-receipts.mjs | wc -l
+git diff --numstat origin/main -- scripts/cross-model-peer-review.sh
+git diff --numstat origin/main -- scripts/check-review-receipts.mjs
 grep -oE '\bexit [0-9]+' scripts/cross-model-peer-review.sh | sort -u
 grep -oE '\bexit [0-9]+' scripts/cross-model-peer-review.sh | sort -u | wc -l
 grep -oE '\bexit [1-9][0-9]*' scripts/cross-model-peer-review.sh | wc -l
-git show "$trend_base":scripts/cross-model-peer-review.sh | grep -oE '\bexit [0-9]+' | sort -u | wc -l
-git show "$trend_base":scripts/cross-model-peer-review.sh | grep -oE '\bexit [1-9][0-9]*' | wc -l
-node scripts/maintainability-trend.mjs --base "$trend_base" --head HEAD --at-ceiling
 ```
 
-The wrapper's distinct codes are `0` and `2` through `21`. Unsupported peer selection and the pre-review author-set check use the existing unavailable-route status, `2`; their two refusal sites explain the increase from 43 to 45. The adapter adds no status code.
-
-The trend command succeeds against `HEAD` and measures ranked-file touches from Git history. At `HEAD`, `wc -l` reports 615 wrapper lines (+17) and 492 receipts-script lines (+114); `git diff --numstat origin/main...HEAD` reports +29/-12 for the wrapper and +127/-13 for the receipts script. The `--at-ceiling` complexity sweep of `HEAD` reports 16 functions at the ceiling and 81 in the 11–15 pressure band.
+The working-tree comparison is intentional: `git diff --numstat origin/main...HEAD` would omit the uncommitted amendments and report a superseded implementation.
 
 ## Concern inventory and growth reasons
 
-The wrapper retains the baseline's **10 concerns**: argument parsing; preflight; Git and digest primitives; remote/upstream resolution; pre-review state guards; diff production and content guards; sentinel/canary checks; reviewer prompt; invocation and verdict parsing; record-time revalidation and receipt delegation. Reviewer selection stays inside the existing parsing, availability and invocation concerns. Its seventeen-line growth keeps reviewer selection and the pre-review author-set snapshot in the same wrapper, avoiding duplicated guards. The improvement is that either supported family can independently review the other's work under the same guards.
+The wrapper's **10 concerns** are argument parsing; preflight; Git and digest primitives; remote/upstream resolution; pre-review state guards; diff production and content guards; sentinel/canary checks; reviewer prompt; invocation and verdict parsing; record-time revalidation and receipt delegation. Reviewer selection stays inside the existing parsing, availability and invocation concerns. The author-union snapshot stays with the existing pre-review guards. Growth keeps both reviewer routes under the same guards and attests the author union of the exact review range, avoiding a second wrapper. Either supported family can review the other's work independently.
 
-The receipts script has **7 concerns**, versus **6 immediately before this change** and **5 in the original baseline**: Git/store plumbing; pushed-ref parsing; archival-subject validation; receipt presence and accepted-findings evaluation; recording; CLI checking/reporting; branch author declaration and peer-family policy. Archival validation already existed before this change. The new author policy adds one concern and 114 lines because this script owns receipt validation: it validates branch declarations before review, requires the wrapper to attest the family and author set, and checks each non-deletion pushed ref tip against that recorded set without classifying refs for receipt checking. Declaration replacement is allowed only when HEAD is reachable from the resolved origin default-branch ref; a branch with its own commits or an unresolved default branch refuses replacement. This closes the bypass where replacement could erase one of two author families and make it eligible to review its own work. The same commit gets the same verdict through a branch, tag or raw-SHA push. Legacy peer receipts have neither family nor authors fields and mean Codex reviewing Claude-authored work; an author-bearing receipt without a reviewing family is refused. Declarations stay in the local Git directory.
+The receipts script's **7 concerns** are Git/store plumbing; pushed-ref parsing; archival-subject validation; receipt presence and accepted-findings evaluation; recording; CLI checking/reporting; per-commit declaration and peer-family policy. The added policy concern is a correctness requirement: this script owns the gate's independence decision. It stores additive declarations by commit SHA in `review-authors.json` under the Git common directory, so branch renames and linked worktrees preserve them. The rewrite command copies declarations to new SHAs and unions families when commits are folded together. The wrapper's range query excludes commits reachable from the origin default branch, requires every remaining commit to be declared, and refuses a peer whose family occurs in their union. The recorder requires the attested family and union; push checks judge each tip's receipt without classifying refs. Branch, tag and raw-SHA pushes of the same commit receive the same verdict. Legacy peer receipts retain the old gate's assumption of Codex reviewing Claude-authored work.
 
-This is an explicit size and concern-count regression with a correctness reason, not a decomposition claim. Neither script gains diagnostics or instrumentation. No source concern is relocated, no seam boundary changes, and no other ranked file changes. The gate-cluster deletion proposal remains outside this change's scope.
+This is an explicit size and concern-count regression with a correctness reason, not a decomposition claim. Neither ranked script gains diagnostics or instrumentation. No source concern is relocated, no seam boundary changes, and no other ranked file changes. The gate-cluster deletion proposal remains outside this change's scope.

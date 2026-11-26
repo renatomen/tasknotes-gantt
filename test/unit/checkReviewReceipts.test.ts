@@ -309,7 +309,7 @@ describe('evaluatePeerFamilies', () => {
   });
 
   it.each([at, { at, findings: 'a'.repeat(64) }])('reads a legacy peer receipt as Codex (%j)', (peer) => {
-    const legacy = { ...store(peer), authors: { 'refs/heads/topic': ['codex'] } };
+    const legacy = store(peer);
     expect(evaluatePeerFamilies(legacy, [SHA])).toEqual([]);
   });
 

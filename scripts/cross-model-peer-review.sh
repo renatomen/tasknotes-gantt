@@ -14,10 +14,12 @@
 # Run it in the background; a real review outlasts a foreground tool call.
 #
 # Independence is judged when the peer receipt is recorded. Before reviewing,
-# the wrapper reads and validates local branch authorship, then attests that set
-# with the selected family. Declare it with check-review-receipts.mjs author
-# <family>, then select a different family with --peer; layer one is the
-# author's own review. Pushes use the family and authors stored in each receipt.
+# the wrapper unions per-commit declarations over <base-ref>..HEAD, excluding
+# commits reachable from the origin default branch, then attests that union with
+# the selected family. Declare with check-review-receipts.mjs author <family>,
+# which adds the family to every origin-default..HEAD commit in the shared Git
+# common-directory store. Select a different family with --peer; layer one is
+# the author's own review. Pushes judge each tip's recorded family and authors.
 #
 # Probed on this machine, and the reason the diff travels in an IN-REPO file:
 # the reviewer's sandbox is confined to the repository. A `/tmp/...` path and a
@@ -56,7 +58,6 @@ BASE="${POSITIONAL[0]:-}"
 OUT="${POSITIONAL[1]:-$(mktemp -t peer-review-XXXXXX.md)}"
 
 REPO_ROOT=$(git rev-parse --show-toplevel) || exit 2
-REVIEW_AUTHORS=$(node "$REPO_ROOT/scripts/check-review-receipts.mjs" peer-authors "$PEER") || exit 2
 command -v "$PEER" >/dev/null 2>&1 || { echo "$PEER CLI not on PATH — peer route unavailable" >&2; exit 2; }
 
 # Every history read goes through this. A replace ref rewrites what git reports
@@ -295,6 +296,7 @@ if ! git_nr merge-base --is-ancestor "$BASE_SHA" "$REVIEWED_SHA"; then
   echo "base ${BASE_SHA:0:9} is not an ancestor of ${REVIEWED_SHA:0:9} — a two-dot diff would not describe the pushed range" >&2
   exit 13
 fi
+REVIEW_AUTHORS=$(node "$REPO_ROOT/scripts/check-review-receipts.mjs" peer-authors "$PEER" "$BASE_SHA" "$REVIEWED_SHA") || exit 2
 
 SCAN_FILE=$(mktemp) || { echo "cannot stage the diff scan" >&2; exit 10; }
 trap 'rm -f "$SCAN_FILE"' EXIT
