@@ -2,10 +2,10 @@
 # Independent cross-model peer review — layer two of the pre-push receipt gate.
 #
 #   bash scripts/cross-model-peer-review.sh <base-ref> [out-file] [--record]
-#                                                        [--acknowledge]
+#                                                        [--acknowledge] [--peer codex|claude]
 #
-# Reviews <base-ref>..HEAD with the Codex CLI and, with --record, stamps the
-# cross-model-peer receipt only after a clean verdict on the reviewed commit.
+# Reviews <base-ref>..HEAD with the selected CLI (Codex by default). With
+# --record, stamps the cross-model-peer receipt only after a clean verdict.
 # --acknowledge additionally accepts a FINDINGS verdict, recording the digest of
 # the review text instead of pretending it was clean: a reviewer asked to find
 # things always will, and a gate no change can pass is one that gets bypassed.
@@ -13,9 +13,9 @@
 # for a review that demonstrably happened.
 # Run it in the background; a real review outlasts a foreground tool call.
 #
-# INDEPENDENCE IS THE CALLER'S: this always runs Codex. Run layer one
-# (ce-code-review) on a different model family or the receipt claims an
-# independence it does not have.
+# The receipts gate checks the peer family against local branch authorship.
+# Declare it with check-review-receipts.mjs author <family>, then select a
+# different family with --peer; layer one is the author's own review.
 #
 # Probed on this machine, and the reason the diff travels in an IN-REPO file:
 # the reviewer's sandbox is confined to the repository. A `/tmp/...` path and a
@@ -36,18 +36,25 @@ set -u
 RECORD=""
 POSITIONAL=()
 ACKNOWLEDGE=""
-for arg in "$@"; do
-  case "$arg" in
+PEER="codex"
+while [ "$#" -gt 0 ]; do
+  case "$1" in
     --record) RECORD="--record" ;;
     --acknowledge) RECORD="--record"; ACKNOWLEDGE="--acknowledge" ;;
-    *) POSITIONAL+=("$arg") ;;
+    --peer) PEER="${2:-}"; [ "$#" -ge 2 ] || break; shift ;;
+    *) POSITIONAL+=("$1") ;;
   esac
+  shift
 done
+case "$PEER" in
+  codex|claude) ;;
+  *) echo "unknown peer family \"$PEER\" — expected codex or claude" >&2; exit 2 ;;
+esac
 BASE="${POSITIONAL[0]:-}"
 OUT="${POSITIONAL[1]:-$(mktemp -t peer-review-XXXXXX.md)}"
 
 REPO_ROOT=$(git rev-parse --show-toplevel) || exit 2
-command -v codex >/dev/null 2>&1 || { echo "codex CLI not on PATH — peer route unavailable" >&2; exit 2; }
+command -v "$PEER" >/dev/null 2>&1 || { echo "$PEER CLI not on PATH — peer route unavailable" >&2; exit 2; }
 
 # Every history read goes through this. A replace ref rewrites what git reports
 # while the push still transfers the original, so `git replace` on an honouring
@@ -485,7 +492,10 @@ if [ "$DIFF_BYTES" -gt 400000 ]; then
   exit 8
 fi
 
-codex exec --sandbox read-only "$PROMPT" > "$OUT" 2> "$OUT.stderr" < /dev/null
+case "$PEER" in
+  codex) codex exec --sandbox read-only "$PROMPT" > "$OUT" 2> "$OUT.stderr" < /dev/null ;;
+  claude) claude -p "$PROMPT" --tools Read,Glob,Grep --allowedTools Read,Glob,Grep --permission-mode dontAsk > "$OUT" 2> "$OUT.stderr" < /dev/null ;;
+esac
 status=$?
 echo "$OUT"
 
@@ -590,7 +600,7 @@ if [ "$RECORD" = "--record" ]; then
   # which is what macOS still ships as /bin/bash — treats an EMPTY array
   # expansion as an unbound variable and aborts. That is the CLEAN path, so the
   # platform this script just learned to digest on could still not record.
-  OG_PEER_REVIEW_ATTESTED_SHA="$REVIEWED_SHA"     node "$REPO_ROOT/scripts/check-review-receipts.mjs" record cross-model-peer "$REVIEWED_SHA" "${ack_args[@]+"${ack_args[@]}"}" || {
+  OG_PEER_REVIEW_ATTESTED_SHA="$REVIEWED_SHA" OG_PEER_REVIEW_ATTESTED_FAMILY="$PEER"     node "$REPO_ROOT/scripts/check-review-receipts.mjs" record cross-model-peer "$REVIEWED_SHA" "${ack_args[@]+"${ack_args[@]}"}" || {
     echo "receipt recording FAILED — the review ran but the gate was not updated" >&2
     exit 7
   }

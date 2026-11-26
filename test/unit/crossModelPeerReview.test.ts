@@ -78,6 +78,10 @@ function commitFile(path: string, body: string | Buffer, message: string): strin
  */
 function writeStub(): void {
   const stub = `#!/usr/bin/env bash
+printf '%s\\0' "$@" > "$PEER_STUB_PROMPT.args"
+printf '%s' "\${0##*/}" > "$PEER_STUB_PROMPT.route"
+cat > "$PEER_STUB_PROMPT.stdin"
+printf 'reviewer stderr\\n' >&2
 prompt="$*"
 printf '%s' "$prompt" > "$PEER_STUB_PROMPT"
 sentinel=$(head -1 "$PEER_STUB_REPO/.peer-review-diff.tmp" | sed 's/^SAW-DIFF: //')
@@ -92,12 +96,15 @@ body=\${body//@@CANARY@@/$canary}
 printf '%s\\n' "$body"
 exit "\${PEER_STUB_EXIT:-0}"
 `;
-  const target = join(stubDir, 'codex');
-  writeFileSync(target, stub);
-  chmodSync(target, 0o755);
+  for (const family of ['codex', 'claude']) {
+    const target = join(stubDir, family);
+    writeFileSync(target, stub);
+    chmodSync(target, 0o755);
+  }
 }
 
 interface StubOpts {
+  peer?: string;
   record?: boolean;
   acknowledge?: boolean;
   exit?: string;
@@ -119,10 +126,12 @@ function stubbedEnv(): Record<string, string | undefined> {
 function runWrapper(response: string, opts: StubOpts = {}): Run {
   writeFileSync(responseFile, response);
   const args = [WRAPPER, 'origin/main', join(repo, '..', 'peer-out.md')];
+  if (opts.peer !== undefined) args.push('--peer', opts.peer);
   if (opts.record) args.push('--record');
   if (opts.acknowledge) args.push('--acknowledge');
   const result = execFileSync('bash', args, {
     cwd: opts.cwd ?? repo,
+    input: 'wrapper input must never reach the reviewer\n',
     encoding: 'utf8',
     env: {
       ...stubbedEnv(),
@@ -151,7 +160,13 @@ function runExpectingRefusal(response: string, opts: StubOpts = {}): Run {
   }
 }
 
-function receipts(): Record<string, Record<string, unknown>> {
+interface PeerReceipt {
+  at: string;
+  family: string;
+  findings?: string;
+}
+
+function receipts(): Record<string, Record<string, PeerReceipt>> {
   // Only ABSENCE is empty. A blanket catch turned a corrupt store into "no
   // receipt", which is the very thing nine assertions here try to prove.
   const path = join(repo, '.git', 'review-receipts.json');
@@ -272,6 +287,71 @@ afterAll(() => {
 });
 
 describe('cross-model peer review wrapper', () => {
+  it('defaults to the unchanged Codex read-only command', () => {
+    runWrapper(CLEAN, { record: true });
+    const prompt = readFileSync(promptFile, 'utf8').replace(/^exec --sandbox read-only /, '');
+
+    expect(readFileSync(promptFile + '.route', 'utf8')).toBe('codex');
+    expect(readFileSync(promptFile + '.args', 'utf8')).toBe(['exec', '--sandbox', 'read-only', prompt, ''].join('\0'));
+    expect(readFileSync(promptFile + '.stdin', 'utf8')).toBe('');
+    expect(readFileSync(join(repo, '..', 'peer-out.md.stderr'), 'utf8')).toBe('reviewer stderr\n');
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'codex' });
+  });
+
+  it('runs Claude with only read tools, no permission prompts, and a Claude receipt', () => {
+    runWrapper(CLEAN, { peer: 'claude', record: true });
+    const args = readFileSync(promptFile + '.args', 'utf8').split('\0');
+
+    expect(readFileSync(promptFile + '.route', 'utf8')).toBe('claude');
+    expect(args).toEqual(['-p', expect.stringContaining('.peer-review-diff.tmp'), '--tools', 'Read,Glob,Grep', '--allowedTools', 'Read,Glob,Grep', '--permission-mode', 'dontAsk', '']);
+    expect(readFileSync(promptFile + '.stdin', 'utf8')).toBe('');
+    expect(readFileSync(join(repo, '..', 'peer-out.md.stderr'), 'utf8')).toBe('reviewer stderr\n');
+    expect(readFileSync(join(repo, '..', 'peer-out.md'), 'utf8')).not.toContain('reviewer stderr');
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'claude' });
+  });
+
+  it('refuses an unavailable Claude route before reviewing or stamping', () => {
+    const run = runExpectingRefusal(CLEAN, {
+      peer: 'claude', record: true,
+      env: exportedBashFunction('command', 'if [ "$1" = -v ] && [ "$2" = claude ]; then return 1; fi; builtin command "$@";'),
+    });
+
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('claude CLI not on PATH — peer route unavailable');
+    expect(existsSync(promptFile)).toBe(false);
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  it.each(['gpt', ''])('refuses unsupported peer %s before any review runs', (peer) => {
+    const run = runExpectingRefusal(CLEAN, { peer, record: true });
+
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('expected codex or claude');
+    expect(existsSync(promptFile)).toBe(false);
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  it.each([
+    ['missing sentinel', 'VERDICT: CLEAN', 9],
+    ['prompt echo', '@@CANARY@@\nSAW-DIFF: @@SENTINEL@@\nVERDICT: CLEAN', 9],
+    ['missing verdict', 'SAW-DIFF: @@SENTINEL@@', 4],
+    ['findings', 'SAW-DIFF: @@SENTINEL@@\nVERDICT: FINDINGS', 5],
+  ])('applies the shared %s refusal on the Claude route', (_name, response, status) => {
+    const run = runExpectingRefusal(response, { peer: 'claude', record: true });
+
+    expect(run.status).toBe(status);
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  it('records the Claude family with acknowledged findings from that review', () => {
+    runWrapper('SAW-DIFF: @@SENTINEL@@\nOne problem.\nVERDICT: FINDINGS', { peer: 'claude', acknowledge: true });
+    const reviewText = readFileSync(join(repo, '..', 'peer-out.md'));
+
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({
+      at: expect.any(String), family: 'claude', findings: createHash('sha256').update(reviewText).digest('hex'),
+    });
+  });
+
   it('hands the wrapper an environment it can actually work in', () => {
     // The hole that shipped an empty PATH as green. Windows env keys are
     // case-insensitive and a spread object is not, so overriding `PATH` while
@@ -310,9 +390,8 @@ describe('cross-model peer review wrapper', () => {
     const run = runWrapper(CLEAN, { record: true });
 
     expect(run.stdout).toContain('VERDICT:CLEAN');
-    // A bare string is a CLEAN receipt and nothing else can be, so this fails
-    // if the two receipt states are ever confused.
-    expect(typeof receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBe('string');
+    expect(typeof receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']?.at).toBe('string');
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'codex' });
   });
 
   it('does not count its own output files as a dirty worktree', () => {
@@ -326,9 +405,8 @@ describe('cross-model peer review wrapper', () => {
     const run = runWrapper(CLEAN, { record: true });
 
     expect(run.stdout).toContain('VERDICT:CLEAN');
-    // A bare string is a CLEAN receipt and nothing else can be, so this fails
-    // if the two receipt states are ever confused.
-    expect(typeof receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBe('string');
+    expect(typeof receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']?.at).toBe('string');
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'codex' });
   });
 
   it('refuses to record when a TRACKED file changes during the review', () => {
@@ -952,7 +1030,8 @@ describe('cross-model peer review wrapper', () => {
     }
 
     function expectReceipt(): void {
-      expect(typeof receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBe('string');
+      expect(typeof receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']?.at).toBe('string');
+      expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'codex' });
     }
 
     /** Git's own attribute-neutral rendering of the range: what the reviewer must receive, whole. */
