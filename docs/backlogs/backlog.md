@@ -281,6 +281,19 @@ names the wrong existing item. `docs/releases/RELEASING.md` has no such step yet
 release gets no check unless one is added: add it (or script it) before the next release, and
 promote this entry if a dead repository link ever reaches a published note.
 
+### P2 — The production audit check trusts npm's exit status and report shape (2026-11-26)
+
+`scripts/check-production-audit.mjs` (PR #517) judges whatever `npm audit --json` returns. Two hardening claims from that PR's review were **accepted by the maintainer on 2026-11-26** and are recorded in #517's "Unapplied review findings":
+
+- An npm exit status other than 0 or 1 whose output still parses is judged rather than refused. Fix: refuse any child status other than 0 and 1.
+- A well-formed but incomplete version-2 report that holds only the excepted advisory would pass. Fix: validate the report's metadata and the shape of each vulnerability record.
+
+Both guard against npm behaviour npm does not show today, and the step the check replaced trusted npm's output just as fully. The review graded them P1; they are parked as P2 on the maintainer's acceptance. Raised by the cross-model adversarial read in ce-code-review, run `20261126-185716-1a8f3aaa`.
+
+### P3 — A recurring e2e test reads the plain piece once, before the row has settled (2026-11-26)
+
+In `test/specs/gantt-calendar-items-recurring.e2e.ts`, the test "renders the recorded pieces on the union envelope by default, and nothing for opted-out families" waits for the row's piece states, then queries `.og-instance.og-instance-plain` once to read its paint (the `plainPaint` check, around lines 488–505). A late refresh that repaints the pieces between the wait and that read leaves the query empty, and `expect(plainPaint).not.toBeNull()` fails. It failed once on PR #517's CI and passed on rerun. Fix: wait the paint read into agreement, as the footprint check later in the same test already does ("A late refresh can repaint the pieces between reads").
+
 ### P1 — Schedule validation (errors & warnings), with swapped dates as the first slice (2026-08-10)
 Per-task validation with two severities, surfaced as a badge **left of the gantt bar**
 (hover for a description naming what's wrong). Example warnings: subtask ends beyond

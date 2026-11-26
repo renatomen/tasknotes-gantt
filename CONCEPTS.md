@@ -131,6 +131,9 @@ The resolved field mappings — the view's own choices with each unset field fil
 ### Round-trip symmetry
 The property a field's value is written to is the same one it is read from. It is the license to edit a field inline: the backing system persists status and priority through *its own* configured property, so a view mapped to a different property can only be read. Without symmetry an edit would land where the edited column cannot show it — appearing to save while changing nothing visible — so the field is read-only instead.
 
+### TaskNotes-owned field
+A task field TaskNotes defines itself (status, due, assignees, attachments and the rest of its built-in fields), as distinct from a registered user field. It is identified by the property TaskNotes' own field mapping assigns it, never by its internal name, because the user can point that mapping at any property. Writing one as a plain frontmatter property skips the normalization and side effects TaskNotes applies to its own fields.
+
 ## Refresh
 
 ### Entry signature
