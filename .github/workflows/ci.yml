@@ -106,9 +106,9 @@ jobs:
       - name: Build
         run: npm run build
       - name: Audit production dependencies
-        # npm audit --omit=dev at the high level, except advisories documented in
-        # scripts/production-audit-exceptions.json whose package stays out of
-        # dist/main.js; runs after Build because it reads that bundle.
+        # npm audit --omit=dev at the high level, except the package/advisory
+        # pairs documented in scripts/production-audit-exceptions.json; an
+        # exception that no longer matches a reported advisory fails the step.
         run: node scripts/check-production-audit.mjs
       - name: Bundle hygiene (no network/eval/base64 in dist/main.js)
         # The plugin is local-only: the released bundle must contain no network
