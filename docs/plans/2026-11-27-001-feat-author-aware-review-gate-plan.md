@@ -100,7 +100,7 @@ Waits on: nothing.
   - A legacy peer receipt (bare timestamp, and `{ at, findings }`, recorded before this change) counts as a Codex review of Claude-authored work, which is what the old gate assumed.
   - The same commit pushed as a branch, as a tag (`--follow-tags`, naming a commit other than HEAD) and as a raw SHA into `refs/heads/topic` gets the same verdict in all three cases.
   - `author gpt` is refused; only `codex` and `claude` are accepted.
-  - `author codex` on a branch with two undeclared commits declares both as `codex`. After a third commit and `author claude`, all three carry both families, and every peer is refused.
+  - `author codex` on a branch with two undeclared commits declares both as `codex`. After a third commit and `author claude`, the first two carry both families, the third carries `claude`, and the range union refuses every peer.
   - After Claude amends a `codex` commit and runs `author claude`, the amended commit carries both families, and every peer is refused.
   - Renaming the branch, or creating a new branch at the same HEAD, leaves every commit's declaration unchanged.
   - A declaration made in one linked worktree is read in another for the same commit.
