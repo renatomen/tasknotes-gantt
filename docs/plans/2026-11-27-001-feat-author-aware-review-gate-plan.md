@@ -16,7 +16,7 @@ execution: code
 - **Authority:** This plan, then `AGENTS.md`, then `docs/engineering/practices.md`.
 - **Execution profile:** One PR, three units (U1–U3). Cohesion reason, per AGENTS.md landing cadence: the guidance in U3 states a rule whose only guard is U1 and U2. Landing the rule before its guard repeats the "always-rule kept by memory" failure this repository's charter names, and landing the guard before the rule leaves a refusal no document explains.
 - **Stop conditions:** Stop and hand over if a unit needs a change to `scripts/cross-model-peer-review.sh` beyond the reviewer adapter (KTD3), or if the receipts store cannot stay readable by the current hook during the change (KTD4).
-- **Who finishes:** Codex implements from this plan; Claude reviews. This PR is the last one reviewed under the old gate's assumptions, so its own peer runs on the Codex route and its independent read is Claude's layer-one review.
+- **Who finishes:** Codex implements from this plan and runs layer one on its own work; Claude plans and reviews. This PR is the first gated by its own mechanism: the branch is declared Codex-authored, and its peer runs on the Claude route.
 
 ---
 
