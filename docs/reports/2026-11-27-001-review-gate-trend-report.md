@@ -2,11 +2,11 @@
 
 Rank 7 covers `scripts/cross-model-peer-review.sh` and `scripts/check-review-receipts.mjs`, as recorded in [the maintainability baseline](2026-08-15-001-maintainability-rediagnosis.md). This change adds branch authorship and an alternate reviewer route. Independence is judged when the peer review is recorded, and each non-deletion pushed ref tip is checked using its receipt's family and author set.
 
-The comparison point is `origin/main` at `1cbe431abde1704ebdb33eb931bd637a8a0ed1db`. The measurements describe the final shipping state. The registry uses the main-side commit as the report anchor: trend reporting counts merged ranked-file changes after the anchor, so a branch-only anchor would make the normal CI command fail before this PR merges. The report-delivering merge is excluded from that count by the trend mechanism.
+The comparison point is `origin/main` at `1cbe431abde1704ebdb33eb931bd637a8a0ed1db`. The measurements describe the shipping state at `HEAD` (`06ba0cd`). The registry uses the main-side commit as the report anchor: trend reporting counts merged ranked-file changes after the anchor, so a branch-only anchor would make the normal CI command fail before this PR merges. The report-delivering merge is excluded from that count by the trend mechanism.
 
 ## Measurements
 
-| Metric | 2026-08-15 baseline | Before this change | Final shipping state | Change from before |
+| Metric | 2026-08-15 baseline | Before this change | Shipping state at HEAD | Change from before |
 |---|---:|---:|---:|---:|
 | Peer wrapper lines | 490 | 598 | 615 | +17 |
 | Receipts script lines | 291 | 378 | 492 | +114 |
@@ -22,8 +22,6 @@ trend_base=1cbe431abde1704ebdb33eb931bd637a8a0ed1db
 wc -l scripts/cross-model-peer-review.sh scripts/check-review-receipts.mjs
 git diff --numstat origin/main...HEAD -- scripts/cross-model-peer-review.sh
 git diff --numstat origin/main...HEAD -- scripts/check-review-receipts.mjs
-git diff --numstat HEAD -- scripts/check-review-receipts.mjs
-git diff --numstat origin/main -- scripts/cross-model-peer-review.sh scripts/check-review-receipts.mjs
 git show "$trend_base":scripts/cross-model-peer-review.sh | wc -l
 git show "$trend_base":scripts/check-review-receipts.mjs | wc -l
 grep -oE '\bexit [0-9]+' scripts/cross-model-peer-review.sh | sort -u
@@ -36,7 +34,7 @@ node scripts/maintainability-trend.mjs --base "$trend_base" --head HEAD --at-cei
 
 The wrapper's distinct codes are `0` and `2` through `21`. Unsupported peer selection and the pre-review author-set check use the existing unavailable-route status, `2`; their two refusal sites explain the increase from 43 to 45. The adapter adds no status code.
 
-The trend command succeeds against HEAD and measures ranked-file touches from Git history; `wc -l` and the final-source diff above measure the shipping state: 615 wrapper lines (+17) and 492 receipts-script lines (+114). Final per-PR growth against `origin/main` is +29/-12 for the wrapper and +127/-13 for the receipts script. The receipts-script branch-history comparison (`origin/main...HEAD`) is +104/-11, and its final-source delta from HEAD is +24/-3; overlapping edits mean these are not added arithmetically. The `--at-ceiling` complexity sweep of HEAD reports 16 functions at the ceiling and 81 in the 11–15 pressure band.
+The trend command succeeds against `HEAD` and measures ranked-file touches from Git history. At `HEAD`, `wc -l` reports 615 wrapper lines (+17) and 492 receipts-script lines (+114); `git diff --numstat origin/main...HEAD` reports +29/-12 for the wrapper and +127/-13 for the receipts script. The `--at-ceiling` complexity sweep of `HEAD` reports 16 functions at the ceiling and 81 in the 11–15 pressure band.
 
 ## Concern inventory and growth reasons
 
