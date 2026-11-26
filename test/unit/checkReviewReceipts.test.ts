@@ -87,13 +87,13 @@ describe('parsePushedRefLines', () => {
       `refs/heads/a ${SHA} refs/heads/a ${OTHER_SHA}\n` +
       `refs/heads/b ${OTHER_SHA} refs/heads/b ${DELETED}\n`;
 
-    expect(parsePushedRefLines(stdin)).toEqual({ shas: [SHA, OTHER_SHA], invalid: [], archival: [], refs: [{ ref: 'refs/heads/a', sha: SHA }, { ref: 'refs/heads/b', sha: OTHER_SHA }] });
+    expect(parsePushedRefLines(stdin)).toEqual({ shas: [SHA, OTHER_SHA], invalid: [], archival: [] });
   });
 
   it('skips branch deletions (local sha all zeros)', () => {
     const stdin = `refs/heads/gone ${DELETED} refs/heads/gone ${SHA}\n`;
 
-    expect(parsePushedRefLines(stdin)).toEqual({ shas: [], invalid: [], archival: [], refs: [] });
+    expect(parsePushedRefLines(stdin)).toEqual({ shas: [], invalid: [], archival: [] });
   });
 
   it('deduplicates the same sha pushed under two refs', () => {
@@ -101,7 +101,7 @@ describe('parsePushedRefLines', () => {
       `refs/heads/a ${SHA} refs/heads/a ${OTHER_SHA}\n` +
       `refs/tags/v1 ${SHA} refs/tags/v1 ${DELETED}\n`;
 
-    expect(parsePushedRefLines(stdin)).toEqual({ shas: [SHA], invalid: [], archival: [], refs: [{ ref: 'refs/heads/a', sha: SHA }, { ref: 'refs/tags/v1', sha: SHA }] });
+    expect(parsePushedRefLines(stdin)).toEqual({ shas: [SHA], invalid: [], archival: [] });
   });
 
   it('does not gate a push into the archival subject namespace, but reports it for validation', () => {
@@ -111,7 +111,6 @@ describe('parsePushedRefLines', () => {
       shas: [],
       invalid: [],
       archival: [{ ref: 'refs/e11-subjects/e0cae52', sha: SHA, remoteSha: DELETED }],
-      refs: [],
     });
   });
 
@@ -122,7 +121,6 @@ describe('parsePushedRefLines', () => {
       shas: [],
       invalid: [],
       archival: [{ ref: 'refs/e11-subjects/e0cae52', sha: DELETED, remoteSha: SHA }],
-      refs: [],
     });
   });
 
@@ -135,7 +133,6 @@ describe('parsePushedRefLines', () => {
       shas: [SHA],
       invalid: [],
       archival: [{ ref: 'refs/e11-subjects/e0cae52', sha: SHA, remoteSha: DELETED }],
-      refs: [{ ref: 'refs/heads/a', sha: SHA }],
     });
   });
 
@@ -148,7 +145,6 @@ describe('parsePushedRefLines', () => {
       shas: [],
       invalid: [],
       archival: [{ ref: 'refs/e11-subjects/e0cae52\u00a0', sha: SHA, remoteSha: DELETED }],
-      refs: [],
     });
   });
 
@@ -161,7 +157,7 @@ describe('parsePushedRefLines', () => {
   it('tolerates a trailing carriage return on a ref line', () => {
     const stdin = `refs/heads/a ${SHA} refs/heads/a ${OTHER_SHA}\r\n`;
 
-    expect(parsePushedRefLines(stdin)).toEqual({ shas: [SHA], invalid: [], archival: [], refs: [{ ref: 'refs/heads/a', sha: SHA }] });
+    expect(parsePushedRefLines(stdin)).toEqual({ shas: [SHA], invalid: [], archival: [] });
   });
 
   it('still refuses a malformed line even when it names the archival namespace', () => {
@@ -171,13 +167,12 @@ describe('parsePushedRefLines', () => {
       shas: [],
       invalid: [`refs/e11-subjects/x ${SHA} refs/e11-subjects/x`],
       archival: [],
-      refs: [],
     });
   });
 
   it('yields nothing for empty or blank stdin (manual invocation falls back to HEAD)', () => {
-    expect(parsePushedRefLines('')).toEqual({ shas: [], invalid: [], archival: [], refs: [] });
-    expect(parsePushedRefLines('\n  \n')).toEqual({ shas: [], invalid: [], archival: [], refs: [] });
+    expect(parsePushedRefLines('')).toEqual({ shas: [], invalid: [], archival: [] });
+    expect(parsePushedRefLines('\n  \n')).toEqual({ shas: [], invalid: [], archival: [] });
   });
 
   it('surfaces malformed lines instead of silently discarding them', () => {
@@ -201,7 +196,7 @@ describe('parsePushedRefLines', () => {
       `refs/heads/a ${sha256} refs/heads/a ${'d'.repeat(64)}\n` +
       `refs/heads/gone ${'0'.repeat(64)} refs/heads/gone ${sha256}\n`;
 
-    expect(parsePushedRefLines(stdin)).toEqual({ shas: [sha256], invalid: [], archival: [], refs: [{ ref: 'refs/heads/a', sha: sha256 }] });
+    expect(parsePushedRefLines(stdin)).toEqual({ shas: [sha256], invalid: [], archival: [] });
   });
 });
 
@@ -282,46 +277,58 @@ describe('validateArchivalSubjects', () => {
 });
 
 describe('evaluatePeerFamilies', () => {
-  const ref = 'refs/heads/topic';
-  const pushed = [{ ref, sha: SHA }];
   const at = '2026-07-28T00:00:00.000Z';
-  const store = (authors: string[], peer: string | { at: string; family?: string; findings?: string }) => ({
-    authors: { [ref]: authors },
+  const store = (peer: string | { at: string; family?: string; authors?: string[]; findings?: string }) => ({
     receipts: { [SHA]: { ...cleanLayers(), 'cross-model-peer': peer } },
   });
 
-  it('refuses an undeclared author and names the declaration command', () => {
-    expect(evaluatePeerFamilies({ receipts: { [SHA]: cleanLayers() } }, pushed).join('\n')).toContain('author <family>');
+  it('refuses a family-bearing receipt without a recorded author set', () => {
+    expect(evaluatePeerFamilies(store({ at, family: 'codex' }), [SHA]).join('\n')).toContain('author set');
   });
 
-  it.each([['claude', 'codex'], ['codex', 'claude']])('accepts %s authorship reviewed by %s', (author, family) => {
-    expect(evaluatePeerFamilies(store([author], { at, family }), pushed)).toEqual([]);
+  it.each([['claude', 'codex'], ['codex', 'claude']])('accepts recorded %s authorship reviewed by %s', (author, family) => {
+    expect(evaluatePeerFamilies(store({ at, family, authors: [author] }), [SHA])).toEqual([]);
   });
 
   it.each([['codex', 'claude'], ['claude', 'codex']])('refuses a %s peer for its own author and names --peer %s', (family, other) => {
-    const problems = evaluatePeerFamilies(store([family], { at, family }), pushed);
+    const problems = evaluatePeerFamilies(store({ at, family, authors: [family] }), [SHA]);
 
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('--peer ' + other);
   });
 
   it.each(['codex', 'claude'])('refuses mixed authorship with a %s peer', (family) => {
-    const problems = evaluatePeerFamilies(store(['codex', 'claude'], { at, family }), pushed);
+    const problems = evaluatePeerFamilies(store({ at, family, authors: ['codex', 'claude'] }), [SHA]);
 
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('no eligible peer');
   });
 
   it.each([at, { at, findings: 'a'.repeat(64) }])('reads a legacy peer receipt as Codex (%j)', (peer) => {
-    expect(evaluatePeerFamilies(store(['claude'], peer), pushed)).toEqual([]);
-    expect(evaluatePeerFamilies(store(['codex'], peer), pushed).join('\n')).toContain('--peer claude');
+    const legacy = { ...store(peer), authors: { 'refs/heads/topic': ['codex'] } };
+    expect(evaluatePeerFamilies(legacy, [SHA])).toEqual([]);
   });
 
   it.each([[[]], [['gpt']]])('refuses an unusable author set %j', (authors) => {
-    expect(evaluatePeerFamilies(store(authors, { at, family: 'codex' }), pushed).join('\n')).toContain('author <family>');
+    expect(evaluatePeerFamilies(store({ at, family: 'codex', authors }), [SHA]).join('\n')).toContain('author set');
   });
 
   it('refuses an unsupported peer family instead of treating it as independent', () => {
-    expect(evaluatePeerFamilies(store(['codex'], { at, family: 'gpt' }), pushed).join('\n')).toContain('invalid peer family');
+    expect(evaluatePeerFamilies(store({ at, family: 'gpt', authors: ['codex'] }), [SHA]).join('\n')).toContain('invalid peer family');
+  });
+
+  it.each([true, 1, [], {}])('does not treat a malformed peer receipt %j as a legacy timestamp', (peer) => {
+    expect(evaluatePeerFamilies(store(peer as never), [SHA]).join('\n')).toContain('invalid peer family');
+  });
+
+  it('checks each pushed commit using its own recorded author set', () => {
+    const mixed = store({ at, family: 'codex', authors: ['claude'] });
+    mixed.receipts[OTHER_SHA] = { ...cleanLayers(), 'cross-model-peer': { at, family: 'claude', authors: ['claude'] } };
+
+    const problems = evaluatePeerFamilies(mixed, [SHA, OTHER_SHA]);
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(OTHER_SHA.slice(0, 7));
+    expect(problems[0]).not.toContain(SHA.slice(0, 7));
   });
 });

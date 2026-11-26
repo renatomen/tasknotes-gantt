@@ -163,6 +163,7 @@ function runExpectingRefusal(response: string, opts: StubOpts = {}): Run {
 interface PeerReceipt {
   at: string;
   family: string;
+  authors: string[];
   findings?: string;
 }
 
@@ -172,6 +173,13 @@ function receipts(): Record<string, Record<string, PeerReceipt>> {
   const path = join(repo, '.git', 'review-receipts.json');
   if (!existsSync(path)) return {};
   return JSON.parse(readFileSync(path, 'utf8')).receipts ?? {};
+}
+
+function declareAuthors(authors: string[]): void {
+  writeFileSync(join(repo, '.git', 'review-receipts.json'), JSON.stringify({
+    receipts: receipts(),
+    authors: { [git(['symbolic-ref', 'HEAD'])]: authors },
+  }));
 }
 
 const CLEAN = 'SAW-DIFF: @@SENTINEL@@\n\nNothing found.\n\nVERDICT: CLEAN';
@@ -273,6 +281,7 @@ beforeEach(() => {
   // and a fixture without it cannot tell a byte-exact comparison from a trimmed
   // one — the staging mutation that strips it would change nothing to observe.
   commitFile('second.txt', 'the tail of the change  \nafter a hard break\n', 'second');
+  declareAuthors(['claude']);
 });
 
 afterEach(() => {
@@ -287,6 +296,75 @@ afterAll(() => {
 });
 
 describe('cross-model peer review wrapper', () => {
+  it.each([false, true])('refuses an undeclared author before reviewing (record: %s)', (record) => {
+    writeFileSync(join(repo, '.git', 'review-receipts.json'), JSON.stringify({ receipts: {} }));
+
+    const run = runExpectingRefusal(CLEAN, { record });
+
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('author <family>');
+    expect(existsSync(promptFile)).toBe(false);
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  it.each([false, true])('refuses an empty author set before reviewing (record: %s)', (record) => {
+    declareAuthors([]);
+
+    const run = runExpectingRefusal(CLEAN, { record });
+
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('author <family>');
+    expect(existsSync(promptFile)).toBe(false);
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  it.each([false, true])('refuses detached HEAD before reviewing (record: %s)', (record) => {
+    git(['checkout', '-q', '--detach']);
+
+    const run = runExpectingRefusal(CLEAN, { record });
+
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('author <family>');
+    expect(existsSync(promptFile)).toBe(false);
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  it.each([['codex', 'claude'], ['claude', 'codex']])('refuses a %s author reviewing itself and names --peer %s', (family, other) => {
+    declareAuthors([family]);
+
+    const run = runExpectingRefusal(CLEAN, { peer: family, record: true });
+
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('--peer ' + other);
+    expect(existsSync(promptFile)).toBe(false);
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  it.each(['codex', 'claude'])('refuses both author families before a %s review and names --replace', (peer) => {
+    declareAuthors(['claude', 'codex']);
+
+    const run = runExpectingRefusal(CLEAN, { peer, record: true });
+
+    expect(run.status).toBe(2);
+    expect(run.stderr).toContain('author <family> --replace');
+    expect(existsSync(promptFile)).toBe(false);
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  it('attests the author set read before reviewing even if the branch declaration changes during review', () => {
+    const run = runWrapper(CLEAN, {
+      record: true,
+      sideEffect: `node "${posix(join(repo, 'scripts', 'check-review-receipts.mjs'))}" author codex --replace`,
+    });
+
+    expect(run.stdout).toContain('VERDICT:CLEAN');
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({
+      at: expect.any(String), family: 'codex', authors: ['claude'],
+    });
+    const stored = JSON.parse(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8'));
+    expect(stored.authors['refs/heads/main']).toEqual(['codex']);
+  });
+
   it('defaults to the unchanged Codex read-only command', () => {
     runWrapper(CLEAN, { record: true });
     const prompt = readFileSync(promptFile, 'utf8').replace(/^exec --sandbox read-only /, '');
@@ -295,10 +373,11 @@ describe('cross-model peer review wrapper', () => {
     expect(readFileSync(promptFile + '.args', 'utf8')).toBe(['exec', '--sandbox', 'read-only', prompt, ''].join('\0'));
     expect(readFileSync(promptFile + '.stdin', 'utf8')).toBe('');
     expect(readFileSync(join(repo, '..', 'peer-out.md.stderr'), 'utf8')).toBe('reviewer stderr\n');
-    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'codex' });
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'codex', authors: ['claude'] });
   });
 
   it('runs Claude with only read tools, no permission prompts, and a Claude receipt', () => {
+    declareAuthors(['codex']);
     runWrapper(CLEAN, { peer: 'claude', record: true });
     const args = readFileSync(promptFile + '.args', 'utf8').split('\0');
 
@@ -307,10 +386,11 @@ describe('cross-model peer review wrapper', () => {
     expect(readFileSync(promptFile + '.stdin', 'utf8')).toBe('');
     expect(readFileSync(join(repo, '..', 'peer-out.md.stderr'), 'utf8')).toBe('reviewer stderr\n');
     expect(readFileSync(join(repo, '..', 'peer-out.md'), 'utf8')).not.toContain('reviewer stderr');
-    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'claude' });
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'claude', authors: ['codex'] });
   });
 
   it('refuses an unavailable Claude route before reviewing or stamping', () => {
+    declareAuthors(['codex']);
     const run = runExpectingRefusal(CLEAN, {
       peer: 'claude', record: true,
       env: exportedBashFunction('command', 'if [ "$1" = -v ] && [ "$2" = claude ]; then return 1; fi; builtin command "$@";'),
@@ -337,6 +417,7 @@ describe('cross-model peer review wrapper', () => {
     ['missing verdict', 'SAW-DIFF: @@SENTINEL@@', 4],
     ['findings', 'SAW-DIFF: @@SENTINEL@@\nVERDICT: FINDINGS', 5],
   ])('applies the shared %s refusal on the Claude route', (_name, response, status) => {
+    declareAuthors(['codex']);
     const run = runExpectingRefusal(response, { peer: 'claude', record: true });
 
     expect(run.status).toBe(status);
@@ -344,11 +425,12 @@ describe('cross-model peer review wrapper', () => {
   });
 
   it('records the Claude family with acknowledged findings from that review', () => {
+    declareAuthors(['codex']);
     runWrapper('SAW-DIFF: @@SENTINEL@@\nOne problem.\nVERDICT: FINDINGS', { peer: 'claude', acknowledge: true });
     const reviewText = readFileSync(join(repo, '..', 'peer-out.md'));
 
     expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({
-      at: expect.any(String), family: 'claude', findings: createHash('sha256').update(reviewText).digest('hex'),
+      at: expect.any(String), family: 'claude', authors: ['codex'], findings: createHash('sha256').update(reviewText).digest('hex'),
     });
   });
 
@@ -391,7 +473,7 @@ describe('cross-model peer review wrapper', () => {
 
     expect(run.stdout).toContain('VERDICT:CLEAN');
     expect(typeof receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']?.at).toBe('string');
-    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'codex' });
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'codex', authors: ['claude'] });
   });
 
   it('does not count its own output files as a dirty worktree', () => {
@@ -406,7 +488,7 @@ describe('cross-model peer review wrapper', () => {
 
     expect(run.stdout).toContain('VERDICT:CLEAN');
     expect(typeof receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']?.at).toBe('string');
-    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'codex' });
+    expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'codex', authors: ['claude'] });
   });
 
   it('refuses to record when a TRACKED file changes during the review', () => {
@@ -1031,7 +1113,7 @@ describe('cross-model peer review wrapper', () => {
 
     function expectReceipt(): void {
       expect(typeof receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']?.at).toBe('string');
-      expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'codex' });
+      expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'codex', authors: ['claude'] });
     }
 
     /** Git's own attribute-neutral rendering of the range: what the reviewer must receive, whole. */

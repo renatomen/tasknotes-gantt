@@ -7,7 +7,7 @@
  * The reviews themselves are agentic and run outside git; this script only
  * makes an unreviewed push mechanically impossible by demanding receipts.
  *
- *   node scripts/check-review-receipts.mjs author <family>  # declare the branch author locally
+ *   node scripts/check-review-receipts.mjs author <family> [--replace]
  *   node scripts/check-review-receipts.mjs record <layer>   # after a clean review of HEAD
  *   node scripts/check-review-receipts.mjs check            # pre-push hook entry point
  *
@@ -19,8 +19,10 @@
  * write-once - never replaced or deleted through this hook (see
  * ARCHIVAL_SUBJECT_REF_PREFIX); any malformed line fails the push. Run manually without piped input it falls
  * back to HEAD. Receipts live in .git/ (per-clone, never committed), keyed by
- * commit sha. Peer entries carry { at, family, findings? }; missing family on
- * legacy receipts means Codex. The authors key holds sets by full local branch ref.
+ * commit sha. Peer entries carry { at, family, authors, findings? }; legacy
+ * entries mean Codex reviewing Claude authors. Independence is judged when
+ * recorded, so every ref carrying a commit gets the same receipt verdict.
+ * The authors key holds declarations by full local branch ref.
  *
  * A receipt attests that the chain of reviews ending at that commit was run
  * clean - reviews diff against the previously receipted or pushed state, so
@@ -48,6 +50,7 @@ export const REQUIRED_LAYERS = ['ce-code-review', 'cross-model-peer'];
 const PEER_LAYER = 'cross-model-peer';
 const PEER_ATTESTATION_ENV = 'OG_PEER_REVIEW_ATTESTED_SHA';
 const PEER_FAMILY_ENV = 'OG_PEER_REVIEW_ATTESTED_FAMILY';
+const PEER_AUTHORS_ENV = 'OG_PEER_REVIEW_ATTESTED_AUTHORS';
 const MODEL_FAMILIES = ['codex', 'claude'];
 const PEER_WRAPPER = 'bash scripts/cross-model-peer-review.sh <base> <out> --record';
 
@@ -79,7 +82,7 @@ function currentBranchRef() {
   try {
     return git(['symbolic-ref', '--quiet', 'HEAD']).trim();
   } catch {
-    console.error('a current branch is required to declare or check authorship');
+    console.error('a current branch is required; check out a branch and run node scripts/check-review-receipts.mjs author <family>');
     process.exit(1);
   }
 }
@@ -127,7 +130,6 @@ export function parsePushedRefLines(stdinText) {
   const shas = new Set();
   const invalid = [];
   const archival = [];
-  const refs = [];
   for (const line of stdinText.split('\n')) {
     if (line.trim() === '') continue;
     // Git separates the four fields with single ASCII spaces. A Unicode-aware
@@ -143,10 +145,9 @@ export function parsePushedRefLines(stdinText) {
     if (tokens[2].startsWith(ARCHIVAL_SUBJECT_REF_PREFIX)) archival.push({ ref: tokens[2], sha: localSha, remoteSha: tokens[3] });
     else if (!isDeletion(localSha)) {
       shas.add(localSha);
-      refs.push({ ref: tokens[0], sha: localSha });
     }
   }
-  return { shas: [...shas], invalid, archival, refs };
+  return { shas: [...shas], invalid, archival };
 }
 
 /** Annotated tags push their tag object's sha; receipts key on commits. */
@@ -215,34 +216,72 @@ function validAuthors(authors) {
   return Array.isArray(authors) && authors.length > 0 && authors.every((family) => MODEL_FAMILIES.includes(family));
 }
 
-function peerFamilyProblem(store, { ref, sha }) {
-  const authors = store.authors?.[ref];
-  if (!validAuthors(authors)) return ref + ': no declared authoring family; run node scripts/check-review-receipts.mjs author <family> on that branch';
-  if (MODEL_FAMILIES.every((family) => authors.includes(family))) return ref + ': both families authored this branch; no eligible peer is available';
-  const peer = store.receipts?.[sha]?.[PEER_LAYER];
-  if (!peer) return null;
-  const family = typeof peer === 'object' && Object.hasOwn(peer, 'family') ? peer.family : 'codex';
-  if (!MODEL_FAMILIES.includes(family)) return ref + ': invalid peer family; rerun the peer wrapper with --peer codex or --peer claude';
+function peerIndependenceProblem(family, authors) {
+  if (!MODEL_FAMILIES.includes(family)) return 'invalid peer family; the wrapper must attest codex or claude';
+  if (!validAuthors(authors)) return 'missing or invalid author set; run node scripts/check-review-receipts.mjs author <family>, then rerun the peer wrapper';
+  if (MODEL_FAMILIES.every((candidate) => authors.includes(candidate))) return 'both families authored this branch; no eligible peer is available; for a reused branch run node scripts/check-review-receipts.mjs author <family> --replace';
   if (!authors.includes(family)) return null;
-  const other = MODEL_FAMILIES.find((candidate) => !authors.includes(candidate));
-  return ref + ' (' + sha.slice(0, 7) + '): peer family ' + family + ' authored this branch; run bash scripts/cross-model-peer-review.sh <base> <out> --peer ' + other + ' --record';
+  const other = MODEL_FAMILIES.find((candidate) => candidate !== family);
+  return 'peer family ' + family + ' authored this branch; run bash scripts/cross-model-peer-review.sh <base> <out> --peer ' + other + ' --record';
 }
 
-export function evaluatePeerFamilies(store, refs) {
-  return refs.map((ref) => peerFamilyProblem(store, ref)).filter((problem) => problem !== null);
+export function evaluatePeerFamilies(store, shas) {
+  const problems = [];
+  for (const sha of shas) {
+    const peer = store.receipts?.[sha]?.[PEER_LAYER];
+    if (!peer) continue;
+    const legacy = typeof peer === 'string' || (typeof peer.at === 'string' && !Object.hasOwn(peer, 'family'));
+    const family = legacy ? 'codex' : peer.family;
+    const authors = legacy ? ['claude'] : peer.authors;
+    const problem = peerIndependenceProblem(family, authors);
+    if (problem !== null) problems.push(sha.slice(0, 7) + ': ' + problem);
+  }
+  return problems;
 }
 
-function declareAuthor(family) {
+function declareAuthor(family, replace) {
   if (!MODEL_FAMILIES.includes(family)) {
     console.error('unknown author family "' + family + '" — expected codex or claude');
     process.exit(1);
   }
   const ref = currentBranchRef();
   const store = readReceipts();
-  const authors = store.authors?.[ref] ?? [];
+  const authors = replace ? [] : (store.authors?.[ref] ?? []);
   store.authors = { ...store.authors, [ref]: [...new Set([...authors, family])] };
   writeFileSync(receiptPath(), JSON.stringify(store, null, 2) + '\n');
   console.log('declared ' + family + ' authorship for ' + ref);
+}
+
+function printPeerAuthors(family) {
+  const ref = currentBranchRef();
+  const authors = readReceipts().authors?.[ref];
+  const problem = peerIndependenceProblem(family, authors);
+  if (problem !== null) {
+    console.error(ref + ': ' + problem);
+    process.exit(1);
+  }
+  console.log(JSON.stringify(authors));
+}
+
+function attestedPeer(sha) {
+  if (process.env[PEER_ATTESTATION_ENV] !== sha) {
+    console.error(`${PEER_LAYER} is recorded BY the review, not alongside it.`);
+    console.error(`  ${PEER_WRAPPER}`);
+    process.exit(1);
+  }
+  const family = process.env[PEER_FAMILY_ENV];
+  let authors;
+  try {
+    authors = JSON.parse(process.env[PEER_AUTHORS_ENV] ?? 'null');
+  } catch {
+    authors = null;
+  }
+  const problem = peerIndependenceProblem(family, authors);
+  if (problem !== null) {
+    console.error('peer attestation refused: ' + problem);
+    process.exit(1);
+  }
+  return { family, authors };
 }
 
 /**
@@ -264,19 +303,10 @@ function record(layer, sha = headSha(), findings = '') {
     console.error(`invalid review digest "${findings}" — expected a sha256 of the review output`);
     process.exit(1);
   }
-  if (layer === PEER_LAYER && process.env[PEER_ATTESTATION_ENV] !== sha) {
-    console.error(`${PEER_LAYER} is recorded BY the review, not alongside it.`);
-    console.error(`  ${PEER_WRAPPER}`);
-    process.exit(1);
-  }
-  const family = process.env[PEER_FAMILY_ENV];
-  if (layer === PEER_LAYER && !MODEL_FAMILIES.includes(family)) {
-    console.error('peer family must be attested by the wrapper as codex or claude');
-    process.exit(1);
-  }
+  const peer = layer === PEER_LAYER ? attestedPeer(sha) : null;
   const store = readReceipts();
   const at = new Date().toISOString();
-  const entry = layer === PEER_LAYER ? { at, family, ...(findings ? { findings } : {}) } : (findings ? { at, findings } : at);
+  const entry = peer ? { at, ...peer, ...(findings ? { findings } : {}) } : (findings ? { at, findings } : at);
   store.receipts[sha] = { ...store.receipts[sha], [layer]: entry };
   writeFileSync(receiptPath(), `${JSON.stringify(store, null, 2)}\n`);
   const kind = findings ? `acknowledged (findings ${findings.slice(0, 12)})` : 'clean';
@@ -346,9 +376,9 @@ function refuseArchivalSubjects(problems) {
   process.exit(1);
 }
 
-function peelPushedCommits(refs) {
+function peelPushedCommits(shas) {
   try {
-    return refs.map(({ ref, sha }) => ({ ref: ref.startsWith('refs/heads/') ? ref : currentBranchRef(), sha: peelToCommit(sha) }));
+    return [...new Set(shas.map(peelToCommit))];
   } catch (error) {
     console.error('pre-push: cannot resolve a pushed object to a commit - refusing to gate blind');
     console.error(`  ${error instanceof Error ? error.message : error}`);
@@ -358,13 +388,12 @@ function peelPushedCommits(refs) {
 
 /** The commits to gate and the archival subjects the push carries alongside them. */
 function pushToCheck(stdinText) {
-  if (stdinText.trim() === '') return { shas: [headSha()], archival: [], refs: [{ ref: currentBranchRef(), sha: headSha() }] };
-  const { refs: pushed, invalid, archival } = parsePushedRefLines(stdinText);
+  if (stdinText.trim() === '') return { shas: [headSha()], archival: [] };
+  const { shas, invalid, archival } = parsePushedRefLines(stdinText);
   if (invalid.length > 0) refuseInvalidRefLines(invalid);
   const problems = validateArchivalSubjects(archival);
   if (problems.length > 0) refuseArchivalSubjects(problems);
-  const refs = peelPushedCommits(pushed);
-  return { shas: [...new Set(refs.map(({ sha }) => sha))], archival, refs };
+  return { shas: peelPushedCommits(shas), archival };
 }
 
 function reportArchivalSubjects(archival) {
@@ -409,10 +438,10 @@ function check() {
   const { text: stdinText, failed } = readPipedStdin();
   if (failed) refuseUnreadableRefLines();
 
-  const { shas, archival, refs } = pushToCheck(stdinText);
+  const { shas, archival } = pushToCheck(stdinText);
   const store = readReceipts();
   const verdict = evaluateReceipts(store, shas);
-  const familyProblems = evaluatePeerFamilies(store, refs);
+  const familyProblems = evaluatePeerFamilies(store, shas);
   for (const problem of familyProblems) console.error('pre-push: ' + problem);
   if (!verdict.ok) refuseMissingReceipts(verdict);
   if (familyProblems.length > 0) process.exit(1);
@@ -431,10 +460,11 @@ if (isDirectRun) {
   // unusable value into the digest guard instead.
   const findings = ackIndex === -1 ? '' : (process.argv[ackIndex + 1] || 'missing');
   if (command === 'record') record(layer, sha ?? headSha(), findings);
-  else if (command === 'author') declareAuthor(layer);
+  else if (command === 'author') declareAuthor(layer, process.argv.includes('--replace'));
+  else if (command === 'peer-authors') printPeerAuthors(layer);
   else if (command === 'check') check();
   else {
-    console.error('usage: check-review-receipts.mjs author <family> | record <layer> | check');
+    console.error('usage: check-review-receipts.mjs author <family> [--replace] | peer-authors <family> | record <layer> | check');
     process.exit(1);
   }
 }

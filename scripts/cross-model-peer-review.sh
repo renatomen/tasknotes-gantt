@@ -13,9 +13,11 @@
 # for a review that demonstrably happened.
 # Run it in the background; a real review outlasts a foreground tool call.
 #
-# The receipts gate checks the peer family against local branch authorship.
-# Declare it with check-review-receipts.mjs author <family>, then select a
-# different family with --peer; layer one is the author's own review.
+# Independence is judged when the peer receipt is recorded. Before reviewing,
+# the wrapper reads and validates local branch authorship, then attests that set
+# with the selected family. Declare it with check-review-receipts.mjs author
+# <family>, then select a different family with --peer; layer one is the
+# author's own review. Pushes use the family and authors stored in each receipt.
 #
 # Probed on this machine, and the reason the diff travels in an IN-REPO file:
 # the reviewer's sandbox is confined to the repository. A `/tmp/...` path and a
@@ -54,6 +56,7 @@ BASE="${POSITIONAL[0]:-}"
 OUT="${POSITIONAL[1]:-$(mktemp -t peer-review-XXXXXX.md)}"
 
 REPO_ROOT=$(git rev-parse --show-toplevel) || exit 2
+REVIEW_AUTHORS=$(node "$REPO_ROOT/scripts/check-review-receipts.mjs" peer-authors "$PEER") || exit 2
 command -v "$PEER" >/dev/null 2>&1 || { echo "$PEER CLI not on PATH — peer route unavailable" >&2; exit 2; }
 
 # Every history read goes through this. A replace ref rewrites what git reports
@@ -600,7 +603,8 @@ if [ "$RECORD" = "--record" ]; then
   # which is what macOS still ships as /bin/bash — treats an EMPTY array
   # expansion as an unbound variable and aborts. That is the CLEAN path, so the
   # platform this script just learned to digest on could still not record.
-  OG_PEER_REVIEW_ATTESTED_SHA="$REVIEWED_SHA" OG_PEER_REVIEW_ATTESTED_FAMILY="$PEER"     node "$REPO_ROOT/scripts/check-review-receipts.mjs" record cross-model-peer "$REVIEWED_SHA" "${ack_args[@]+"${ack_args[@]}"}" || {
+  OG_PEER_REVIEW_ATTESTED_SHA="$REVIEWED_SHA" OG_PEER_REVIEW_ATTESTED_FAMILY="$PEER" OG_PEER_REVIEW_ATTESTED_AUTHORS="$REVIEW_AUTHORS" \
+    node "$REPO_ROOT/scripts/check-review-receipts.mjs" record cross-model-peer "$REVIEWED_SHA" "${ack_args[@]+"${ack_args[@]}"}" || {
     echo "receipt recording FAILED — the review ran but the gate was not updated" >&2
     exit 7
   }
