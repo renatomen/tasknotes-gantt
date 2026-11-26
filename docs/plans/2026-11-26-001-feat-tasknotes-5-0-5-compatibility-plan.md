@@ -120,7 +120,7 @@ Finally, TaskNotes 5 redrew its status and priority icons (`src/ui/kit/glyphs.ts
   - `src/services/task-service/recurringMoveIdentity.ts` and `src/services/TaskService.ts:694`: moved-occurrence capture on update.
   - `docs/features/recurring-tasks.md` § Rescheduling a virtual occurrence.
   - `src/api/TaskNotesAPI.ts:733`: `model.info()` reports `specVersion` only.
-  - `src/api/TaskNotesAPI.ts` `getFieldDefinitions`: `catalog.fields()` resolves each core field's `frontmatterKey` through the user's field mapping; the same method exists at 4.11.0.
+  - `src/api/TaskNotesAPI.ts` `CORE_FIELD_DEFINITIONS` and `getFieldDefinitions`: `catalog.fields()` resolves each core field's `frontmatterKey`, but its core list has no `assignees` or `recurrence_original_date`.
   - `src/types.ts` `FieldMapping`: `assignees`, `attachments`, `recurrenceOriginalDate`.
   - `src/services/task-service/taskUpdatePlanning.ts` `applyTaskUpdateFrontmatterChange`: how `tasks.update` maps built-in fields and writes user fields.
   - `src/ui/kit/glyphs.ts` (`statusGlyphState`, `renderStatusGlyph`, `priorityGlyphState`, `renderPriorityGlyph`) and `src/ui/taskCardPrimaryIndicators.ts` (`configureStatusIndicator`, `configurePriorityIndicator`: a configured icon wins).
@@ -153,7 +153,7 @@ Finally, TaskNotes 5 redrew its status and priority icons (`src/ui/kit/glyphs.ts
 - KTD7. **The plugin keeps its own materialized index and uses it twice.** The model has no materialized entry kind; it only suppresses those days on the parent. The plugin's index feeds the model as `materializedOccurrences`, keyed by parent path. It also emits the `materialized` facts, placed on the child's valid `scheduled` day, else on `occurrence_date`, with `occurrence_date` as identity. Governs R6.
 - KTD8. **Timezone and clock are injected, with defaults inside the recurring module.** The defaults mirror TaskNotes: the resolved `Intl` time zone, else `"UTC"`, and the current time. They are not threaded through `src/bases/register.ts`, which is ranked 2. Governs R3.
 - KTD9. **One lookup resolver picks `getByPath` by its presence, not by its result.** `tasks.getByPath` is used when it is a function, else `tasks.get`; a v5 not-found never falls back to the deprecated `get`. `TaskNotesSource` and `taskNotesInteractions` share the resolver. `readBlockedBy` refuses a `null` lookup instead of reading it as "no edges", which would overwrite the stored edges. Governs R8.
-- KTD10. **TaskNotes-owned fields are found through TaskNotes' field mapping, and a Gantt field mapping always wins.** A column is owned when its bare key is the `frontmatterKey` of a non-user field in TaskNotes' `catalog.fields()`, which TaskNotes resolves through the user's own mapping at 4.11.0 and 5.0.5 alike. Mapped roles are matched first, as today. An owned column that no role claims is read-only, so `attachments` and `recurrence_original_date` stay read-only. A second check stays keyed on internal names, because it guards the update object, not the column. A generic write sends its key at the top level of `tasks.update`, which reads a key named like a TaskInfo field as that field, so such a key is refused. That set is a `Record<keyof TaskUpdateInput, true>` over the bundled model's types, so a model bump that adds a field fails typecheck until the set covers it. `DEFAULT_FIELD_MAPPING` is rejected as its source: it lacks `details` and `tags`, so deriving from it would let an edit overwrite the note body (refusal pinned in `test/unit/propertyPatchResolution.test.ts`). When `catalog.fields()` is missing or throws, ownership is unknown, so the guard fails closed: a column no role claims gets no editor and its generic write is refused. Every supported TaskNotes, 4.11.0 onward, has `catalog.fields()`, so only a degraded API reaches this path, and falling back to the internal-name set there would let a renamed built-in property be written as a plain one. One exported resolution feeds both `resolvePropertyPatch` and `src/bases/cellEditability.ts`. Governs R9.
+- KTD10. **TaskNotes-owned fields are found through the running TaskNotes' field mapping, and a Gantt field mapping always wins.** A column is owned when its bare key is a property that `model.config().fieldMapping`, the map the Gantt already reads for its date and status defaults, assigns to a built-in field. `catalog.fields()` cannot serve: at tag 5.0.5 it lists neither `assignees` nor `recurrence_original_date` as a core field. Mapped roles are matched first, as today. An owned column that no role claims is read-only, so `attachments` and `recurrence_original_date` stay read-only. A second check guards the update object, not the column. A generic write sends its key at the top level of `tasks.update`, which reads a key named like one of the running TaskNotes' built-in fields as that field, so such a key is refused. Its members are the keys of the bundled model's update type that the running TaskNotes also has. The update type side is a `Record<keyof TaskUpdateInput, true>`, so a model bump that adds a field fails typecheck until the set covers it. The running-TaskNotes side keeps a TaskNotes 4 user field named `assignees` writable, because 4.x has no Assignees field (R14). `DEFAULT_FIELD_MAPPING` is rejected as a source: it lacks `details` and `tags`, so deriving from it would let an edit overwrite the note body (refusal pinned in `test/unit/propertyPatchResolution.test.ts`). When the field mapping cannot be read, ownership is unknown and the guard fails closed: a column no role claims gets no editor and its generic write is refused. Every supported TaskNotes reports its field mapping, so only a degraded API reaches this path, and guessing there would let a renamed built-in property be written as a plain one. One exported resolution feeds both `resolvePropertyPatch` and `src/bases/cellEditability.ts`. Governs R9, R14.
 - KTD11. **The e2e suite runs one TaskNotes configuration: fresh-install defaults.** TaskNotes 5.0.5 turns `enableMdbaseSpec` on for fresh installs, and every e2e run installs fresh into a temporary vault copy. Testing what new users get wins. A fixture Base that then lists mdbase's generated `.md` files gets a tighter filter, and the spec that seeds a TaskNotes `data.json` declares the same setting explicitly. Governs R1.
 - KTD12. **Parity is proven with TaskNotes' own fixtures, not by comparing the adapter with the model.** Each fixture's inputs go through the adapter's whole path, projection and date validation included, and its output is compared with the occupancy the fixture's `expectedEntries` imply. Before comparison, expected recurring entries reduce to one fact per task and `instanceDate`, placed on the earliest start day among that identity's entries, then to one fact per day under KTD6. The extra per-day entries in the span-enabled fixtures `recurring-timed-spans-keep-occurrence-identities` and `native-moved-timed-span-segment-identities` are TaskNotes' span display, which KTD3 turns off. Gantt-only behaviour (KTD6, KTD7, the cap, invalid dates) gets hand-written oracle cases. A test comparing the adapter with `buildCalendarEntries` would restate its subject. Governs R3, R4, R5, R6, R7.
 - KTD13. **Comment version stamps are dropped after each claim is re-checked against 5.0.5.** AGENTS.md forbids volatile references in comments, and a re-checked claim stands without a version. Governs R12.
@@ -198,11 +198,11 @@ flowchart TB
   R -->|yes| W{Is that role writable?}
   W -->|yes| E1[Role editor, write through the role's TaskNotes field]
   W -->|no| RO1[Read-only]
-  R -->|no| O{Is it the frontmatterKey of a built-in field in catalog.fields?}
+  R -->|no| O{Does TaskNotes' field mapping assign it to a built-in field?}
   O -->|yes| RO2[Read-only]
   O -->|no| U{Is it a registered user field?}
   U -->|no| RO3[Read-only]
-  U -->|yes| C{Does the key name a TaskInfo update field?}
+  U -->|yes| C{Does the key name a built-in field the running TaskNotes has?}
   C -->|yes| RO4[Read-only]
   C -->|no| E2[User-field editor, generic write]
 ```
@@ -250,6 +250,8 @@ If any other ranked-file change turns out to be needed, the unit stops (Goal Cap
 - What 5.0.5 writes for `{ assignees: [] }`, an empty list or no property; U9's e2e asserts the observed value (U9).
 - Whether `tasks.update` passes `customFrontmatter` through at 4.11.0 and 5.0.5. If it does, a user field whose key names a TaskInfo field could be written by its frontmatter key, and KTD10's internal-name check could narrow (U7).
 - How the grid's cell descriptor carries the icon state into `src/bases/PropertyCell.svelte` (U10).
+- How U7 reads the running TaskNotes' built-in field names for KTD10's update-key check: `catalog.fields()` core ids, the field mapping's keys, or both. Their spellings differ (`recurrenceOriginalDate` in the mapping, `recurrence_original_date` in the update type). U7's tests pin `assignees` on a 4.11.0 and a 5.0.5 field config either way.
+- Whether `model.config().fieldMapping` carries optional entries such as `recurrenceOriginalDate` when the user's settings omit them, or whether U7 must apply TaskNotes' documented default (U7).
 
 ---
 
@@ -405,10 +407,10 @@ Waits on:
 - **Goal:** A property edit never writes around a TaskNotes-owned field, ownership comes from TaskNotes' field mapping, and the write guard and the cell editor read one resolution.
 - **Requirements:** R9.
 - **Dependencies:** U3, U9.
-- **Files:** `src/controller/propertyPatchResolution.ts`, `src/bases/cellEditability.ts`, `src/datasource/TaskNotesSource.ts` (reads `catalog.fields()`), `src/datasource/types.ts` (the field config), and the module U11 created if ownership rides its output; tests `test/unit/propertyPatchResolution.test.ts`, `test/unit/cellEditability.test.ts`, `test/unit/TaskNotesSource.test.ts`.
+- **Files:** `src/controller/propertyPatchResolution.ts`, `src/bases/cellEditability.ts`, `src/datasource/TaskNotesSource.ts` (reads the whole field mapping), `src/datasource/types.ts` (the field config), and the module U11 created if ownership rides its output; tests `test/unit/propertyPatchResolution.test.ts`, `test/unit/cellEditability.test.ts`, `test/unit/TaskNotesSource.test.ts`.
 - **Approach:**
-  1. Read the owned frontmatter keys from `catalog.fields()` per KTD10, failing closed when they cannot be read.
-  2. Derive the internal-name set from the update type per KTD10.
+  1. Read the owned properties from TaskNotes' field mapping per KTD10, failing closed when it cannot be read.
+  2. Derive the update-key set from the update type, narrowed to the running TaskNotes' built-in fields, per KTD10.
   3. Both `resolvePropertyPatch` and `resolveCellEditor` consult ownership after the mapped roles.
 - **Patterns to follow:** `docs/solutions/best-practices/derive-the-member-list-from-keyof-not-a-runtime-probe.md`.
 - **Test scenarios:**
@@ -417,7 +419,9 @@ Waits on:
   - A `recurrence_original_date` column is refused and gets no editor.
   - A registered user field whose key no built-in field maps to, such as `client`, still writes and keeps its editor.
   - A registered user field named `assignees`, while TaskNotes maps its Assignees field to `assignee`, is refused and gets no editor, because `tasks.update` would read the key as the Assignees field.
-  - With `catalog.fields()` missing or throwing, a column no role claims, user field or not, gets no editor and its generic write is refused, while mapped roles still edit.
+  - With a TaskNotes 4.11.0 field config (no Assignees field), a registered list user field named `assignees` keeps its editor and its generic write (R14).
+  - On 5.0.5 with `recurrence_original_date` absent from the stored mapping, a `recurrence_original_date` column is still owned (Deferred to Implementation).
+  - With the field mapping missing or throwing, a column no role claims, user field or not, gets no editor and its generic write is refused, while mapped roles still edit.
   - `due`, `title`, `details` and `contexts` stay refused as generic writes when no role claims them.
   - Adding a key to the update type without covering it fails typecheck (proven once by mutation, reverted by inverse edit).
 - **Verification:** Unit, typecheck and lint gates green; `test/specs/gantt-inline-edit.e2e.ts` and the U9 spec green on 5.0.5.
@@ -584,7 +588,7 @@ Waits on:
 | U4 | The fixture parity test is green, each characterization red is classified in the PR, and screenshots are checked. |
 | U5 | The moved-occurrence journey is green locally and in CI. |
 | U6 | No direct `tasks.get` call remains outside the resolver, and a `null` lookup writes nothing. |
-| U7 | Ownership comes from `catalog.fields()`, the internal-name set is derived and mutation-proven, and both gates read one resolution. |
+| U7 | Ownership comes from TaskNotes' field mapping, the update-key set is derived, narrowed to the running TaskNotes and mutation-proven, and both gates read one resolution. |
 | U8 | The baseline is stated once and linked, Assignees and the icons are documented, the backlog entries exist, the 4.11.0 run is recorded in the PR, and the trend report is written and registered. |
 | U9 | An assignee list edits end to end on 5.0.5, both precedence lists are compile-time complete and mutation-proven, and the TaskNotes 4 path is unit-proven. |
 | U10 | Each state case matches TaskNotes 5.0.5's rule, TaskNotes 4 keeps today's shapes, and screenshots are checked. |
