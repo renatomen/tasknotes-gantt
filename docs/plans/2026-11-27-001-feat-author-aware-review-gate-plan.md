@@ -46,7 +46,7 @@ The gate has two layers: `ce-code-review` and a cross-model peer (`scripts/check
 
 ### Scope Boundaries
 
-- Out: changing the hosted final gate. It stays Codex; on Codex-authored PRs it is same-family, and the PR description says so.
+- Out: changing the hosted final gate. It stays Codex. Independence is carried by the local peer receipt, so no PR text names the authoring family (R6).
 - Out: a third peer family. With only Codex and Claude available, a branch both families wrote has no eligible peer; the gate refuses it (KTD2), and the fix is for the declared author to make the fixes.
 - Out: shrinking the peer-gate cluster (rank 7's deletion proposal stays unscheduled).
 
@@ -128,7 +128,7 @@ Waits on: nothing.
 - **Requirements:** R5.
 - **Dependencies:** U1, U2.
 - **Files:** `AGENTS.md` (§ How we work and § Review guidelines), `docs/engineering/practices.md` (review layers and a Repo divergences entry), `CONCEPTS.md` (§ Review gate).
-- **Approach:** State the roles once in `practices.md` and cite them elsewhere: the author runs layer one on its own change; layer two is a different family, chosen with `--peer`; the hosted gate is final and may be same-family, which the PR description states. Name the command sequence an author runs: `author <family>`, layer one, then the wrapper with the other family.
+- **Approach:** State the roles once in `practices.md` and cite them elsewhere: the author runs layer one on its own change; layer two is a different family, chosen with `--peer`; the hosted gate is final, and independence comes from the local peer receipt, never from PR text (R6). Name the command sequence an author runs: `author <family>`, layer one, then the wrapper with the other family.
 - **Test expectation:** None; documentation. The CI docs guards stay green.
 - **Verification:** Docs guards green; the wrapper header's "INDEPENDENCE IS THE CALLER'S" note is rewritten to point at the gate's check.
 
