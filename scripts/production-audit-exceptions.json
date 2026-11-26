@@ -1,0 +1,9 @@
+[
+  {
+    "advisory": "GHSA-mrhx-c7xc-m3w5",
+    "package": "zod",
+    "recorded": "2026-11-26",
+    "reason": "zod reaches the tree only through @tasknotes/model, whose every release pins zod 3.x, and no 3.x release is patched. The plugin imports only the model's date, recurrence, operations and mapping modules, none of which uses zod; a build of main.js on 2026-11-26 contained no zod code, so the memory-exhaustion path cannot run in the plugin. Re-check this if the plugin starts importing another @tasknotes/model module.",
+    "removeWhen": "@tasknotes/model depends on a zod release outside the advisory's affected range; the check then reports this entry as stale."
+  }
+]

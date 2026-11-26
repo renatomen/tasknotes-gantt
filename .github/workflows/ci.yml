@@ -106,7 +106,10 @@ jobs:
       - name: Build
         run: npm run build
       - name: Audit production dependencies
-        run: npm audit --omit=dev --audit-level=high
+        # npm audit --omit=dev at the high level, except the package/advisory
+        # pairs documented in scripts/production-audit-exceptions.json; an
+        # exception that no longer matches a reported advisory fails the step.
+        run: node scripts/check-production-audit.mjs
       - name: Bundle hygiene (no network/eval/base64 in dist/main.js)
         # The plugin is local-only: the released bundle must contain no network
         # calls, dynamic code execution, or base64 obscuring (scorecard R12). Use
