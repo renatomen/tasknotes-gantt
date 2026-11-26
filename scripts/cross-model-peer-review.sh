@@ -435,6 +435,9 @@ PROMPT="You are an INDEPENDENT adversarial code reviewer.
 Another model already reviewed this change and found it clean; your value is
 finding what it missed, so do not restate its likely conclusions.
 
+First read AGENTS.md § \"Review guidelines\" and apply it as the rubric for this
+review.
+
 Read TRACKED SOURCE files for context before judging, but review THIS DIFF —
 it is the change, and the working tree may already contain it. Do not open
 .env, .env.*, or any key, secret or credential file, and do not open anything
