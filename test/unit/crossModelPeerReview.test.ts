@@ -340,13 +340,15 @@ describe('cross-model peer review wrapper', () => {
     expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
   });
 
-  it.each(['codex', 'claude'])('refuses both author families before a %s review and names --replace', (peer) => {
+  it.each(['codex', 'claude'])('refuses both author families before a %s review and requires separate branches', (peer) => {
     declareAuthors(['claude', 'codex']);
 
     const run = runExpectingRefusal(CLEAN, { peer, record: true });
 
     expect(run.status).toBe(2);
-    expect(run.stderr).toContain('author <family> --replace');
+    expect(run.stderr).toContain('no eligible peer');
+    expect(run.stderr).toContain("each family's work must land on its own branch");
+    expect(run.stderr).toContain('--replace is only for a branch name recreated from the default branch before any commit');
     expect(existsSync(promptFile)).toBe(false);
     expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toBeUndefined();
   });
@@ -354,7 +356,7 @@ describe('cross-model peer review wrapper', () => {
   it('attests the author set read before reviewing even if the branch declaration changes during review', () => {
     const run = runWrapper(CLEAN, {
       record: true,
-      sideEffect: `node "${posix(join(repo, 'scripts', 'check-review-receipts.mjs'))}" author codex --replace`,
+      sideEffect: `node "${posix(join(repo, 'scripts', 'check-review-receipts.mjs'))}" author codex`,
     });
 
     expect(run.stdout).toContain('VERDICT:CLEAN');
@@ -362,7 +364,7 @@ describe('cross-model peer review wrapper', () => {
       at: expect.any(String), family: 'codex', authors: ['claude'],
     });
     const stored = JSON.parse(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8'));
-    expect(stored.authors['refs/heads/main']).toEqual(['codex']);
+    expect(stored.authors['refs/heads/main']).toEqual(['claude', 'codex']);
   });
 
   it('defaults to the unchanged Codex read-only command', () => {

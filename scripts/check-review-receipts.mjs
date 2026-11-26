@@ -2,7 +2,7 @@
 /**
  * Pre-push review gate: a push is allowed only when BOTH local review layers
  * (ce-code-review and an independent cross-model peer) have recorded a clean receipt
- * against every commit being pushed.
+ * against each non-deletion pushed ref tip (archival subjects excepted).
  *
  * The reviews themselves are agentic and run outside git; this script only
  * makes an unreviewed push mechanically impossible by demanding receipts.
@@ -219,7 +219,7 @@ function validAuthors(authors) {
 function peerIndependenceProblem(family, authors) {
   if (!MODEL_FAMILIES.includes(family)) return 'invalid peer family; the wrapper must attest codex or claude';
   if (!validAuthors(authors)) return 'missing or invalid author set; run node scripts/check-review-receipts.mjs author <family>, then rerun the peer wrapper';
-  if (MODEL_FAMILIES.every((candidate) => authors.includes(candidate))) return 'both families authored this branch; no eligible peer is available; for a reused branch run node scripts/check-review-receipts.mjs author <family> --replace';
+  if (MODEL_FAMILIES.every((candidate) => authors.includes(candidate))) return "both families authored this branch; no eligible peer is available; each family's work must land on its own branch; --replace is only for a branch name recreated from the default branch before any commit";
   if (!authors.includes(family)) return null;
   const other = MODEL_FAMILIES.find((candidate) => candidate !== family);
   return 'peer family ' + family + ' authored this branch; run bash scripts/cross-model-peer-review.sh <base> <out> --peer ' + other + ' --record';
@@ -240,12 +240,33 @@ export function evaluatePeerFamilies(store, shas) {
   return problems;
 }
 
+function authorReplacementProblem() {
+  let defaultRef;
+  try {
+    defaultRef = git(['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD']).trim();
+    git(['rev-parse', '--verify', `${defaultRef}^{commit}`]);
+  } catch {
+    return 'cannot resolve the origin default branch; --replace refused';
+  }
+  try {
+    git(['merge-base', '--is-ancestor', 'HEAD', defaultRef]);
+    return null;
+  } catch {
+    return 'branch has commits outside the origin default branch or ancestry cannot be verified; --replace refused';
+  }
+}
+
 function declareAuthor(family, replace) {
   if (!MODEL_FAMILIES.includes(family)) {
     console.error('unknown author family "' + family + '" — expected codex or claude');
     process.exit(1);
   }
   const ref = currentBranchRef();
+  const replacementProblem = replace ? authorReplacementProblem() : null;
+  if (replacementProblem !== null) {
+    console.error(replacementProblem);
+    process.exit(1);
+  }
   const store = readReceipts();
   const authors = replace ? [] : (store.authors?.[ref] ?? []);
   store.authors = { ...store.authors, [ref]: [...new Set([...authors, family])] };
@@ -426,7 +447,7 @@ function refuseMissingReceipts(verdict) {
     console.error(`pre-push: missing clean review receipts for ${sha.slice(0, 7)}: ${missing.join(', ')}`);
     for (const layer of missing) missingLayers.add(layer);
   }
-  console.error('Run both local review layers against each pushed commit, fix every finding, then record:');
+  console.error('Run both local review layers against each pushed ref tip, fix every finding, then record:');
   for (const layer of missingLayers) {
     // Never print a bare `record cross-model-peer`: that is the hand-stamp this
     // gate exists to prevent, and advertising it is how it kept happening.

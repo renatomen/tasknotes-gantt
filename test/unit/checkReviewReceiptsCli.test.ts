@@ -734,16 +734,55 @@ describe('branch author declarations', () => {
     expect(stored.receipts).toEqual({ [docsCommit]: clean() });
   });
 
-  it('replaces a reused branch author set while preserving receipts and other branches', () => {
-    writeReceipts({ [docsCommit]: clean() }, { 'refs/heads/main': ['claude'], 'refs/heads/other': ['claude'] });
+  describe('replacing a branch author set', () => {
+    beforeEach(() => {
+      git(['update-ref', 'refs/remotes/origin/trunk', codeCommit]);
+      git(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk']);
+      writeReceipts({ [docsCommit]: clean() }, {
+        'refs/heads/main': ['claude', 'codex'], 'refs/heads/other': ['claude'],
+        'refs/heads/recreated': ['claude', 'codex'],
+      });
+    });
 
-    expect(runScript(['author', 'codex']).status).toBe(0);
-    expect(JSON.parse(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).authors['refs/heads/main']).toEqual(['claude', 'codex']);
-    expect(runScript(['author', 'codex', '--replace']).status).toBe(0);
+    it.each(['codex', 'claude'])('refuses --replace by %s when the branch has its own commits and preserves the store', (family) => {
+      const before = readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8');
 
-    const stored = JSON.parse(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8'));
-    expect(stored.authors).toEqual({ 'refs/heads/main': ['codex'], 'refs/heads/other': ['claude'] });
-    expect(stored.receipts).toEqual({ [docsCommit]: clean() });
+      const run = runScript(['author', family, '--replace']);
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('branch has commits outside the origin default branch');
+      expect(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).toBe(before);
+    });
+
+    it.each(['at', 'behind'])('replaces a recreated branch author set with HEAD %s the default branch, preserving receipts and other branches', (position) => {
+      git(['checkout', '-q', '-b', 'recreated', position === 'at' ? codeCommit : baseCommit]);
+      try {
+        const run = runScript(['author', 'codex', '--replace']);
+
+        expect(run.status).toBe(0);
+        const stored = JSON.parse(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8'));
+        expect(stored.authors).toEqual({
+          'refs/heads/main': ['claude', 'codex'], 'refs/heads/other': ['claude'],
+          'refs/heads/recreated': ['codex'],
+        });
+        expect(stored.receipts).toEqual({ [docsCommit]: clean() });
+      } finally {
+        git(['checkout', '-q', 'main']);
+        git(['branch', '-D', 'recreated']);
+      }
+    });
+
+    it.each(['missing symbolic ref', 'dangling target'])('refuses --replace when the default branch cannot be resolved (%s) and preserves the store', (problem) => {
+      if (problem === 'missing symbolic ref') git(['symbolic-ref', '--delete', 'refs/remotes/origin/HEAD']);
+      else git(['update-ref', '-d', 'refs/remotes/origin/trunk']);
+      const before = readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8');
+
+      const run = runScript(['author', 'codex', '--replace']);
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('cannot resolve the origin default branch');
+      expect(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).toBe(before);
+    });
   });
 
   it('writes only the git-local receipt store when declaring authorship', () => {
@@ -821,7 +860,10 @@ describe('branch author declarations', () => {
     expect(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).toBe(before);
   });
 
-  it.each(['["codex"]', '["codex","claude"]'])('refuses to record a family inside the attested author set %s', (authors) => {
+  it.each([
+    ['["codex"]', '--peer claude'],
+    ['["codex","claude"]', "each family's work must land on its own branch"],
+  ])('refuses to record a family inside the attested author set %s', (authors, guidance) => {
     const sha = git(['rev-parse', 'HEAD']);
     const before = readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8');
 
@@ -830,7 +872,7 @@ describe('branch author declarations', () => {
     });
 
     expect(run.status).toBe(1);
-    expect(run.stderr).toMatch(/--peer claude|author <family> --replace/);
+    expect(run.stderr).toContain(guidance);
     expect(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).toBe(before);
   });
 });
