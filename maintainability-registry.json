@@ -73,6 +73,15 @@
         "src/bases/GanttContainer.svelte": 28
       },
       "atCeiling": 16
+    },
+    {
+      "date": "2026-11-27",
+      "anchorSha": "a8103b68621957e7d555cc8df081e1d520d75374",
+      "report": "docs/reports/2026-11-27-001-review-gate-trend-report.md",
+      "concernCounts": {
+        "scripts/cross-model-peer-review.sh": 10,
+        "scripts/check-review-receipts.mjs": 7
+      }
     }
   ],
   "boundary": {
