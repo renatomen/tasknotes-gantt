@@ -2,11 +2,11 @@
 
 Rank 7 covers `scripts/cross-model-peer-review.sh` and `scripts/check-review-receipts.mjs`, as recorded in [the maintainability baseline](2026-08-15-001-maintainability-rediagnosis.md). This change adds branch authorship and an alternate reviewer route. Independence is judged when the peer review is recorded, and each pushed commit is checked using its receipt's family and author set.
 
-The comparison point is `origin/main` at `1cbe431abde1704ebdb33eb931bd637a8a0ed1db`. The measurements describe the working tree after the layer-one fixes. Git staging is blocked by permission denied creating `.git/index.lock`, so those fixes are not committed. The registry uses the main-side commit as the report anchor: trend reporting counts merged ranked-file changes after the anchor, so a branch-only anchor would make the normal CI command fail before this PR merges. The report-delivering merge is excluded from that count by the trend mechanism.
+The comparison point is `origin/main` at `1cbe431abde1704ebdb33eb931bd637a8a0ed1db`. The measurements describe the final committed HEAD. The registry uses the main-side commit as the report anchor: trend reporting counts merged ranked-file changes after the anchor, so a branch-only anchor would make the normal CI command fail before this PR merges. The report-delivering merge is excluded from that count by the trend mechanism.
 
 ## Measurements
 
-| Metric | 2026-08-15 baseline | Before this change | Working tree | Change from before |
+| Metric | 2026-08-15 baseline | Before this change | Committed HEAD | Change from before |
 |---|---:|---:|---:|---:|
 | Peer wrapper lines | 490 | 598 | 612 | +14 |
 | Receipts script lines | 291 | 378 | 471 | +93 |
@@ -20,6 +20,8 @@ Reproduce from the repository root in Git Bash:
 ```bash
 trend_base=1cbe431abde1704ebdb33eb931bd637a8a0ed1db
 wc -l scripts/cross-model-peer-review.sh scripts/check-review-receipts.mjs
+git diff --numstat origin/main...HEAD -- scripts/cross-model-peer-review.sh
+git diff --numstat origin/main...HEAD -- scripts/check-review-receipts.mjs
 git show "$trend_base":scripts/cross-model-peer-review.sh | wc -l
 git show "$trend_base":scripts/check-review-receipts.mjs | wc -l
 grep -oE '\bexit [0-9]+' scripts/cross-model-peer-review.sh | sort -u
@@ -32,7 +34,7 @@ node scripts/maintainability-trend.mjs --base "$trend_base" --head HEAD --at-cei
 
 The wrapper's distinct codes are `0` and `2` through `21`. Unsupported peer selection and the pre-review author-set check use the existing unavailable-route status, `2`; their two refusal sites explain the increase from 43 to 45. The adapter adds no status code.
 
-The normal trend command succeeds with the corrected working-tree registry and measures two ranked-file touches through committed HEAD `cbd698555bc86a26c22b50c2128e7b54848b798e`: 612 wrapper lines (+14) and 470 receipts-script lines (+92). Its committed-tree complexity sweep reports 16 functions at the ceiling and 81 in the 11–15 pressure band. The one-line difference from the working-tree table is the layer-one fix refusing author-bearing receipts without a reviewing family. The normal lint gate covers that edited source directly; no working-tree at-ceiling count is claimed.
+The trend command succeeds against HEAD and measures two ranked-file touches: 612 wrapper lines (+14) and 471 receipts-script lines (+93). Per-PR growth against `origin/main` is +26/-12 for the wrapper and +104/-11 for the receipts script. Its `--at-ceiling` complexity sweep reports 16 functions at the ceiling and 81 in the 11–15 pressure band.
 
 ## Concern inventory and growth reasons
 
