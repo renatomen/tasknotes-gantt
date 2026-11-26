@@ -118,7 +118,7 @@ Two write-path gaps arrive with v5. `CANONICAL_TASKINFO_KEYS` in `src/controller
 ### Key Technical Decisions
 
 - KTD1. **Bundle `@tasknotes/model` at exactly 0.3.1.** That is TaskNotes 5.0.5's pin, and parity means running the code TaskNotes runs; 0.3.2's contents are unverified. Governs R2.
-- KTD2. **One committed pin file pairs the TaskNotes version with its model version, and two checks hold the pair.** (session-settled: user-approved — chosen over a runtime check in the product, per Key Decisions.) Both WDIO configs read the file with `fs`; neither imports an `.mts` module, because `wdio.perf.conf.mts`'s header records loader fragility there. A jest test asserts that `package.json`'s exact `@tasknotes/model` dependency equals the pin. An e2e assertion compares TaskNotes' `api.model.info().specVersion` with the bundled `TASKNOTES_SPEC_VERSION` (`"0.3.0-rc.6"` in 0.3.1). Known limit: `model.info()` reports no package version, so two model releases that share one spec string pass the e2e check. Governs R2.
+- KTD2. **One committed pin file pairs the TaskNotes version with its model version, and two checks hold the pair.** (session-settled: user-approved — chosen over a runtime check in the product, per Key Decisions.) Both WDIO configs read the file with `fs`; neither imports an `.mts` module, because `wdio.perf.conf.mts`'s header records loader fragility there. A jest test asserts that `package.json`'s exact `@tasknotes/model` dependency equals the pin. An e2e assertion compares TaskNotes' `api.model.info().specVersion` with the bundled `TASKNOTES_SPEC_VERSION` (`"0.3.0-rc.6"` in 0.3.1). The spec string alone cannot catch a wrong pin: models 0.3.0 and 0.3.1 both report `"0.3.0-rc.6"`, and `model.info()` reports no package version. So the e2e setup also reads `@tasknotes/model` from TaskNotes' own `package.json` at the pinned tag on GitHub, where the configs already download TaskNotes from, and fails when it differs from the pin's model version. Governs R2.
 - KTD3. **Derive recurring occurrences with `buildCalendarEntries`, called once per task.** It is the core the TaskNotes calendar runs. `createCalendarEntryIndex` is rejected: it is a cache keyed on object identity, which the plugin's pure derivation does not need. Rebuilding from `generateRecurringInstances` is rejected: it would re-implement the identity, moved-day and look-back logic inside the model's `buildTaskEntries`, which is the drift this plan removes. One call per task keeps a bad task from failing the batch. Settings pass the three recurring toggles through and turn every other output off (`showScheduled`, `showDue`, `showTimeEntries`, `showScheduledToDueSpan`, `showOverdueOnToday`), and only entries with a `recurringKind` are kept. Governs R3, R4.
 - KTD4. **Mirror TaskNotes 5.0.5's host adapter, not only the model call.** The model throws on any invalid date. TaskNotes' `calendarModelEvents.ts` projects a fixed field list and drops unparseable dates one field or list item at a time (`withValidDates`, which also accepts `YYYY-MM-DD HH:mm`). The plugin mirrors both and omits `id` from the projection, so the model's task id is the path. It keeps its own `isRealCalendarDay` guard on `scheduled`. The `TaskNotesTaskInfo` slice in `src/datasource/TaskNotesSource.ts` widens to the fields the projection forwards, including `recurrence_original_date`, `googleCalendarMovedOriginalDates` and `googleCalendarExceptionOriginalScheduled`. Governs R3, R7.
 - KTD5. **An occupancy fact's `day` is the placement; its identity rides in the item id.** Placement is the local civil day of `entry.start` in the context timezone, found with the exported `calendarDateToInstant` and `calendarInstantToDate`. Identity is `entry.instanceDate`, used as the `makeCalendarItemId` qualifier. `CalendarOccupancy` keeps its shape, so `GanttController.occupancyEqual` needs no change. Governs R4.
@@ -254,7 +254,7 @@ Waits on: PR2, needed before this group can start: U3 extends PR2's pin file, an
 - **Goal:** The plugin ships the model TaskNotes 5.0.5 ships, and a unit check and an e2e check fail when the pair drifts.
 - **Requirements:** R2.
 - **Dependencies:** U2.
-- **Files:** `package.json`, `package-lock.json`, the pin file from U2, a new jest test for the pair (for example `test/unit/tasknotesPin.test.ts`), the version spec from U2, `src/datasource/calendarItems/recurringSource.ts` (the TZID strip only), `test/unit/recurringSource.test.ts`, and a new `test/unit/recurringSource.timezone.test.ts` that U4 extends.
+- **Files:** `package.json`, `package-lock.json`, the pin file from U2, `test/wdio/wdio.conf.mts` and `test/wdio/wdio.perf.conf.mts` (the setup check that reads TaskNotes' model version), a new jest test for the pair (for example `test/unit/tasknotesPin.test.ts`), the version spec from U2, `src/datasource/calendarItems/recurringSource.ts` (the TZID strip only), `test/unit/recurringSource.test.ts`, and a new `test/unit/recurringSource.timezone.test.ts` that U4 extends.
 - **Approach:**
   1. Pin `@tasknotes/model` to exactly `0.3.1` (KTD1) and add the model version to the pin file (KTD2).
   2. Run the existing recurring characterization tests on this change alone. 0.3.1 parses single-line `DTSTART;VALUE=DATE:…;FREQ=…` and `DTSTART;TZID=…` rules that 0.2.1 silently misread as yearly; pin that with a test. Any other red is a regression to diagnose, never an assertion to loosen.
@@ -266,6 +266,7 @@ Waits on: PR2, needed before this group can start: U3 extends PR2's pin file, an
   - A recurring task with the single-line rule `DTSTART;VALUE=DATE:<date>;FREQ=WEEKLY` expands weekly; under 0.2.1 it expanded yearly.
   - Timezone harness: a task with a two-line `DTSTART;TZID=…` and `RRULE:FREQ=WEEKLY` rule lands on the same days in Los Angeles, UTC and Auckland as it did under 0.2.1.
   - E2E: the running TaskNotes' `api.model.info().specVersion` equals the bundled `TASKNOTES_SPEC_VERSION`, and the check fails in one local run with the pin set to TaskNotes 4.11.0 (spec `0.2.0`), reverted by inverse edit.
+  - E2E setup: with the pin's model version set to `0.3.0` for one local run, the setup check fails because TaskNotes 5.0.5's `package.json` requires `0.3.1`, though both report the same spec string; reverted by inverse edit.
 - **Verification:** Unit, timezone, typecheck, lint and functional e2e gates green, locally and in CI; the `main.js` growth stated in the PR.
 
 ### PR4: Recurring tasks on the model calendar
@@ -397,7 +398,7 @@ Waits on: PR5, PR6 and PR7, merge order only.
 | Timezone contracts | `npm run test:timezones` | U3, U4 |
 | Typecheck, source and tests | `npm run typecheck` | Every unit |
 | Lint | `npm run lint` | Every unit |
-| Functional e2e in real Obsidian | `npm run e2e:local`; CI e2e workflow | U1, U2, U3, U4, U5, U6, U7 |
+| Functional e2e in real Obsidian | `npm run e2e:local`; CI e2e workflow | U1, U2, U3, U4, U5, U6, U7; U8 once, locally, against TaskNotes 4.11.0 |
 | Perf e2e | `npm run perf:e2e` | U1, U2 |
 | Build and bundle size | `npm run build` | U3, U4 |
 | Review receipts and final gate | `node scripts/check-review-receipts.mjs check`; hosted final gate | Every PR (AGENTS.md § Git) |
@@ -446,8 +447,3 @@ These entries are review items left for the author; they do not block implementa
 
   PR1 rewrites 14 specs to cover a case the pinned TaskNotes cannot hit: `lifecycle.ready` exists at tag 5.0.5, and the existing waits already time out when TaskNotes is absent. One assertion that the member is a function, in U2's version spec, covers the pinned version in one line.
   Change: Remove U1 and PR1, add to U2's version spec an assertion that `api.lifecycle.ready` is a function on the loaded TaskNotes, drop PR2's wait on PR1, and reword R1's readiness clause to "a run fails when TaskNotes' readiness member is missing".
-
-- **The pin file's model version is typed by hand, never read from TaskNotes** — R2 (bundled model matches the tested TaskNotes) and KTD2 (pin-file pair checks) (P2, adversarial, confidence 75)
-
-  At the next TaskNotes bump, someone can raise the TaskNotes version, forget the model version, and both checks stay green whenever the two model releases share a spec string, so recurring parity drifts silently. TaskNotes pins the model exactly in its own `package.json` at each tag, which the e2e setup can read from GitHub as it already downloads TaskNotes from there.
-  Change: Add to KTD2 an e2e-setup check that reads `@tasknotes/model` from TaskNotes' `package.json` at the pinned tag and fails when it differs from the pin file's model version, keeping the pin file and the test-only checks.
