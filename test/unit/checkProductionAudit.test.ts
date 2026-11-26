@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   evaluateProductionAudit,
+  executableBundleText,
   parseAuditReport,
   type AuditException,
 } from '../../scripts/check-production-audit.mjs';
@@ -95,6 +96,26 @@ describe('evaluateProductionAudit', () => {
     const result = evaluateProductionAudit(zodReport, [zodException], 'class ZodError extends Error {}');
 
     expect(result.bundled).toEqual([{ advisory: 'GHSA-mrhx-c7xc-m3w5', package: 'zod', marker: 'ZodError' }]);
+  });
+});
+
+describe('executableBundleText', () => {
+  const note = { content: 'Fixed a crash that surfaced as ZodError in the console.' };
+
+  it('keeps an exception in force when only inlined release-note prose names its marker', () => {
+    const bundle = `const notes = [{ content: ${JSON.stringify(note.content)} }];`;
+
+    const result = evaluateProductionAudit(zodReport, [zodException], executableBundleText(bundle, [note]));
+
+    expect(result.bundled).toEqual([]);
+  });
+
+  it('still voids an exception when the marker appears in code outside the notes', () => {
+    const bundle = `const notes = [{ content: ${JSON.stringify(note.content)} }]; class ZodError extends Error {}`;
+
+    const result = evaluateProductionAudit(zodReport, [zodException], executableBundleText(bundle, [note]));
+
+    expect(result.bundled.map((entry) => entry.advisory)).toEqual(['GHSA-mrhx-c7xc-m3w5']);
   });
 });
 

@@ -16,9 +16,12 @@ import { spawnSync } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { maskNotesContent } from './check-bundle-hygiene.mjs';
+import { readReleaseEntries } from './releaseFiles.mjs';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXCEPTIONS_PATH = join(repoRoot, 'scripts/production-audit-exceptions.json');
+const RELEASES_DIR = join(repoRoot, 'docs/releases');
 const BLOCKING_SEVERITIES = new Set(['high', 'critical']);
 
 /**
@@ -64,6 +67,18 @@ function reportedAdvisories(report) {
     }
   }
   return advisories;
+}
+
+/**
+ * The bundle with its inlined release-note prose removed, so a note that merely
+ * names a package cannot pass for that package's code.
+ *
+ * @param {string} bundleText
+ * @param {Array<{content: string}>} releaseEntries
+ * @returns {string}
+ */
+export function executableBundleText(bundleText, releaseEntries) {
+  return maskNotesContent(bundleText, releaseEntries);
 }
 
 /**
@@ -128,7 +143,7 @@ function main(args) {
   const { blocking, stale, bundled } = evaluateProductionAudit(
     runProductionAudit(),
     exceptions,
-    readFileSync(bundlePath, 'utf8'),
+    executableBundleText(readFileSync(bundlePath, 'utf8'), readReleaseEntries(RELEASES_DIR)),
   );
   for (const finding of blocking) {
     console.error(`${finding.severity}: ${finding.advisory} in ${finding.package} — ${finding.title}`);
