@@ -343,6 +343,16 @@ describe('SessionStart heartbeat hook', () => {
     expect(steps.find((step) => step.includes('gh api graphql'))).toContain('pageInfo { hasNextPage endCursor }');
   });
 
+  it('declares the branch author once before launching a peer from outside the author set', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    const declaration = positionOf(contract, `cd ${shellQuoted(ROOT_FROM_HOOK)} && node scripts/check-review-receipts.mjs author <family>`);
+    const launch = positionOf(contract, 'bash scripts/cross-model-peer-review.sh');
+    expect(contract).toContain('declare the branch author once');
+    expect(declaration).toBeLessThan(launch);
+    expect(numberedSteps(contract).find((step) => step.includes('cross-model-peer-review.sh'))).toContain('--peer <a family that did not author the branch>');
+  });
+
   it('launches the peer wrapper without acknowledging, and says what acknowledging really accepts', () => {
     const contract = heartbeatContract(ROOT_FROM_HOOK);
 
@@ -367,14 +377,24 @@ describe('SessionStart heartbeat hook', () => {
     expect(contract).toContain('fire only while the REPL is idle');
   });
 
-  it('treats a round as refused only when neither codex nor the wrapper is alive, a tripwire on the condition', () => {
+  it('identifies the reviewer process launched by either peer route when diagnosing a hang', () => {
+    const contract = heartbeatContract(ROOT_FROM_HOOK);
+
+    expect(contract).toContain('codex.exe for --peer codex, the claude process for --peer claude');
+    expect(contract).toContain("that round's reviewer process (the child of");
+    expect(contract).toContain('Kill that reviewer process and its pwsh child by PID');
+    expect(contract).toContain('that wrapper bash is alive with no reviewer child');
+    expect(contract).toContain('reviewer exited nonzero, or the wrapper refused before it ever ran');
+  });
+
+  it('treats a round as refused only when neither the reviewer nor the wrapper is alive, a tripwire on the condition', () => {
     const contract = heartbeatContract(ROOT_FROM_HOOK);
 
     const hung = positionOf(contract, 'is still running');
     const stalled = positionOf(contract, 'stalled in its own git fetch');
     const refused = positionOf(contract, "nor a wrapper bash whose arguments name this round's report file");
     expect(contract).toContain('the child of');
-    expect(contract.slice(0, refused)).toContain('neither a codex child');
+    expect(contract.slice(0, refused)).toContain('neither a reviewer child');
     expect(hung).toBeLessThan(stalled);
     expect(stalled).toBeLessThan(refused);
   });

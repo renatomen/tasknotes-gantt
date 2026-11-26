@@ -376,13 +376,13 @@ describe('cross-model peer review wrapper', () => {
     expect(receipts()[git(['rev-parse', 'HEAD'])]?.['cross-model-peer']).toEqual({ at: expect.any(String), family: 'codex', authors: ['claude'] });
   });
 
-  it('runs Claude with only read tools, no permission prompts, and a Claude receipt', () => {
+  it('runs Claude in safe mode with only read tools, no permission prompts, and a Claude receipt', () => {
     declareAuthors(['codex']);
     runWrapper(CLEAN, { peer: 'claude', record: true });
     const args = readFileSync(promptFile + '.args', 'utf8').split('\0');
 
     expect(readFileSync(promptFile + '.route', 'utf8')).toBe('claude');
-    expect(args).toEqual(['-p', expect.stringContaining('.peer-review-diff.tmp'), '--tools', 'Read,Glob,Grep', '--allowedTools', 'Read,Glob,Grep', '--permission-mode', 'dontAsk', '']);
+    expect(args).toEqual(['-p', expect.stringContaining('.peer-review-diff.tmp'), '--safe-mode', '--tools', 'Read,Glob,Grep', '--allowedTools', 'Read,Glob,Grep', '--permission-mode', 'dontAsk', '']);
     expect(readFileSync(promptFile + '.stdin', 'utf8')).toBe('');
     expect(readFileSync(join(repo, '..', 'peer-out.md.stderr'), 'utf8')).toBe('reviewer stderr\n');
     expect(readFileSync(join(repo, '..', 'peer-out.md'), 'utf8')).not.toContain('reviewer stderr');

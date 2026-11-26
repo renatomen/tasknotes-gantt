@@ -497,7 +497,7 @@ fi
 
 case "$PEER" in
   codex) codex exec --sandbox read-only "$PROMPT" > "$OUT" 2> "$OUT.stderr" < /dev/null ;;
-  claude) claude -p "$PROMPT" --tools Read,Glob,Grep --allowedTools Read,Glob,Grep --permission-mode dontAsk > "$OUT" 2> "$OUT.stderr" < /dev/null ;;
+  claude) claude -p "$PROMPT" --safe-mode --tools Read,Glob,Grep --allowedTools Read,Glob,Grep --permission-mode dontAsk > "$OUT" 2> "$OUT.stderr" < /dev/null ;;
 esac
 status=$?
 echo "$OUT"
