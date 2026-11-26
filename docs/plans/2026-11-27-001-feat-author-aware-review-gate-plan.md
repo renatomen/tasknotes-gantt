@@ -120,7 +120,7 @@ Waits on: nothing.
   - On a branch with no declared author, or on a detached HEAD, the wrapper refuses before any review runs, naming `author <family>`.
   - On a branch declared `codex`, `--peer codex` is refused before any review runs, naming `--peer claude`.
   - The receipt the wrapper stamps carries the author set it read, attested the same way as the family.
-- **Verification:** Unit gates green; one real `--peer claude --record` run against this PR's own diff, its report and receipt quoted in the PR.
+- **Verification:** Unit gates green; one real `--peer claude --record` run against this PR's own diff stamps its receipt locally. The receipt and the review report stay local, because the receipt carries the author set; the PR states only that both receipts are OK and the peer verdict was clean (R6).
 
 ### U3. The roles in the guidance
 
