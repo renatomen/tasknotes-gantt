@@ -181,6 +181,9 @@ A recurring-task occurrence computed from the parent note's recurrence rule for 
 ### Materialized occurrence
 A real task note representing one occurrence of a recurring task, linked to its parent and date. Wherever it exists, it replaces the projected instance for that parent/date pair — in the calendar and therefore in the gantt.
 
+### Moved occurrence
+The pending next occurrence of a scheduled-anchored recurring task after it is rescheduled to another day (TaskNotes 4.15.0 and later). The task's `scheduled` holds the new day and `recurrence_original_date` holds the original rule date, which stays the occurrence's identity for completed and skipped state; the occurrence appears once, on the new day. It corresponds to an RFC 5545 overridden instance identified by `RECURRENCE-ID`.
+
 ### Occupancy run
 The inverse of a ghost run: a contiguous run of days a recurring series actually occupies inside its envelope bar, rendered as a solid per-instance piece while the gaps between instances render nothing. Same segment engine as ghost runs, opposite emphasis.
 
