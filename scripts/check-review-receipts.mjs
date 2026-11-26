@@ -7,6 +7,7 @@
  * The reviews themselves are agentic and run outside git; this script only
  * makes an unreviewed push mechanically impossible by demanding receipts.
  *
+ *   node scripts/check-review-receipts.mjs author <family>  # declare the branch author locally
  *   node scripts/check-review-receipts.mjs record <layer>   # after a clean review of HEAD
  *   node scripts/check-review-receipts.mjs check            # pre-push hook entry point
  *
@@ -18,7 +19,8 @@
  * write-once - never replaced or deleted through this hook (see
  * ARCHIVAL_SUBJECT_REF_PREFIX); any malformed line fails the push. Run manually without piped input it falls
  * back to HEAD. Receipts live in .git/ (per-clone, never committed), keyed by
- * commit sha: {"receipts": {"<sha>": {"<layer>": "<iso timestamp>"}}}.
+ * commit sha. Peer entries carry { at, family, findings? }; missing family on
+ * legacy receipts means Codex. The authors key holds sets by full local branch ref.
  *
  * A receipt attests that the chain of reviews ending at that commit was run
  * clean - reviews diff against the previously receipted or pushed state, so
@@ -45,6 +47,8 @@ export const REQUIRED_LAYERS = ['ce-code-review', 'cross-model-peer'];
  */
 const PEER_LAYER = 'cross-model-peer';
 const PEER_ATTESTATION_ENV = 'OG_PEER_REVIEW_ATTESTED_SHA';
+const PEER_FAMILY_ENV = 'OG_PEER_REVIEW_ATTESTED_FAMILY';
+const MODEL_FAMILIES = ['codex', 'claude'];
 const PEER_WRAPPER = 'bash scripts/cross-model-peer-review.sh <base> <out> --record';
 
 const SHA_PATTERN = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
@@ -69,6 +73,15 @@ function gitDir() {
 
 function headSha() {
   return git(['rev-parse', 'HEAD']).trim();
+}
+
+function currentBranchRef() {
+  try {
+    return git(['symbolic-ref', '--quiet', 'HEAD']).trim();
+  } catch {
+    console.error('a current branch is required to declare or check authorship');
+    process.exit(1);
+  }
 }
 
 function receiptPath() {
@@ -114,6 +127,7 @@ export function parsePushedRefLines(stdinText) {
   const shas = new Set();
   const invalid = [];
   const archival = [];
+  const refs = [];
   for (const line of stdinText.split('\n')) {
     if (line.trim() === '') continue;
     // Git separates the four fields with single ASCII spaces. A Unicode-aware
@@ -127,9 +141,12 @@ export function parsePushedRefLines(stdinText) {
       continue;
     }
     if (tokens[2].startsWith(ARCHIVAL_SUBJECT_REF_PREFIX)) archival.push({ ref: tokens[2], sha: localSha, remoteSha: tokens[3] });
-    else if (!isDeletion(localSha)) shas.add(localSha);
+    else if (!isDeletion(localSha)) {
+      shas.add(localSha);
+      refs.push({ ref: tokens[0], sha: localSha });
+    }
   }
-  return { shas: [...shas], invalid, archival };
+  return { shas: [...shas], invalid, archival, refs };
 }
 
 /** Annotated tags push their tag object's sha; receipts key on commits. */
@@ -194,6 +211,40 @@ export function evaluateReceipts(store, shas, requiredLayers = REQUIRED_LAYERS) 
   return { ok: Object.keys(missingBySha).length === 0, missingBySha };
 }
 
+function validAuthors(authors) {
+  return Array.isArray(authors) && authors.length > 0 && authors.every((family) => MODEL_FAMILIES.includes(family));
+}
+
+function peerFamilyProblem(store, { ref, sha }) {
+  const authors = store.authors?.[ref];
+  if (!validAuthors(authors)) return ref + ': no declared authoring family; run node scripts/check-review-receipts.mjs author <family> on that branch';
+  if (MODEL_FAMILIES.every((family) => authors.includes(family))) return ref + ': both families authored this branch; no eligible peer is available';
+  const peer = store.receipts?.[sha]?.[PEER_LAYER];
+  if (!peer) return null;
+  const family = typeof peer === 'object' && Object.hasOwn(peer, 'family') ? peer.family : 'codex';
+  if (!MODEL_FAMILIES.includes(family)) return ref + ': invalid peer family; rerun the peer wrapper with --peer codex or --peer claude';
+  if (!authors.includes(family)) return null;
+  const other = MODEL_FAMILIES.find((candidate) => !authors.includes(candidate));
+  return ref + ' (' + sha.slice(0, 7) + '): peer family ' + family + ' authored this branch; run bash scripts/cross-model-peer-review.sh <base> <out> --peer ' + other + ' --record';
+}
+
+export function evaluatePeerFamilies(store, refs) {
+  return refs.map((ref) => peerFamilyProblem(store, ref)).filter((problem) => problem !== null);
+}
+
+function declareAuthor(family) {
+  if (!MODEL_FAMILIES.includes(family)) {
+    console.error('unknown author family "' + family + '" — expected codex or claude');
+    process.exit(1);
+  }
+  const ref = currentBranchRef();
+  const store = readReceipts();
+  const authors = store.authors?.[ref] ?? [];
+  store.authors = { ...store.authors, [ref]: [...new Set([...authors, family])] };
+  writeFileSync(receiptPath(), JSON.stringify(store, null, 2) + '\n');
+  console.log('declared ' + family + ' authorship for ' + ref);
+}
+
 /**
  * `sha` binds the receipt to the commit that was actually reviewed. A long
  * review can outlive its own subject: re-reading HEAD here would stamp
@@ -218,8 +269,14 @@ function record(layer, sha = headSha(), findings = '') {
     console.error(`  ${PEER_WRAPPER}`);
     process.exit(1);
   }
+  const family = process.env[PEER_FAMILY_ENV];
+  if (layer === PEER_LAYER && !MODEL_FAMILIES.includes(family)) {
+    console.error('peer family must be attested by the wrapper as codex or claude');
+    process.exit(1);
+  }
   const store = readReceipts();
-  const entry = findings ? { at: new Date().toISOString(), findings } : new Date().toISOString();
+  const at = new Date().toISOString();
+  const entry = layer === PEER_LAYER ? { at, family, ...(findings ? { findings } : {}) } : (findings ? { at, findings } : at);
   store.receipts[sha] = { ...store.receipts[sha], [layer]: entry };
   writeFileSync(receiptPath(), `${JSON.stringify(store, null, 2)}\n`);
   const kind = findings ? `acknowledged (findings ${findings.slice(0, 12)})` : 'clean';
@@ -289,9 +346,9 @@ function refuseArchivalSubjects(problems) {
   process.exit(1);
 }
 
-function peelPushedCommits(pushed) {
+function peelPushedCommits(refs) {
   try {
-    return [...new Set(pushed.map(peelToCommit))];
+    return refs.map(({ ref, sha }) => ({ ref: ref.startsWith('refs/heads/') ? ref : currentBranchRef(), sha: peelToCommit(sha) }));
   } catch (error) {
     console.error('pre-push: cannot resolve a pushed object to a commit - refusing to gate blind');
     console.error(`  ${error instanceof Error ? error.message : error}`);
@@ -301,12 +358,13 @@ function peelPushedCommits(pushed) {
 
 /** The commits to gate and the archival subjects the push carries alongside them. */
 function pushToCheck(stdinText) {
-  if (stdinText.trim() === '') return { shas: [headSha()], archival: [] };
-  const { shas, invalid, archival } = parsePushedRefLines(stdinText);
+  if (stdinText.trim() === '') return { shas: [headSha()], archival: [], refs: [{ ref: currentBranchRef(), sha: headSha() }] };
+  const { refs: pushed, invalid, archival } = parsePushedRefLines(stdinText);
   if (invalid.length > 0) refuseInvalidRefLines(invalid);
   const problems = validateArchivalSubjects(archival);
   if (problems.length > 0) refuseArchivalSubjects(problems);
-  return { shas: peelPushedCommits(shas), archival };
+  const refs = peelPushedCommits(pushed);
+  return { shas: [...new Set(refs.map(({ sha }) => sha))], archival, refs };
 }
 
 function reportArchivalSubjects(archival) {
@@ -351,10 +409,13 @@ function check() {
   const { text: stdinText, failed } = readPipedStdin();
   if (failed) refuseUnreadableRefLines();
 
-  const { shas, archival } = pushToCheck(stdinText);
+  const { shas, archival, refs } = pushToCheck(stdinText);
   const store = readReceipts();
   const verdict = evaluateReceipts(store, shas);
+  const familyProblems = evaluatePeerFamilies(store, refs);
+  for (const problem of familyProblems) console.error('pre-push: ' + problem);
   if (!verdict.ok) refuseMissingReceipts(verdict);
+  if (familyProblems.length > 0) process.exit(1);
   reportAcceptedFindings(acknowledgedFindings(store, shas));
   reportArchivalSubjects(archival);
   reportCleanReceipts(shas, shas.length === 0 && archival.length > 0);
@@ -370,9 +431,10 @@ if (isDirectRun) {
   // unusable value into the digest guard instead.
   const findings = ackIndex === -1 ? '' : (process.argv[ackIndex + 1] || 'missing');
   if (command === 'record') record(layer, sha ?? headSha(), findings);
+  else if (command === 'author') declareAuthor(layer);
   else if (command === 'check') check();
   else {
-    console.error('usage: check-review-receipts.mjs record <layer> | check');
+    console.error('usage: check-review-receipts.mjs author <family> | record <layer> | check');
     process.exit(1);
   }
 }
