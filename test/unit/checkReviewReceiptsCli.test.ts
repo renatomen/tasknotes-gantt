@@ -1,5 +1,5 @@
-import { execFileSync } from 'node:child_process';
-import { chmodSync, mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync, openSync, closeSync, readdirSync, statSync } from 'node:fs';
+import { execFile, execFileSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync, readFileSync, mkdirSync, openSync, closeSync, readdirSync, statSync, existsSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
@@ -787,6 +787,31 @@ describe('per-commit author declarations', () => {
   const writeAuthors = (entries: Record<string, string[]>): void => writeFileSync(authorPath(), JSON.stringify({ authors: entries }));
   const peerAuthors = (family: string, base = topicBase, tip = git(['rev-parse', 'HEAD']), cwd = repo): Run =>
     runScript(['peer-authors', family, base, tip], '', {}, cwd);
+  const mutations = [
+    { command: 'author', args: ['author', 'claude'], input: '' },
+    { command: 'post-rewrite', args: ['post-rewrite'], input: () => `${first} ${second}\n` },
+  ];
+
+  function installFsProbe(body: string): Record<string, string> {
+    const probe = join(fixtureRoot, 'author-store-probe.cjs');
+    writeFileSync(probe, `
+      const fs = require('node:fs');
+      const { resolve, dirname } = require('node:path');
+      const { syncBuiltinESMExports } = require('node:module');
+      const storePath = ${JSON.stringify(authorPath())};
+      ${body}
+      syncBuiltinESMExports();
+    `);
+    return { NODE_OPTIONS: `--require "${probe.replaceAll('\\', '/')}"` };
+  }
+
+  async function waitForFile(path: string): Promise<void> {
+    const deadline = Date.now() + 5_000;
+    while (!existsSync(path)) {
+      if (Date.now() >= deadline) throw new Error('declaration did not attempt to acquire the lock');
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+  }
 
   function installRewriteHook(): void {
     mkdirSync(join(repo, '.husky'), { recursive: true });
@@ -854,6 +879,114 @@ describe('per-commit author declarations', () => {
       expect(run.status).toBe(1);
       expect(run.stderr).toContain('no eligible peer');
     }
+  });
+
+  it.each(mutations)('refuses $command when another writer holds the lock without changing the store', ({ args, input }) => {
+    writeAuthors({ [first]: ['codex'], [second]: ['claude'] });
+    const before = readFileSync(authorPath(), 'utf8');
+    const lockPath = authorPath() + '.lock';
+    const lock = openSync(lockPath, 'wx');
+    try {
+      const run = runScript(args, typeof input === 'function' ? input() : input);
+
+      expect(run.status).toBe(1);
+      expect(run.stderr).toContain('lock');
+      expect(readFileSync(authorPath(), 'utf8')).toBe(before);
+      expect(existsSync(lockPath)).toBe(true);
+      expect(readdirSync(join(repo, '.git')).filter((name) => name.startsWith('review-authors.json.'))).toEqual(['review-authors.json.lock']);
+    } finally {
+      closeSync(lock);
+      unlinkSync(lockPath);
+    }
+  });
+
+  it.each(mutations)('releases the lock after a successful $command', ({ args, input }) => {
+    writeAuthors({ [first]: ['codex'], [second]: ['claude'] });
+
+    const run = runScript(args, typeof input === 'function' ? input() : input);
+
+    expect(run.status).toBe(0);
+    const lockPath = authorPath() + '.lock';
+    const lock = openSync(lockPath, 'wx');
+    closeSync(lock);
+    unlinkSync(lockPath);
+  });
+
+  it('releases the lock when reading the author store fails', () => {
+    writeFileSync(authorPath(), '{invalid json');
+
+    const run = runScript(['author', 'codex']);
+
+    expect(run.status).toBe(1);
+    expect(readFileSync(authorPath(), 'utf8')).toBe('{invalid json');
+    expect(existsSync(authorPath() + '.lock')).toBe(false);
+  });
+
+  it.each(['write', 'rename'])('preserves the complete store when an atomic %s fails', (stage) => {
+    writeAuthors({ [first]: ['codex'], [second]: ['codex'] });
+    const before = readFileSync(authorPath(), 'utf8');
+    const env = installFsProbe(`
+      const write = fs.writeFileSync;
+      fs.writeFileSync = (path, data, ...options) => {
+        if (typeof path === 'string' && resolve(path).startsWith(storePath) && '${stage}' === 'write') {
+          write(path, String(data).slice(0, 12), ...options);
+          throw new Error('interrupted author store write');
+        }
+        return write(path, data, ...options);
+      };
+      const rename = fs.renameSync;
+      fs.renameSync = (source, destination) => {
+        if (resolve(destination) === storePath) {
+          if (dirname(resolve(source)) !== dirname(storePath)) throw new Error('temporary file is not adjacent');
+          throw new Error('interrupted author store rename');
+        }
+        return rename(source, destination);
+      };
+    `);
+
+    const run = runScript(['author', 'claude'], '', env);
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(`interrupted author store ${stage}`);
+    expect(readFileSync(authorPath(), 'utf8')).toBe(before);
+    expect(readdirSync(join(repo, '.git')).filter((name) => name.startsWith('review-authors.json.'))).toEqual([]);
+  });
+
+  it('merges declarations published by a linked worktree before the waiting writer acquires the lock', async () => {
+    const linked = join(fixtureRoot, 'linked');
+    git(['worktree', 'add', '-q', '--detach', linked, second]);
+    writeAuthors({ [first]: ['codex'], [second]: ['codex'] });
+    const signal = join(fixtureRoot, 'lock-attempted');
+    const env = installFsProbe(`
+      const open = fs.openSync;
+      fs.openSync = (path, flags, ...options) => {
+        if (typeof path === 'string' && resolve(path) === storePath + '.lock' && flags === 'wx') {
+          fs.writeFileSync(${JSON.stringify(signal)}, 'attempted');
+        }
+        return open(path, flags, ...options);
+      };
+    `);
+    const lockPath = authorPath() + '.lock';
+    const lock = openSync(lockPath, 'wx');
+    const completion = new Promise<Run>((resolve) => {
+      execFile('node', [SCRIPT, 'author', 'codex'], {
+        cwd: linked, env: { ...childEnv, ...env }, encoding: 'utf8', timeout: 10_000,
+      }, (error, stdout, stderr) => {
+        resolve({ status: error ? (typeof error.code === 'number' ? error.code : -1) : 0, stdout, stderr });
+      });
+    });
+    try {
+      await waitForFile(signal);
+      writeAuthors({ [first]: ['codex', 'claude'], [second]: ['codex', 'claude'] });
+    } finally {
+      closeSync(lock);
+      unlinkSync(lockPath);
+    }
+
+    const run = await completion;
+
+    expect(run.status).toBe(0);
+    expect(authors()).toEqual({ [first]: ['codex', 'claude'], [second]: ['codex', 'claude'] });
   });
 
   it.each(['rename', 'new branch'])('keeps declarations after %s at the same HEAD', (operation) => {

@@ -1,3 +1,5 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   ARCHIVAL_SUBJECT_REF_PREFIX,
   evaluateReceipts,
@@ -12,6 +14,14 @@ const OTHER_SHA = 'b'.repeat(40);
 const DELETED = '0'.repeat(40);
 const cleanLayers = () =>
   Object.fromEntries(REQUIRED_LAYERS.map((layer) => [layer, '2026-07-28T00:00:00.000Z']));
+
+describe('review-gate trend report', () => {
+  it('rejects revision-state and superseded-implementation wording in the shipping report', () => {
+    const report = readFileSync(resolve('docs/reports/2026-11-27-001-review-gate-trend-report.md'), 'utf8');
+
+    expect(report).not.toMatch(/\b(?:uncommitted|committed|staged|unstaged|HEAD|working[\s-](?:tree|copy)|superseded|old gate)\b/i);
+  });
+});
 
 describe('evaluateReceipts', () => {
   it('passes when both layers hold clean receipts for the pushed sha', () => {

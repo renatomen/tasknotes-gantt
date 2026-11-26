@@ -32,7 +32,7 @@
  * the review process's responsibility, not this script's.
  */
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { closeSync, openSync, readFileSync, renameSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 export const REQUIRED_LAYERS = ['ce-code-review', 'cross-model-peer'];
@@ -54,6 +54,9 @@ const PEER_FAMILY_ENV = 'OG_PEER_REVIEW_ATTESTED_FAMILY';
 const PEER_AUTHORS_ENV = 'OG_PEER_REVIEW_ATTESTED_AUTHORS';
 const MODEL_FAMILIES = ['codex', 'claude'];
 const PEER_WRAPPER = 'bash scripts/cross-model-peer-review.sh <base> <out> --record';
+const AUTHOR_LOCK_TIMEOUT_MS = 2_000;
+const AUTHOR_LOCK_RETRY_MS = 25;
+const AUTHOR_LOCK_WAIT = new Int32Array(new SharedArrayBuffer(4));
 
 const SHA_PATTERN = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
@@ -236,17 +239,54 @@ function authorPath() {
   return join(git(['rev-parse', '--git-common-dir']).trim(), 'review-authors.json');
 }
 
-function readAuthors() {
+function readAuthors(path = authorPath()) {
   try {
-    return JSON.parse(readFileSync(authorPath(), 'utf8')).authors;
+    return JSON.parse(readFileSync(path, 'utf8')).authors;
   } catch (error) {
     if (error.code === 'ENOENT') return {};
     throw error;
   }
 }
 
-function writeAuthors(authors) {
-  writeFileSync(authorPath(), JSON.stringify({ authors }, null, 2) + '\n');
+function acquireAuthorLock(path) {
+  const deadline = Date.now() + AUTHOR_LOCK_TIMEOUT_MS;
+  for (;;) {
+    try {
+      return openSync(path, 'wx');
+    } catch (error) {
+      if (error.code !== 'EEXIST') throw error;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) throw new Error('cannot acquire author store lock: ' + path);
+      Atomics.wait(AUTHOR_LOCK_WAIT, 0, 0, Math.min(AUTHOR_LOCK_RETRY_MS, remaining));
+    }
+  }
+}
+
+function writeAuthors(path, authors) {
+  const temporaryPath = path + '.' + process.pid + '.tmp';
+  try {
+    writeFileSync(temporaryPath, JSON.stringify({ authors }, null, 2) + '\n', { flag: 'wx' });
+    renameSync(temporaryPath, path);
+  } finally {
+    rmSync(temporaryPath, { force: true });
+  }
+}
+
+function updateAuthors(update) {
+  const path = authorPath();
+  const lockPath = path + '.lock';
+  const lock = acquireAuthorLock(lockPath);
+  try {
+    const authors = readAuthors(path);
+    update(authors);
+    writeAuthors(path, authors);
+  } finally {
+    try {
+      closeSync(lock);
+    } finally {
+      unlinkSync(lockPath);
+    }
+  }
 }
 
 function originDefaultBranch() {
@@ -268,22 +308,22 @@ function declareAuthor(family) {
     console.error('unknown author family "' + family + '" — expected codex or claude');
     process.exit(1);
   }
-  const authors = readAuthors();
   const commits = commitsOutsideDefault(originDefaultBranch());
-  for (const sha of commits) authors[sha] = [...new Set([...(authors[sha] ?? []), family])];
-  writeAuthors(authors);
+  updateAuthors((authors) => {
+    for (const sha of commits) authors[sha] = [...new Set([...(authors[sha] ?? []), family])];
+  });
   console.log('declared ' + family + ' authorship for ' + commits.length + ' commit(s)');
 }
 
 function copyRewrittenAuthors() {
-  const authors = readAuthors();
   const rewritten = readFileSync(0, 'utf8');
-  for (const line of rewritten.trim().split('\n')) {
-    const [oldSha, newSha] = line.trim().split(/\s+/);
-    if (!authors[oldSha]) continue;
-    authors[newSha] = [...new Set([...(authors[newSha] ?? []), ...authors[oldSha]])];
-  }
-  writeAuthors(authors);
+  updateAuthors((authors) => {
+    for (const line of rewritten.trim().split('\n')) {
+      const [oldSha, newSha] = line.trim().split(/\s+/);
+      if (!authors[oldSha]) continue;
+      authors[newSha] = [...new Set([...(authors[newSha] ?? []), ...authors[oldSha]])];
+    }
+  });
 }
 
 function printPeerAuthors(family, base, tip) {
