@@ -286,6 +286,10 @@ describe('evaluatePeerFamilies', () => {
     expect(evaluatePeerFamilies(store({ at, family: 'codex' }), [SHA]).join('\n')).toContain('author set');
   });
 
+  it('refuses an author-bearing receipt without a peer family instead of treating it as legacy', () => {
+    expect(evaluatePeerFamilies(store({ at, authors: ['codex'] }), [SHA]).join('\n')).toContain('invalid peer family');
+  });
+
   it.each([['claude', 'codex'], ['codex', 'claude']])('accepts recorded %s authorship reviewed by %s', (author, family) => {
     expect(evaluatePeerFamilies(store({ at, family, authors: [author] }), [SHA])).toEqual([]);
   });

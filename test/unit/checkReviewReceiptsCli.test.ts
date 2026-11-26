@@ -652,6 +652,15 @@ describe('branch author declarations', () => {
     expect(run.stderr).toContain('author set');
   });
 
+  it('refuses a new peer receipt without its reviewing family', () => {
+    writeReceipts({ [docsCommit]: { ...clean(), 'cross-model-peer': { at: 'now', authors: ['codex'] } } });
+
+    const run = runCheck(refLine(docsCommit, baseCommit));
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('invalid peer family');
+  });
+
   it.each(['2026-07-29T00:00:00.000Z', { at: 'now', findings: 'a'.repeat(64) }])('treats a legacy peer as Codex reviewing Claude authors (%j)', (peer) => {
     writeReceipts({ [docsCommit]: { ...clean(), 'cross-model-peer': peer } }, { 'refs/heads/probe': ['codex'] });
 

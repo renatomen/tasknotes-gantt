@@ -230,7 +230,8 @@ export function evaluatePeerFamilies(store, shas) {
   for (const sha of shas) {
     const peer = store.receipts?.[sha]?.[PEER_LAYER];
     if (!peer) continue;
-    const legacy = typeof peer === 'string' || (typeof peer.at === 'string' && !Object.hasOwn(peer, 'family'));
+    const legacy = typeof peer === 'string' ||
+      (typeof peer.at === 'string' && !Object.hasOwn(peer, 'family') && !Object.hasOwn(peer, 'authors'));
     const family = legacy ? 'codex' : peer.family;
     const authors = legacy ? ['claude'] : peer.authors;
     const problem = peerIndependenceProblem(family, authors);
