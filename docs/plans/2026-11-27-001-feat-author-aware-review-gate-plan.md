@@ -15,7 +15,7 @@ execution: code
 - **Means:** The local receipts gate learns who authored each branch and which family ran the peer review, and refuses a push whose peer shares the author's family (KTD1, KTD2). The existing peer wrapper gains a Claude route beside its Codex route (KTD3).
 - **Authority:** This plan, then `AGENTS.md`, then `docs/engineering/practices.md`.
 - **Execution profile:** One PR, three units (U1–U3). Cohesion reason, per AGENTS.md landing cadence: the guidance in U3 states a rule whose only guard is U1 and U2. Landing the rule before its guard repeats the "always-rule kept by memory" failure this repository's charter names, and landing the guard before the rule leaves a refusal no document explains.
-- **Stop conditions:** Stop and hand over if a unit needs a change to `scripts/cross-model-peer-review.sh` beyond the reviewer adapter (KTD3), or if the receipts store cannot stay readable by the current hook during the change (KTD4).
+- **Stop conditions:** Stop and hand over if a unit needs a change to `scripts/cross-model-peer-review.sh` beyond the reviewer adapter and the author-set check (KTD2, KTD3), or if the receipts store cannot stay readable by the current hook during the change (KTD4).
 - **Who finishes:** Codex implements from this plan and runs layer one on its own work; Claude plans and reviews. This PR is the first gated by its own mechanism: the branch is declared Codex-authored, and its peer runs on the Claude route.
 
 ---
@@ -32,8 +32,8 @@ The gate has two layers: `ce-code-review` and a cross-model peer (`scripts/check
 
 ### Requirements
 
-- R1. A push is refused when its branch has no declared authoring family.
-- R2. A push is refused when any pushed commit's peer receipt was produced by a family that authored the branch.
+- R1. A peer review cannot be recorded for a branch that has no declared authoring family, or by a family that authored it.
+- R2. A push is refused when any pushed commit, whatever ref carries it, lacks a peer receipt judged independent under R1.
 - R3. The peer wrapper runs either Codex or Claude as reviewer, read-only, under every guard it applies today, and the receipt it stamps names the family that reviewed.
 - R4. Receipts recorded before this change still count as Codex-family peer receipts, so pushes of commits reviewed under the old gate are judged correctly.
 - R5. `AGENTS.md`, `docs/engineering/practices.md` and `CONCEPTS.md` state the roles: the author runs layer one on its own change, a different family runs layer two, and the hosted gate stays the final merge gate.
@@ -56,17 +56,17 @@ The gate has two layers: `ce-code-review` and a cross-model peer (`scripts/check
 
 ### Key Technical Decisions
 
-- KTD1. **Authorship is a per-branch set of families, stored in the local receipts store.** `node scripts/check-review-receipts.mjs author <family>` adds `<family>` (`codex` or `claude`) to the current branch's set in `.git/review-receipts.json`, under a new `authors` key beside `receipts`. The store lives in the git directory, so nothing reaches history (R6). The pre-push hook already receives each pushed local ref, which names the branch. Governs R1, R6.
-- KTD2. **A peer receipt is valid only when its family is outside the branch's author set.** `check` refuses a pushed branch ref (`refs/heads/*`) when that branch has no author set (R1) or when a pushed commit's peer receipt has a family in that set (R2). A non-branch ref, such as the release tag `git push --follow-tags` sends, is judged by the receipt check alone: it has no branch to carry authorship, and the commit it names passed the family check when its branch was pushed. It is never mapped onto the current branch, because a tag may name a commit other than HEAD. The refusal names the command to run: `author <family>` for R1, and the wrapper with `--peer <other-family>` for R2. A layer-one receipt carries no family check: layer one is the author's own review. Governs R1, R2.
+- KTD1. **Authorship is a per-branch set of families, stored in the local receipts store.** `node scripts/check-review-receipts.mjs author <family>` adds `<family>` (`codex` or `claude`) to the current branch's set in `.git/review-receipts.json`, under a new `authors` key beside `receipts`. The store lives in the git directory, so nothing reaches history (R6). Governs R1, R6.
+- KTD2. **Independence is judged once, when the peer receipt is recorded, and the receipt carries that judgment.** The wrapper reads the current branch's author set before it runs a review, and refuses to run when the set is empty or contains the chosen `--peer` family, naming `author <family>` or the other `--peer` (R1). `record` stores the author set beside the family in the peer receipt, and refuses to record without both. `check` then judges every pushed commit by its own receipt, with no reference to the pushed ref: a commit is refused when its peer receipt lacks an author set or has a family inside it (R2). Branch pushes, tag pushes such as `git push --follow-tags` in `docs/releases/RELEASING.md`, and raw-SHA pushes into a branch are all covered by the same rule, because the rule is about the commit's review, not the ref that carries it. Rejected: classifying pushed refs. Two review rounds found two ways around a ref-keyed check (a tag naming an unchecked commit, a raw SHA updating a branch), the same shape twice. A layer-one receipt carries no family check: layer one is the author's own review. Governs R1, R2.
 - KTD3. **The wrapper gains one reviewer adapter, not a second wrapper.** `--peer codex|claude` (default `codex`, today's behaviour) selects the reviewer command at the one call site that runs it today, plus the one availability check. Codex keeps `codex exec --sandbox read-only`. Claude runs headless and read-only (`claude -p` with only read tools allowed and permission prompts denied). Every other guard (pushed-base binding, in-repo diff file and sentinel, HEAD-moved refusal, clean-tree check, attestation env) stays shared. The wrapper passes the family to `record` through a second attestation variable beside `OG_PEER_REVIEW_ATTESTED_SHA`, so the family on a receipt is as hard to hand-stamp as the receipt itself. Rejected: reusing the Compound Engineering cross-model runner, because the stamping guards live in this wrapper and would have to be imitated there. Governs R3.
-- KTD4. **Old receipts read as Codex.** A peer entry recorded before this change is a bare timestamp or an `{ at, findings }` object with no family. The reader treats a missing family as `codex`, which is the only route the wrapper had. New entries carry `family`. Governs R4.
+- KTD4. **Old receipts read as Codex.** A peer entry recorded before this change is a bare timestamp or an `{ at, findings }` object with no family. The reader treats a missing family as `codex` and a missing author set as `[claude]`, which is what the old gate assumed. New entries carry `family` and `authors`. Governs R4.
 
 ### Ranked-file statement
 
 Both scripts this plan changes are ranked 7 in `maintainability-registry.json` ("The peer-review gate cluster — `cross-model-peer-review.sh` (490 lines, 21 exit codes, ~39 refusal sites) + `check-review-receipts.mjs` (291)… every campaign PR pays this gate's complexity twice per push", `docs/reports/2026-08-15-001-maintainability-rediagnosis.md`). Both grow:
 
 - `scripts/check-review-receipts.mjs` gains the `author` command, the family check and the legacy-family default. The reason: the gate's independence claim is false the moment a non-Claude author writes code, and this file is where the gate decides.
-- `scripts/cross-model-peer-review.sh` gains the reviewer adapter and the family attestation only. The reason: a second wrapper would duplicate every guard (principle 4).
+- `scripts/cross-model-peer-review.sh` gains the reviewer adapter, the author-set check before a review runs, and the attestation of family and authors. The reason: a second wrapper would duplicate every guard (principle 4).
 
 Review contract (AGENTS.md § Review guidelines, ranked-defect files): no diagnostics or instrumentation concern enters either file; each growth is stated in the PR with the trend measurement's output. Neither file is a junction file under the placement rule.
 
@@ -89,15 +89,15 @@ Waits on: nothing.
 - **Requirements:** R1, R2, R4, R6.
 - **Dependencies:** None.
 - **Files:** `scripts/check-review-receipts.mjs`, `test/unit/checkReviewReceipts.test.ts`, `test/unit/checkReviewReceiptsCli.test.ts`.
-- **Approach:** Add the `author` command and the `authors` store key (KTD1); extend `evaluateReceipts` or its caller to apply KTD2 per pushed ref; read legacy entries per KTD4.
+- **Approach:** Add the `author` command and the `authors` store key (KTD1); extend `evaluateReceipts` or its caller to apply KTD2 per pushed commit, with no ref classification; read legacy entries per KTD4.
 - **Test scenarios:**
-  - A push of a branch with no author set is refused, and the message names `author <family>`.
-  - A branch authored by `claude` with a Codex peer receipt passes.
-  - A branch authored by `codex` with a Codex peer receipt is refused, and the message names `--peer claude`.
-  - A branch authored by `codex` with a Claude peer receipt passes.
-  - A branch authored by both families is refused whatever the peer.
-  - A legacy peer receipt (bare timestamp, and `{ at, findings }`) counts as Codex.
-  - A tag pushed alongside a branch (`--follow-tags`), naming a receipted commit other than HEAD, passes without any author declaration for the tag, and is not checked against the current branch's author set.
+  - `record cross-model-peer` without an attested author set, or with a family inside it, is refused.
+  - A commit whose peer receipt has family `codex` and authors `[claude]` passes.
+  - A commit whose peer receipt has family `claude` and authors `[codex]` passes.
+  - A commit whose peer receipt has family `codex` and authors `[codex]` is refused, and the message names `--peer claude`.
+  - A commit whose peer receipt records no author set is refused, unless it is a legacy receipt.
+  - A legacy peer receipt (bare timestamp, and `{ at, findings }`, recorded before this change) counts as a Codex review of Claude-authored work, which is what the old gate assumed.
+  - The same commit pushed as a branch, as a tag (`--follow-tags`, naming a commit other than HEAD) and as a raw SHA into `refs/heads/topic` gets the same verdict in all three cases.
   - `author gpt` is refused; only `codex` and `claude` are accepted.
   - `author` writes only `.git/review-receipts.json`.
 - **Verification:** Unit, typecheck and lint gates green.
@@ -116,6 +116,9 @@ Waits on: nothing.
   - With `--peer claude` and no `claude` on PATH, it exits with the "peer route unavailable" status and stamps nothing.
   - `--peer gpt` is refused before any review runs.
   - Hand-running `record cross-model-peer` with a family but without the wrapper's attestation is refused.
+  - On a branch with no declared author, or on a detached HEAD, the wrapper refuses before any review runs, naming `author <family>`.
+  - On a branch declared `codex`, `--peer codex` is refused before any review runs, naming `--peer claude`.
+  - The receipt the wrapper stamps carries the author set it read, attested the same way as the family.
 - **Verification:** Unit gates green; one real `--peer claude --record` run against this PR's own diff, its report and receipt quoted in the PR.
 
 ### U3. The roles in the guidance
