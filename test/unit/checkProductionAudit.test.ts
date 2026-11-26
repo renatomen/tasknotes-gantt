@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import {
   evaluateProductionAudit,
   parseAuditReport,
+  readAuditResult,
   type AuditException,
 } from '../../scripts/check-production-audit.mjs';
 
@@ -124,17 +125,41 @@ describe('parseAuditReport', () => {
   });
 
   it('refuses output that carries no vulnerabilities object', () => {
-    expect(() => parseAuditReport('{}')).toThrow(/vulnerabilities/);
+    expect(() => parseAuditReport('{"auditReportVersion":2}')).toThrow(/vulnerabilities/);
   });
 
   it('refuses output that is not JSON', () => {
     expect(() => parseAuditReport('npm ERR! network')).toThrow(/not JSON/);
   });
 
+  it('refuses a report in a format version this check does not know', () => {
+    expect(() => parseAuditReport(JSON.stringify({ ...zodReport, auditReportVersion: 3 }))).toThrow(/version/);
+  });
+
+  it('refuses a report whose vulnerabilities are not keyed by package', () => {
+    expect(() => parseAuditReport(JSON.stringify({ auditReportVersion: 2, vulnerabilities: [] }))).toThrow(
+      /vulnerabilities/,
+    );
+  });
+
   it('returns a report that lists vulnerabilities', () => {
     const text = JSON.stringify(zodReport);
 
     expect(parseAuditReport(text)).toEqual(zodReport);
+  });
+});
+
+describe('readAuditResult', () => {
+  it('refuses the output of an npm process that was killed, however complete it looks', () => {
+    const killed = { error: undefined, signal: 'SIGTERM', status: null, stdout: JSON.stringify(zodReport) };
+
+    expect(() => readAuditResult(killed)).toThrow(/SIGTERM/);
+  });
+
+  it('reads the report of an npm run that exited 1 because it found advisories', () => {
+    const found = { error: undefined, signal: null, status: 1, stdout: JSON.stringify(zodReport) };
+
+    expect(readAuditResult(found)).toEqual(zodReport);
   });
 });
 
@@ -146,10 +171,11 @@ describe('committed production-audit exceptions', () => {
   it('gives every entry an advisory id, package, date, reason and removal condition', () => {
     for (const entry of exceptions) {
       expect(entry.advisory).toMatch(/^GHSA(-[23456789cfghjmpqrvwx]{4}){3}$/);
-      expect(entry.package).not.toBe('');
       expect(entry.recorded).toMatch(/^\d{4}-\d{2}-\d{2}$/);
-      expect(entry.reason).not.toBe('');
-      expect(entry.removeWhen).not.toBe('');
+      for (const field of [entry.package, entry.reason, entry.removeWhen]) {
+        expect(typeof field).toBe('string');
+        expect(field.trim()).not.toBe('');
+      }
     }
   });
 });

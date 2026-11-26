@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const EXCEPTIONS_PATH = join(repoRoot, 'scripts/production-audit-exceptions.json');
 const BLOCKING_SEVERITIES = new Set(['high', 'critical']);
+const SUPPORTED_REPORT_VERSION = 2;
 
 /**
  * @typedef {object} AuditException
@@ -108,21 +109,41 @@ export function parseAuditReport(text) {
   if (report?.error) {
     throw new Error(`npm audit failed: ${report.error.code ?? ''} ${report.error.summary ?? ''}`.trim());
   }
-  if (typeof report?.vulnerabilities !== 'object' || report.vulnerabilities === null) {
-    throw new Error('npm audit output has no vulnerabilities object');
+  if (report?.auditReportVersion !== SUPPORTED_REPORT_VERSION) {
+    throw new Error(`npm audit report version ${report?.auditReportVersion} is not supported`);
+  }
+  const { vulnerabilities } = report;
+  if (typeof vulnerabilities !== 'object' || vulnerabilities === null || Array.isArray(vulnerabilities)) {
+    throw new Error('npm audit output has no vulnerabilities object keyed by package');
   }
   return report;
 }
 
-function runProductionAudit() {
-  const result = spawnSync('npm', ['audit', '--omit=dev', '--json'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    shell: process.platform === 'win32',
-    maxBuffer: 64 * 1024 * 1024,
-  });
+/**
+ * Turn a finished `npm audit` child process into its report. A process that
+ * was killed fails the check even when its output parses, because it may have
+ * stopped before reporting everything.
+ *
+ * @param {{ error?: Error, signal: string | null, status: number | null, stdout: string }} result
+ * @returns {object} the parsed report
+ */
+export function readAuditResult(result) {
   if (result.error) throw result.error;
+  if (result.signal || result.status === null) {
+    throw new Error(`npm audit did not finish (signal ${result.signal ?? 'none'})`);
+  }
   return parseAuditReport(result.stdout);
+}
+
+function runProductionAudit() {
+  return readAuditResult(
+    spawnSync('npm', ['audit', '--omit=dev', '--json'], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      shell: process.platform === 'win32',
+      maxBuffer: 64 * 1024 * 1024,
+    }),
+  );
 }
 
 function main() {
