@@ -423,10 +423,10 @@ trap 'rm -f "$SCAN_FILE" "$DIFF_FILE" "$TREND_FILE" "$RUBRIC_FILE"' EXIT
 }
 
 TREND_BASE=$(git_nr merge-base "refs/remotes/$(tracking_remote)/main" "$REVIEWED_SHA" 2>/dev/null) || TREND_BASE=""
-[ -n "$TREND_BASE" ] && git_nr show "$TREND_BASE:AGENTS.md" > "$SCAN_FILE" &&
+git_nr show "${TREND_BASE:-$BASE_SHA}:AGENTS.md" > "$SCAN_FILE" &&
   awk '/^## Review guidelines\r?$/ { section=1 } section && /^## / && !/^## Review guidelines\r?$/ { exit } section { print }' "$SCAN_FILE" > "$RUBRIC_FILE" &&
   [ -s "$RUBRIC_FILE" ] || {
-    echo "cannot stage the main merge-base's review guidelines" >&2
+    echo "cannot stage the base's review guidelines" >&2
     exit 21
   }
 
