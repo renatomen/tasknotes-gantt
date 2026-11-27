@@ -24,6 +24,7 @@ describe("readFieldMappings", () => {
       parentProperty: "",
       statusProperty: "",
       priorityProperty: "",
+      assigneesProperty: "",
       timeEstimateProperty: "",
       calendarProperty: "",
       estimateMeaningProperty: "",
@@ -51,6 +52,7 @@ describe("readFieldMappings", () => {
         [FIELD_MAPPING_KEYS.parent]: "note.in",
         [FIELD_MAPPING_KEYS.status]: "note.status",
         [FIELD_MAPPING_KEYS.priority]: "note.priority",
+        [FIELD_MAPPING_KEYS.assignees]: "note.assignee",
       }),
       // Overrides must NOT win when a value is actually configured.
       { startProperty: "note.start" },
@@ -63,6 +65,7 @@ describe("readFieldMappings", () => {
       parentProperty: "note.in",
       statusProperty: "note.status",
       priorityProperty: "note.priority",
+      assigneesProperty: "note.assignee",
       timeEstimateProperty: "",
       calendarProperty: "",
       estimateMeaningProperty: "",

@@ -17,7 +17,7 @@
  * @module controller/propertyPatchResolution
  */
 
-import { matchMappedFieldRole, type MappedFieldRole } from '../datasource/mappedFieldRole';
+import { matchMappedFieldRole, completeMappedRolePrecedence, type MappedFieldRole } from '../datasource/mappedFieldRole';
 import type { FieldMappings } from '../datasource';
 import { bareProperty, toYmd } from '../datasource/dateFieldMapping';
 import type { TaskPatch } from '../datasource/types';
@@ -120,15 +120,16 @@ export function resolvePropertyPatch(
  * The write path's mapped-field precedence. Text ranks ahead of status — the
  * editor resolver ranks it last, and both orders are pinned by tests.
  */
-const PATCH_ROLE_PRECEDENCE: ReadonlyArray<MappedFieldRole> = [
+const PATCH_ROLE_PRECEDENCE: readonly MappedFieldRole[] = completeMappedRolePrecedence([
   'start',
   'end',
   'text',
   'status',
   'priority',
+  'assignees',
   'progress',
   'estimate',
-];
+]);
 
 function mappedFieldPatch(
   role: MappedFieldRole,
@@ -155,6 +156,12 @@ function mappedFieldPatch(
         `Mapped priority property ${propertyId} is not the field TaskNotes persists to; edit refused`,
       );
       return { priority: asStringPatchValue(value, propertyId) };
+    case 'assignees':
+      refuseUnlessWritable(
+        options.roleWritability.assignees,
+        `Mapped assignees property ${propertyId} is not the field TaskNotes persists to; edit refused`,
+      );
+      return { assignees: asStringListPatchValue(value, propertyId) };
     case 'progress':
       refuseUnlessWritable(
         options.progressWritable,
@@ -193,6 +200,14 @@ function asStringPatchValue(value: unknown, propertyId: string): string {
     return value;
   }
   throw new TypeError(`Mapped property ${propertyId} requires a string value`);
+}
+
+/** A list edit replaces the whole list. Entries pass through unchanged, including wikilinks. */
+function asStringListPatchValue(value: unknown, propertyId: string): readonly string[] {
+  if (Array.isArray(value) && value.every((entry) => typeof entry === 'string')) {
+    return [...value];
+  }
+  throw new TypeError(`Mapped property ${propertyId} requires a list of strings`);
 }
 
 /** Narrow a raw property-edit value for a mapped numeric field (progress/estimate). */

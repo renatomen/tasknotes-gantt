@@ -582,6 +582,7 @@ describe('TaskNotesSource — getFieldConfig (U1)', () => {
       timeEstimateProp: null,
       statusProp: null,
       priorityProp: null,
+      assigneesProp: null,
     });
   });
 
@@ -647,6 +648,7 @@ describe('TaskNotesSource — getFieldConfig (U1)', () => {
       timeEstimateProp: null,
       statusProp: null,
       priorityProp: null,
+      assigneesProp: null,
     });
   });
 
@@ -1659,5 +1661,17 @@ describe('buildTaskUpdates — generic field write (U2)', () => {
   it('an empty list value writes []', () => {
     const updates = buildTaskUpdates({ fieldWrite: { key: 'contexts', value: [] } });
     expect(updates).toEqual({ contexts: [] });
+  });
+});
+
+describe('buildTaskUpdates — assignees', () => {
+  it('sends the list through the assignees field', () => {
+    const updates = buildTaskUpdates({ assignees: ['[[Alice]]'] });
+    expect(updates).toEqual({ assignees: ['[[Alice]]'] });
+  });
+
+  it('sends an empty assignees list as an empty list', () => {
+    const updates = buildTaskUpdates({ assignees: [] });
+    expect(updates).toEqual({ assignees: [] });
   });
 });

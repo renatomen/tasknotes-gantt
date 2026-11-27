@@ -81,6 +81,13 @@ function sharedFieldMappingOptions(): BasesOptions[] {
     },
     {
       type: 'property' as const,
+      displayName: 'Assignees Property',
+      key: FIELD_MAPPING_KEYS.assignees,
+      default: '',
+      placeholder: 'Select assignees property (optional)',
+    },
+    {
+      type: 'property' as const,
       displayName: 'Calendar Property',
       key: FIELD_MAPPING_KEYS.calendar,
       default: '',

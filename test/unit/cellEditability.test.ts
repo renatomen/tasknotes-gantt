@@ -19,8 +19,8 @@ import type { TaskNotesFieldMeta } from '../../src/bases/cellRenderType';
 import type { FieldMappings } from '../../src/bases/types/field-mapping';
 import type { RoleWritability } from '../../src/controller/fieldMappingResolution';
 
-function roleFlags(status: boolean, priority: boolean): RoleWritability {
-  return { status, priority } as RoleWritability;
+function roleFlags(status: boolean, priority: boolean, assignees = false): RoleWritability {
+  return { status, priority, assignees } as RoleWritability;
 }
 
 function mappings(over: Partial<FieldMappings> = {}): FieldMappings {
@@ -38,15 +38,17 @@ function deps(
     roleWritability?: RoleWritability;
     statusWritable?: boolean;
     priorityWritable?: boolean;
+    assigneesWritable?: boolean;
   } = {},
 ): CellEditorDeps {
-  const { statusWritable, priorityWritable, roleWritability: given, ...rest } = over;
+  const { statusWritable, priorityWritable, assigneesWritable, roleWritability: given, ...rest } = over;
   return {
     taskNotesFieldType: rest.taskNotesFieldType ?? (() => null),
     mappings: rest.mappings ?? mappings(),
     progressWritable: rest.progressWritable ?? false,
     estimateWritable: rest.estimateWritable ?? false,
-    roleWritability: given ?? roleFlags(statusWritable ?? true, priorityWritable ?? true),
+    roleWritability:
+      given ?? roleFlags(statusWritable ?? true, priorityWritable ?? true, assigneesWritable ?? false),
     isNameColumn: rest.isNameColumn ?? false,
   };
 }
@@ -75,6 +77,30 @@ describe('resolveCellEditor — status/priority mapped away from TaskNotes own f
     expect(resolveCellEditor('note.status', deps({ mappings: m, statusWritable: true }))).toEqual({
       kind: 'choice-status',
     });
+  });
+});
+
+describe('resolveCellEditor — assignees', () => {
+  it('offers a list editor when the assignees column is the one TaskNotes writes', () => {
+    const m = mappings({ assigneesProperty: 'note.assignee' });
+
+    expect(
+      resolveCellEditor('note.assignee', deps({ mappings: m, assigneesWritable: true })),
+    ).toEqual({ kind: 'list' });
+  });
+
+  it('offers no editor when the assignees column is mapped away from TaskNotes', () => {
+    const m = mappings({ assigneesProperty: 'note.people' });
+
+    expect(resolveCellEditor('note.people', deps({ mappings: m, assigneesWritable: false }))).toBeNull();
+  });
+
+  it('keeps a registered assignee list field when the assignees role claims no column', () => {
+    const d = deps({
+      taskNotesFieldType: (key) => (key === 'assignee' ? { type: 'list' } : null),
+    });
+
+    expect(resolveCellEditor('note.assignee', d)).toEqual({ kind: 'list' });
   });
 });
 
@@ -263,15 +289,17 @@ describe('resolveGridCellEditors — the grid-wide resolution', () => {
       roleWritability?: RoleWritability;
       statusWritable?: boolean;
       priorityWritable?: boolean;
+      assigneesWritable?: boolean;
     } = {},
   ): GridCellEditorDeps {
-    const { statusWritable, priorityWritable, roleWritability: given, ...rest } = over;
+    const { statusWritable, priorityWritable, assigneesWritable, roleWritability: given, ...rest } = over;
     return {
       taskNotesFieldType: rest.taskNotesFieldType ?? (() => null),
       mappings: rest.mappings ?? mappings(),
       progressWritable: rest.progressWritable ?? false,
       estimateWritable: rest.estimateWritable ?? false,
-      roleWritability: given ?? roleFlags(statusWritable ?? true, priorityWritable ?? true),
+      roleWritability:
+        given ?? roleFlags(statusWritable ?? true, priorityWritable ?? true, assigneesWritable ?? false),
     };
   }
 

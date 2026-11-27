@@ -58,6 +58,21 @@ The property whose value colors bars **By priority**. **Leave blank** and it
 resolves to TaskNotes' configured priority property in companion mode, exactly as
 Status Property does above.
 
+## Assignees Property
+
+The property that holds each task's assignees, as a list. **Leave blank** and,
+when TaskNotes reports an Assignees field, it resolves to that field's property
+— blank means *use the TaskNotes default*, not *no property*. The cell edits as
+a multi-value list, and the change is saved through TaskNotes' Assignees field.
+
+A blank mapping resolves only for a field TaskNotes actually reports. Where it
+reports none, the mapping claims no column even if you name one here, and a
+list you registered as a TaskNotes user field keeps its own editor.
+
+Point this mapping at a property other than the one TaskNotes persists
+assignees to and the column is read-only. Standalone, there is no Assignees
+field to resolve to, so a blank mapping does nothing.
+
 ## Calendar Property
 
 The property holding a **wikilink to a calendar or calendar-set note**, which is

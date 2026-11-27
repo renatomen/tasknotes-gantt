@@ -87,6 +87,45 @@ describe('resolveFieldMappings — status and priority', () => {
   });
 });
 
+describe('resolveFieldMappings — assignees', () => {
+  it('resolves an unset assignees mapping to TaskNotes’ property and treats it as writable', () => {
+    const resolved = resolveFieldMappings(mappings(), fieldConfig({ assigneesProp: 'assignee' }));
+
+    expect(resolved.mappings.assigneesProperty).toBe('note.assignee');
+    expect(resolved.roleWritability.assignees).toBe(true);
+  });
+
+  it('keeps an explicit mapping to TaskNotes’ own assignees property writable', () => {
+    const resolved = resolveFieldMappings(
+      mappings({ assigneesProperty: 'note.assignee' }),
+      fieldConfig({ assigneesProp: 'assignee' }),
+    );
+
+    expect(resolved.mappings.assigneesProperty).toBe('note.assignee');
+    expect(resolved.roleWritability.assignees).toBe(true);
+  });
+
+  it('treats an assignees mapping that names another property as read-only', () => {
+    const resolved = resolveFieldMappings(
+      mappings({ assigneesProperty: 'note.people' }),
+      fieldConfig({ assigneesProp: 'assignee' }),
+    );
+
+    expect(resolved.mappings.assigneesProperty).toBe('note.people');
+    expect(resolved.roleWritability.assignees).toBe(false);
+  });
+
+  it('claims no assignees column when TaskNotes has no Assignees field', () => {
+    const resolved = resolveFieldMappings(
+      mappings({ assigneesProperty: 'note.assignee' }),
+      fieldConfig({ assigneesProp: null }),
+    );
+
+    expect(resolved.mappings.assigneesProperty).toBeUndefined();
+    expect(resolved.roleWritability.assignees).toBe(false);
+  });
+});
+
 describe('resolveFieldMappings — start and end', () => {
   it('resolves unset start and end to the scheduled and due write targets', () => {
     const resolved = resolveFieldMappings(mappings(), fieldConfig());
@@ -149,5 +188,6 @@ describe('resolveFieldMappings — no TaskNotes field config', () => {
     });
     expect(resolved.roleWritability.status).toBe(false);
     expect(resolved.roleWritability.priority).toBe(false);
+    expect(resolved.roleWritability.assignees).toBe(false);
   });
 });
