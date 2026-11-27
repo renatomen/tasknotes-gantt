@@ -55,9 +55,9 @@ describe("pinned TaskNotes release", () => {
       async () =>
         browser.executeObsidian(({ app }) => {
           const plugin = (app as unknown as {
-            plugins?: { getPlugin?: (id: string) => { manifest?: { version?: string } } | null };
+            plugins?: { getPlugin?: (id: string) => { manifest?: { version?: string }; api?: object } | null };
           }).plugins?.getPlugin?.("tasknotes");
-          return typeof plugin?.manifest?.version === "string";
+          return typeof plugin?.manifest?.version === "string" && typeof plugin.api === "object" && plugin.api !== null;
         }),
       { timeout: 60000, timeoutMsg: "TaskNotes did not load" },
     );
