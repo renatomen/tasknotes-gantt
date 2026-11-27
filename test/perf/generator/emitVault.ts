@@ -125,7 +125,7 @@ export function serializeBaseFile(matchedTag = DEFAULT_MATCHED_TAG): string {
 
 /**
  * Serialize the production-shaped STORM `.base` (#161 repro): a MULTI-view base
- * (Gantt + Table) over the matched subset, with `parentProperty: note.in` (so the
+ * (Gantt + Table) over the matched subset, with `tngantt_parentProperty: note.in` (so the
  * Gantt resolves parents via Bases `getValue` on the `in` LINK property), Inherit
  * mode, and a status sort — mirroring the maintainer's `Gantt Base.base` that
  * reproduces the toggle storm. Toggling `tngantt_hideTopLevelSubtasks` on this
@@ -147,11 +147,11 @@ export function serializeStormBaseFile(matchedTag = DEFAULT_MATCHED_TAG): string
     '      - note.status',
     '      - note.scheduled',
     '      - note.due',
-    '    parentProperty: note.in',
-    '    statusProperty: note.status',
-    '    startDateProperty: note.scheduled',
-    '    endDateProperty: note.due',
-    '    textProperty: file.basename',
+    '    tngantt_parentProperty: note.in',
+    '    tngantt_statusProperty: note.status',
+    '    tngantt_startDateProperty: note.scheduled',
+    '    tngantt_endDateProperty: note.due',
+    '    tngantt_textProperty: file.basename',
     '    tngantt_expandedRelationships: inherit',
     '    tngantt_hideTopLevelSubtasks: false',
     '  - type: table',

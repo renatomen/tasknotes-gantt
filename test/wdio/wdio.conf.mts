@@ -12,6 +12,21 @@ const defaultVault = path.resolve(__dirname, "../../.wdio-vault");
 const vaultPath =
   (process.env.OBSIDIAN_TEST_VAULT ?? "").split(";")[0]?.trim() || defaultVault;
 
+function readPinnedTaskNotesVersion(): string {
+  const pinPath = path.join(__dirname, "tasknotes-pin.json");
+  const raw: unknown = JSON.parse(fs.readFileSync(pinPath, "utf8"));
+  if (
+    typeof raw !== "object" ||
+    raw === null ||
+    !("tasknotesVersion" in raw) ||
+    typeof raw.tasknotesVersion !== "string" ||
+    raw.tasknotesVersion.length === 0
+  ) {
+    throw new Error(`${pinPath} has no tasknotesVersion`);
+  }
+  return raw.tasknotesVersion;
+}
+
 // Ensure vault directory exists to avoid service failures in CI/local
 try {
   fs.mkdirSync(vaultPath, { recursive: true });
@@ -70,7 +85,7 @@ export const config: WebdriverIO.Config = {
         // environments can swap the entry for { path: "<local tasknotes build>" }.
         plugins: [
           path.resolve(pluginRoot, "dist"),
-          { repo: "callumalpass/tasknotes", version: "4.11.0" },
+          { repo: "callumalpass/tasknotes", version: readPinnedTaskNotesVersion() },
         ],
         vault: vaultPath,
       },

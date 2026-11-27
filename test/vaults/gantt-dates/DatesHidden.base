@@ -1,6 +1,7 @@
 filters:
   and:
     - 'file.ext == "md"'
+    - '!file.inFolder("_mdbase")'
 views:
   - type: obsidianGantt
     name: "Gantt Dates (hide undated, no indicators)"

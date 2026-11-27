@@ -11,9 +11,11 @@ import { waitUntilOrExplain } from "./helpers/waitReady";
  * subscription render as read-only event rows — end to end against real
  * Obsidian + TaskNotes + SVAR.
  *
- * FIXTURE PROVISIONING: the fixture vault ships `External.ics` (two singles +
+ * FIXTURE PROVISIONING: the temp vault gets `External.ics` (two singles +
  * one all-day daily series, COUNT=3 — all-day keeps every asserted day
- * timezone-stable) and this spec registers it in the temp vault's TaskNotes
+ * timezone-stable). Recurring expansion drops instances outside its lookback,
+ * so the copy is dated from today and stays inside that window. This spec
+ * registers the file in the temp vault's TaskNotes
  * `data.json` BEFORE Obsidian boots: TaskNotes stores subscriptions as the
  * top-level `icsSubscriptions` array of its plugin data
  * (ICSSubscriptionService.loadSubscriptions), and the wdio launcher installs
@@ -52,7 +54,56 @@ const UPSTREAM_EVENT_COUNT = 5;
 /** 2 single rows + the series collapsed to ONE row. */
 const EXPECTED_EXTERNAL_ROWS = 3;
 const SERIES_ID_FRAGMENT = "daily-sync%40e2e";
-const ALL_DAY_SINGLE_FRAGMENT = `external-event/ics%3A${SUBSCRIPTION_ID}@2026-03-12`;
+
+function utcDay(daysBeforeToday: number): Date {
+  const day = new Date();
+  day.setUTCHours(0, 0, 0, 0);
+  day.setUTCDate(day.getUTCDate() - daysBeforeToday);
+  return day;
+}
+
+function compactUtcDay(day: Date): string {
+  return day.toISOString().slice(0, 10).replace(/-/g, "");
+}
+
+const officeClosedDay = utcDay(6);
+const ALL_DAY_SINGLE_FRAGMENT = `external-event/ics%3A${SUBSCRIPTION_ID}@${officeClosedDay.toISOString().slice(0, 10)}`;
+
+function writeWindowedExternalFeed(vaultDir: string): void {
+  const review = utcDay(8);
+  const closedEnd = utcDay(5);
+  const series = utcDay(4);
+  const lines = [
+    "BEGIN:VCALENDAR",
+    "VERSION:2.0",
+    "PRODID:-//tasknotes-gantt e2e//External Fixture//EN",
+    "CALSCALE:GREGORIAN",
+    "BEGIN:VEVENT",
+    "UID:design-review@e2e",
+    `DTSTAMP:${compactUtcDay(review)}T000000Z`,
+    `DTSTART:${compactUtcDay(review)}T090000Z`,
+    `DTEND:${compactUtcDay(review)}T100000Z`,
+    "SUMMARY:Design Review",
+    "END:VEVENT",
+    "BEGIN:VEVENT",
+    "UID:office-closed@e2e",
+    `DTSTAMP:${compactUtcDay(officeClosedDay)}T000000Z`,
+    `DTSTART;VALUE=DATE:${compactUtcDay(officeClosedDay)}`,
+    `DTEND;VALUE=DATE:${compactUtcDay(closedEnd)}`,
+    "SUMMARY:Office Closed",
+    "END:VEVENT",
+    "BEGIN:VEVENT",
+    "UID:daily-sync@e2e",
+    `DTSTAMP:${compactUtcDay(series)}T000000Z`,
+    `DTSTART;VALUE=DATE:${compactUtcDay(series)}`,
+    "RRULE:FREQ=DAILY;COUNT=3",
+    "SUMMARY:Daily Sync",
+    "END:VEVENT",
+    "END:VCALENDAR",
+    "",
+  ];
+  fs.writeFileSync(path.join(vaultDir, "External.ics"), lines.join("\r\n"));
+}
 
 const tmpVault = path.join(os.tmpdir(), "og-gantt-calendar-external-e2e");
 
@@ -269,14 +320,18 @@ describe("Gantt (OG) calendar items — external ICS events", () => {
     // Hermetic temp vault + pre-seeded TaskNotes data.json registering the
     // fixture's local ICS file as an enabled subscription (top-level
     // `icsSubscriptions`, the shape ICSSubscriptionService loads/saves).
+    // enableMdbaseSpec is set because a fresh TaskNotes install turns it on;
+    // a seeded settings file would otherwise omit it.
     fs.rmSync(tmpVault, { recursive: true, force: true });
     fs.cpSync(fixtureVault, tmpVault, { recursive: true });
+    writeWindowedExternalFeed(tmpVault);
     const taskNotesDir = path.join(tmpVault, ".obsidian", "plugins", "tasknotes");
     fs.mkdirSync(taskNotesDir, { recursive: true });
     fs.writeFileSync(
       path.join(taskNotesDir, "data.json"),
       JSON.stringify(
         {
+          enableMdbaseSpec: true,
           icsSubscriptions: [
             {
               id: SUBSCRIPTION_ID,

@@ -19,7 +19,8 @@ import type { GenerateParams } from "../perf/generator/graph";
  * vault does NOT storm (different read path) — which is why earlier synthetic
  * repros missed it.
  *
- * This spec emits that exact shape (`parentField:'in'` + multi-view storm base),
+ * This spec emits that exact shape (`parentField:'in'` + multi-view storm base,
+ * with the view keys the Gantt reads),
  * drives the confirmed trigger (`config.set` + `controller.onConfigChanged`), and
  * measures re-render churn. PRE-FIX (or with `__OG_DISABLE_REUSE`) it storms;
  * with the fix it settles. Marked `.perf.e2e.ts` (scheduled job only).
