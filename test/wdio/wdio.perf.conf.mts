@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
+import { assertPinnedModelMatchesTaskNotesRelease, readTaskNotesPin } from "./tasknotesPin.mjs";
 
 /**
  * WDIO config for the SCHEDULED full-stack perf job (U5/U6, #161 perf plan).
@@ -25,18 +26,7 @@ const vaultPath =
   (process.env.OBSIDIAN_TEST_VAULT ?? "").split(";")[0]?.trim() || defaultVault;
 
 function readPinnedTaskNotesVersion(): string {
-  const pinPath = path.join(__dirname, "tasknotes-pin.json");
-  const raw: unknown = JSON.parse(fs.readFileSync(pinPath, "utf8"));
-  if (
-    typeof raw !== "object" ||
-    raw === null ||
-    !("tasknotesVersion" in raw) ||
-    typeof raw.tasknotesVersion !== "string" ||
-    raw.tasknotesVersion.length === 0
-  ) {
-    throw new Error(`${pinPath} has no tasknotesVersion`);
-  }
-  return raw.tasknotesVersion;
+  return readTaskNotesPin(__dirname).tasknotesVersion;
 }
 
 try {
@@ -66,4 +56,7 @@ export const config: WebdriverIO.Config = {
   services: ["obsidian"],
   reporters: ["obsidian", "spec"],
   mochaOpts: { ui: "bdd", timeout: 600000 },
+  onPrepare: async () => {
+    await assertPinnedModelMatchesTaskNotesRelease(__dirname);
+  },
 };

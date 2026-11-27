@@ -174,8 +174,11 @@ function patternDays(
       )
     : utcDayStart(window.endDateExclusive);
   const scheduled = task.scheduled instanceof Date ? toLocalDay(task.scheduled) : task.scheduled;
+  // The model calendar drops a TZID parameter before expansion. Left in place,
+  // a two-line rule lands a day late in some timezones.
+  const recurrence = task.recurrence.replace(/;TZID=[^:;\r\n]+/g, '');
   const occurrences = generateRecurringInstances(
-    { title: task.title ?? '', recurrence: task.recurrence, ...(scheduled ? { scheduled } : {}) },
+    { title: task.title ?? '', recurrence, ...(scheduled ? { scheduled } : {}) },
     windowStart,
     searchEnd,
   );

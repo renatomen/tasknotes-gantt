@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
+import { assertPinnedModelMatchesTaskNotesRelease, readTaskNotesPin } from "./tasknotesPin.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -13,18 +14,7 @@ const vaultPath =
   (process.env.OBSIDIAN_TEST_VAULT ?? "").split(";")[0]?.trim() || defaultVault;
 
 function readPinnedTaskNotesVersion(): string {
-  const pinPath = path.join(__dirname, "tasknotes-pin.json");
-  const raw: unknown = JSON.parse(fs.readFileSync(pinPath, "utf8"));
-  if (
-    typeof raw !== "object" ||
-    raw === null ||
-    !("tasknotesVersion" in raw) ||
-    typeof raw.tasknotesVersion !== "string" ||
-    raw.tasknotesVersion.length === 0
-  ) {
-    throw new Error(`${pinPath} has no tasknotesVersion`);
-  }
-  return raw.tasknotesVersion;
+  return readTaskNotesPin(__dirname).tasknotesVersion;
 }
 
 // Ensure vault directory exists to avoid service failures in CI/local
@@ -114,8 +104,9 @@ export const config: WebdriverIO.Config = {
   // This file is re-imported by every worker session, so module-scope cleanup
   // would delete earlier specs' session files mid-run and silently understate
   // the merged results (observed: 39-spec run merged to 1 spec).
-  onPrepare: () => {
+  onPrepare: async () => {
     fs.rmSync(resultsDir, { recursive: true, force: true });
+    await assertPinnedModelMatchesTaskNotesRelease(__dirname);
   },
   onComplete: async (_exitCode, _config, _capabilities, results) => {
     const { default: mergeResults } = await import("@wdio/json-reporter/mergeResults");
