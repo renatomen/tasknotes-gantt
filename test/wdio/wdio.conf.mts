@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
+import { SevereServiceError } from "webdriverio";
 import { assertPinnedModelMatchesTaskNotesRelease, readTaskNotesPin } from "./tasknotesPin.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -106,7 +107,12 @@ export const config: WebdriverIO.Config = {
   // the merged results (observed: 39-spec run merged to 1 spec).
   onPrepare: async () => {
     fs.rmSync(resultsDir, { recursive: true, force: true });
-    await assertPinnedModelMatchesTaskNotesRelease(__dirname);
+    try {
+      await assertPinnedModelMatchesTaskNotesRelease(__dirname);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new SevereServiceError(message);
+    }
   },
   onComplete: async (_exitCode, _config, _capabilities, results) => {
     const { default: mergeResults } = await import("@wdio/json-reporter/mergeResults");

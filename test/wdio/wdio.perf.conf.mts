@@ -1,6 +1,7 @@
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
+import { SevereServiceError } from "webdriverio";
 import { assertPinnedModelMatchesTaskNotesRelease, readTaskNotesPin } from "./tasknotesPin.mjs";
 
 /**
@@ -57,6 +58,11 @@ export const config: WebdriverIO.Config = {
   reporters: ["obsidian", "spec"],
   mochaOpts: { ui: "bdd", timeout: 600000 },
   onPrepare: async () => {
-    await assertPinnedModelMatchesTaskNotesRelease(__dirname);
+    try {
+      await assertPinnedModelMatchesTaskNotesRelease(__dirname);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new SevereServiceError(message);
+    }
   },
 };
