@@ -6,21 +6,22 @@
  * API-free (it invokes this through callback props, mirroring the `onMutate`
  * seam). The view never imports TaskNotes/Obsidian internals.
  *
- * Behaviour mirrors TaskNotes' own task-card handler (confirmed against
- * TaskNotes 4.11.0): `ctrl/meta` → open the note in a new tab; otherwise the
- * configured `singleClickAction`/`doubleClickAction` (`edit` | `openNote` |
- * `none`) decides. Right-click shows the native task context menu.
+ * Behaviour mirrors TaskNotes' own task-card handler: `ctrl/meta` → open the
+ * note in a new tab; otherwise the configured `singleClickAction`/
+ * `doubleClickAction` (`edit` | `openNote` | `none`) decides. Right-click shows
+ * the native task context menu.
  *
  * Reads ride supported public APIs (`api.settings.snapshot()`,
- * `api.ui.taskMenu`, `api.tasks.get`); only opening the edit modal uses the
- * internal `plugin.openTaskEditModal`, guarded, with a fallback to opening the
- * note so it degrades rather than breaks (see plan KTD / origin decision).
+ * `api.ui.taskMenu`, and path lookup on `api.tasks`). Only opening the edit
+ * modal uses the internal `plugin.openTaskEditModal`, guarded, with a fallback
+ * to opening the note so a missing modal degrades rather than breaks.
  *
  * @module bases/taskNotesInteractions
  */
 
 /* global MouseEvent */
 import type { App } from 'obsidian';
+import { canLookupTaskByPath, lookupTaskByPath } from '../datasource/taskLookup';
 
 /** TaskNotes plugin id used to resolve the plugin instance + api. */
 const TASKNOTES_PLUGIN_ID = 'tasknotes';
@@ -85,7 +86,10 @@ export function resolveClickActivation(opts: {
 interface TaskNotesPlugin {
   api?: {
     settings?: { snapshot?(): Record<string, unknown> | null | undefined };
-    tasks?: { get(path: string): unknown };
+    tasks?: {
+      get?(path: string): unknown;
+      getByPath?(path: string): unknown;
+    };
     ui?: { taskMenu?: { show?(opts: { taskPath: string; event: MouseEvent }): void } };
   };
   /** Internal: opens the native edit modal for a TaskInfo. No public API. */
@@ -177,11 +181,11 @@ export class TaskNotesInteractions {
    */
   private async openEditModalOrFallback(path: string): Promise<void> {
     const plugin = this.resolvePlugin();
-    const get = plugin?.api?.tasks?.get;
+    const tasks = plugin?.api?.tasks;
     const open = plugin?.openTaskEditModal;
-    if (plugin && typeof get === 'function' && typeof open === 'function') {
+    if (plugin && canLookupTaskByPath(tasks) && typeof open === 'function') {
       try {
-        const task = await get.call(plugin.api!.tasks, path);
+        const task = await lookupTaskByPath(tasks, path);
         if (task) {
           open.call(plugin, task);
           return;

@@ -153,12 +153,19 @@ describe('TaskNotesSource — dependency writes (M2)', () => {
 
     it('preserves existing edges verbatim when appending', async () => {
       const { source, updateSpy } = await makeWritableSource({
-        tasks: [{ path: 'dep.md', blockedBy: [{ uid: '[[other]]', reltype: 'STARTTOSTART', gap: 'P1D' }] }],
+        tasks: [{
+          path: 'dep.md',
+          blockedBy: [
+            { uid: '[[one]]', reltype: 'FINISHTOSTART' },
+            { uid: '[[two]]', reltype: 'STARTTOSTART', gap: 'P1D' },
+          ],
+        }],
       });
       await source.addDependency('dep.md', 'pred.md', 'FINISHTOSTART');
       const [, updates] = updateSpy.mock.calls[0]!;
       expect((updates as { blockedBy: unknown[] }).blockedBy).toEqual([
-        { uid: '[[other]]', reltype: 'STARTTOSTART', gap: 'P1D' },
+        { uid: '[[one]]', reltype: 'FINISHTOSTART' },
+        { uid: '[[two]]', reltype: 'STARTTOSTART', gap: 'P1D' },
         { uid: '[[pred]]', reltype: 'FINISHTOSTART' },
       ]);
     });
@@ -208,6 +215,114 @@ describe('TaskNotesSource — dependency writes (M2)', () => {
       });
       await source.removeDependency('dep.md', 'pred.md');
       expect(updateSpy).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('path lookup', () => {
+    function trackLookup(api: TaskNotesApi, opts: {
+      offer: 'both' | 'getByPath' | 'neither';
+      /** What `getByPath` returns. Omitted: the same task `get` would return. */
+      byPathResult?: TaskNotesTaskInfo | null;
+    }) {
+      const original = api.tasks!.get.bind(api.tasks);
+      const getSpy = jest.fn((path: string) => original(path));
+      const getByPathSpy = jest.fn((path: string) =>
+        opts.byPathResult !== undefined ? opts.byPathResult : original(path),
+      );
+      if (opts.offer === 'neither' || opts.offer === 'getByPath') {
+        delete (api.tasks as { get?: unknown }).get;
+      } else {
+        api.tasks!.get = getSpy;
+      }
+      if (opts.offer === 'both' || opts.offer === 'getByPath') {
+        api.tasks!.getByPath = getByPathSpy;
+      }
+      return { getSpy, getByPathSpy };
+    }
+
+    it('calls getByPath and not get when both lookups are offered', async () => {
+      const built = makeApi({ hasWrite: true, tasks: [{ path: 'dep.md' }] });
+      const { getSpy, getByPathSpy } = trackLookup(built.api, { offer: 'both' });
+      const source = await TaskNotesSource.create(makeApp(built.api));
+
+      await source!.addDependency('dep.md', 'pred.md', 'FINISHTOSTART');
+
+      expect(getByPathSpy).toHaveBeenCalledWith('dep.md');
+      expect(getSpy).not.toHaveBeenCalled();
+      expect(built.updateSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it('writes a dependency through getByPath when get is absent', async () => {
+      const built = makeApi({ hasWrite: true, tasks: [{ path: 'dep.md' }] });
+      const { getByPathSpy } = trackLookup(built.api, { offer: 'getByPath' });
+      const source = await TaskNotesSource.create(makeApp(built.api));
+
+      await source!.addDependency('dep.md', 'pred.md', 'FINISHTOSTART');
+
+      expect(getByPathSpy).toHaveBeenCalledWith('dep.md');
+      expect(built.updateSpy).toHaveBeenCalledWith(
+        'dep.md',
+        { blockedBy: [{ uid: '[[pred]]', reltype: 'FINISHTOSTART' }] },
+        undefined,
+      );
+    });
+
+    it('refuses to add a dependency when neither lookup is offered, without calling update', async () => {
+      const built = makeApi({ hasWrite: true, tasks: [{ path: 'dep.md' }] });
+      trackLookup(built.api, { offer: 'neither' });
+      const source = await TaskNotesSource.create(makeApp(built.api));
+
+      await expect(
+        source!.addDependency('dep.md', 'pred.md', 'FINISHTOSTART'),
+      ).rejects.toThrow(/dependency writes/i);
+      expect(built.updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('refuses to remove a dependency when neither lookup is offered, without calling update', async () => {
+      const built = makeApi({ hasWrite: true, tasks: [{ path: 'dep.md' }] });
+      trackLookup(built.api, { offer: 'neither' });
+      const source = await TaskNotesSource.create(makeApp(built.api));
+
+      await expect(source!.removeDependency('dep.md', 'pred.md')).rejects.toThrow(/dependency writes/i);
+      expect(built.updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('writes nothing when get finds no task', async () => {
+      const { source, updateSpy } = await makeWritableSource({ tasks: [] });
+
+      await expect(
+        source.addDependency('dep.md', 'pred.md', 'FINISHTOSTART'),
+      ).rejects.toThrow(/no TaskNotes task/i);
+      expect(updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('writes nothing when getByPath finds no task, and does not call get', async () => {
+      const built = makeApi({
+        hasWrite: true,
+        tasks: [{ path: 'dep.md', blockedBy: [{ uid: '[[keep]]', reltype: 'FINISHTOSTART' }] }],
+      });
+      const { getSpy, getByPathSpy } = trackLookup(built.api, { offer: 'both', byPathResult: null });
+      const source = await TaskNotesSource.create(makeApp(built.api));
+
+      await expect(
+        source!.addDependency('dep.md', 'pred.md', 'FINISHTOSTART'),
+      ).rejects.toThrow(/no TaskNotes task/i);
+      expect(getByPathSpy).toHaveBeenCalledWith('dep.md');
+      expect(getSpy).not.toHaveBeenCalled();
+      expect(built.updateSpy).not.toHaveBeenCalled();
+    });
+
+    it('removes nothing when getByPath finds no task, and does not call get', async () => {
+      const built = makeApi({
+        hasWrite: true,
+        tasks: [{ path: 'dep.md', blockedBy: [{ uid: '[[pred]]', reltype: 'FINISHTOSTART' }] }],
+      });
+      const { getSpy } = trackLookup(built.api, { offer: 'both', byPathResult: null });
+      const source = await TaskNotesSource.create(makeApp(built.api));
+
+      await expect(source!.removeDependency('dep.md', 'pred.md')).rejects.toThrow(/no TaskNotes task/i);
+      expect(getSpy).not.toHaveBeenCalled();
+      expect(built.updateSpy).not.toHaveBeenCalled();
     });
   });
 });
@@ -1322,6 +1437,22 @@ describe('TaskNotesSource', () => {
   describe('write path — generic field writes (U2)', () => {
     // The row is TaskNotes-managed: tasks.get resolves task info for it.
     const managedTask = { path: 't.md', title: 'T' };
+
+    it('mutate() looks up a fieldWrite through getByPath and does not call get', async () => {
+      const { api, updateSpy } = makeApi({ hasWrite: true, tasks: [managedTask] });
+      const original = api.tasks!.get.bind(api.tasks);
+      const getSpy = jest.fn((path: string) => original(path));
+      const getByPathSpy = jest.fn((path: string) => original(path));
+      api.tasks!.get = getSpy;
+      api.tasks!.getByPath = getByPathSpy;
+      const source = await TaskNotesSource.create(makeApp(api));
+
+      await source!.mutate('t.md', { fieldWrite: { key: 'effort', value: 'high' } });
+
+      expect(getByPathSpy).toHaveBeenCalledWith('t.md');
+      expect(getSpy).not.toHaveBeenCalled();
+      expect(updateSpy).toHaveBeenCalledWith('t.md', { effort: 'high' }, undefined);
+    });
 
     it('mutate() applies a fieldWrite as a top-level frontmatter key (real writer shape, never nested under userFields)', async () => {
       // Arrange
