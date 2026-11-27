@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import { SevereServiceError } from "webdriverio";
-import { assertPinnedModelMatchesTaskNotesRelease, readTaskNotesPin } from "./tasknotesPin.mjs";
+import { assertPinnedModelMatchesTaskNotesRelease, readTaskNotesPin } from "./tasknotesPin";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

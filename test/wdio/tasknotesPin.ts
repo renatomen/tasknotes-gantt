@@ -4,18 +4,28 @@
  * that release's own package.json on GitHub.
  */
 
-/* global fetch */
 import fs from 'node:fs';
 import path from 'node:path';
 
-export function readTaskNotesPin(configDir) {
+export interface TaskNotesPin {
+  tasknotesVersion: string;
+  modelVersion: string;
+}
+
+interface TaskNotesPackage {
+  dependencies?: Record<string, string>;
+}
+
+export function readTaskNotesPin(configDir: string): TaskNotesPin {
   const pinPath = path.join(configDir, 'tasknotes-pin.json');
-  const raw = JSON.parse(fs.readFileSync(pinPath, 'utf8'));
+  const raw: unknown = JSON.parse(fs.readFileSync(pinPath, 'utf8'));
   if (
     typeof raw !== 'object' ||
     raw === null ||
+    !('tasknotesVersion' in raw) ||
     typeof raw.tasknotesVersion !== 'string' ||
     raw.tasknotesVersion.length === 0 ||
+    !('modelVersion' in raw) ||
     typeof raw.modelVersion !== 'string' ||
     raw.modelVersion.length === 0 ||
     raw.modelVersion.startsWith('^')
@@ -25,14 +35,14 @@ export function readTaskNotesPin(configDir) {
   return { tasknotesVersion: raw.tasknotesVersion, modelVersion: raw.modelVersion };
 }
 
-export async function assertPinnedModelMatchesTaskNotesRelease(configDir) {
+export async function assertPinnedModelMatchesTaskNotesRelease(configDir: string): Promise<void> {
   const pin = readTaskNotesPin(configDir);
   const url = `https://raw.githubusercontent.com/callumalpass/tasknotes/${pin.tasknotesVersion}/package.json`;
-  const response = await fetch(url);
+  const response = await globalThis.fetch(url);
   if (!response.ok) {
     throw new Error(`TaskNotes ${pin.tasknotesVersion} package.json returned ${response.status}`);
   }
-  const packaged = await response.json();
+  const packaged = (await response.json()) as TaskNotesPackage;
   const declared = packaged.dependencies?.['@tasknotes/model'];
   if (declared !== pin.modelVersion) {
     throw new Error(

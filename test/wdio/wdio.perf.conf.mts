@@ -2,7 +2,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import fs from "node:fs";
 import { SevereServiceError } from "webdriverio";
-import { assertPinnedModelMatchesTaskNotesRelease, readTaskNotesPin } from "./tasknotesPin.mjs";
+import { assertPinnedModelMatchesTaskNotesRelease, readTaskNotesPin } from "./tasknotesPin";
 
 /**
  * WDIO config for the SCHEDULED full-stack perf job (U5/U6, #161 perf plan).
