@@ -159,17 +159,22 @@ function buildMaterializedIndex(
   return index;
 }
 
+/**
+ * A trailing newline makes the model treat an inline rule as a DTSTART-only
+ * property and fall back to yearly. A TZID parameter left in place lands a
+ * two-line rule a day late in some timezones. Normalize before either choice.
+ */
+function recurrenceForExpansion(recurrence: string): string {
+  return recurrence.replace(/;TZID=[^:;\r\n]+/g, '').trim();
+}
+
 /** Pattern days from the model expansion, window-filtered as the calendar does. */
 function patternDays(
   task: TaskNotesTaskInfo & { recurrence: string },
   window: CalendarDerivationWindow,
 ): LocalDay[] {
   const windowStart = utcDayStart(window.startDate);
-  // A trailing newline makes the model treat an inline rule as a DTSTART-only
-  // property and fall back to yearly. A TZID parameter left in place lands a
-  // two-line rule a day late in some timezones. Normalize before either choice.
-  const recurrence = task.recurrence.replace(/;TZID=[^:;\r\n]+/g, '').trim();
-  const searchEnd = recurrence.includes('FREQ=YEARLY')
+  const searchEnd = task.recurrence.includes('FREQ=YEARLY')
     ? new Date(
         Math.max(
           windowStart.getTime() + YEARLY_LOOKAHEAD_DAYS * MILLISECONDS_PER_DAY,
@@ -179,7 +184,7 @@ function patternDays(
     : utcDayStart(window.endDateExclusive);
   const scheduled = task.scheduled instanceof Date ? toLocalDay(task.scheduled) : task.scheduled;
   const occurrences = generateRecurringInstances(
-    { title: task.title ?? '', recurrence, ...(scheduled ? { scheduled } : {}) },
+    { title: task.title ?? '', recurrence: task.recurrence, ...(scheduled ? { scheduled } : {}) },
     windowStart,
     searchEnd,
   );
@@ -237,7 +242,10 @@ function addVirtualInstances(scope: InstanceExpansionScope): void {
   ) {
     states.set(scheduledDay, rules.recordedState(scheduledDay) ?? 'next');
   }
-  for (const day of patternDays(task, window)) {
+  for (const day of patternDays(
+    { ...task, recurrence: recurrenceForExpansion(task.recurrence) },
+    window,
+  )) {
     if (day === scheduledDay || materializedDays.has(day) || !rules.passesSubToggles(day)) continue;
     states.set(day, rules.recordedState(day) ?? 'projected');
   }
