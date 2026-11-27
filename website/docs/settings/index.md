@@ -10,7 +10,7 @@ that view. The menu is organized into the same collapsible groups used here.
 
 | Group | What it controls |
 | --- | --- |
-| [Fields](fields.md) | Which note properties supply the task name, dates, parent, status, priority, and time estimate. |
+| [Fields](fields.md) | Which note properties supply the task name, dates, parent, status, priority, assignees, and time estimate. |
 | [Progress](progress.md) | Where a bar's progress comes from and whether you can edit it. |
 | [Relationships](relationships.md) | How related tasks pulled in for context are shown. **Companion only.** |
 | [Timeline](timeline.md) | Scale, duration, weekend shading, dependency arrows, parent-date cascade, and missing-date handling. |
