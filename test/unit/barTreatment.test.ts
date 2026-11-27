@@ -673,6 +673,28 @@ describe('resolveIconSpec', () => {
     const p: Palettes = { status: [{ value: 'x', color: 'transparent', isCompleted: false }], priority: [] };
     expect(resolveIconSpec('status', inst('x'), p)).toEqual({ kind: 'status', color: 'currentColor' });
   });
+
+  it('carries a palette glyph and keeps a configured icon beside it', () => {
+    const glyph = { role: 'status' as const, kind: 'progress' as const, progress: 1 / 3 };
+    const p: Palettes = {
+      status: [
+        { value: 'doing', color: '#0066cc', isCompleted: false, glyph },
+        { value: 'doing-icon', color: '#0066cc', isCompleted: false, icon: 'loader', glyph },
+      ],
+      priority: [],
+    };
+    expect(resolveIconSpec('status', inst('doing'), p)).toEqual({
+      kind: 'status',
+      color: '#0066cc',
+      glyph,
+    });
+    expect(resolveIconSpec('status', inst('doing-icon'), p)).toEqual({
+      kind: 'status',
+      color: '#0066cc',
+      iconName: 'loader',
+      glyph,
+    });
+  });
 });
 
 describe('calendar color source (U12)', () => {

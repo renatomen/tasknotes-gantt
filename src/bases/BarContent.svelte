@@ -24,8 +24,9 @@
   // reinitStore does not read taskTemplate, so this never re-inits the store.
   /* global Element, HTMLElement, Event */
   import type { IApi } from '@svar-ui/svelte-gantt';
-  import { lucideIcon } from './lucideIconAction';
+  import PaletteMark from './PaletteMark.svelte';
   import type { IconSpec } from './barTreatment';
+  import { drawnIcon } from './paletteIcon';
   import type { EstimateMeaning } from './viewOptions';
   import { scaleSnapshot } from '../render/svarContract';
   import {
@@ -288,17 +289,7 @@
   >
     {#if spec}
       <span class="og-bar-chip">
-        {#if spec.iconName}
-          <span class="og-bar-glyph" use:lucideIcon={spec.iconName}></span>
-        {:else if spec.kind === 'priority'}
-          <span class="og-bar-dot" style="background-color: {spec.color}"></span>
-        {:else if spec.completed}
-          <!-- Completed status → filled disc (TaskNotes fills the status dot for a
-               completed status); a non-completed status is a hollow ring below. -->
-          <span class="og-bar-disc" style="background-color: {spec.color}"></span>
-        {:else}
-          <span class="og-bar-ring" style="border-color: {spec.color}"></span>
-        {/if}
+        <PaletteMark drawn={drawnIcon(spec)} color={spec.color} />
       </span>
     {/if}<span class="og-bar-text">{data.text ?? ''}</span>
   </div>

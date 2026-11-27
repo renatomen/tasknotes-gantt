@@ -171,5 +171,16 @@ describe('cellRenderKey', () => {
     expect(cellRenderKey({ mode: 'markdown', source: '#a' })).toBe('m:#a');
     expect(cellRenderKey({ mode: 'text', text: 'x' })).toBe('t:x');
     expect(cellRenderKey(undefined)).toBe('');
+    expect(
+      cellRenderKey({
+        mode: 'text',
+        text: 'in-progress',
+        paletteMark: {
+          kind: 'glyph',
+          color: '#0066cc',
+          glyph: { role: 'status', kind: 'progress', progress: 0.5 },
+        },
+      }),
+    ).toBe('t:in-progress|g:status:progress:0.5:#0066cc');
   });
 });

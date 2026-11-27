@@ -1157,6 +1157,18 @@
     height: 11px;
     border-radius: 50%;
   }
+  /* Palette glyph (status pie, priority rank). Color is the entry's own color,
+     set inline, so it stays distinct from the near-black configured icon. */
+  .og-bases-gantt :global(.og-palette-glyph) {
+    display: inline-flex;
+    flex: 0 0 auto;
+    width: 13px;
+    height: 13px;
+  }
+  .og-bases-gantt :global(.og-palette-glyph svg) {
+    width: 13px;
+    height: 13px;
+  }
   /* Icon glyph (setIcon SVG): a fixed soft near-black in both themes (the chip is
      always light gray), rather than tinted per status — cleaner, higher contrast.
      Lucide icons stroke with currentColor, so setting `color` recolors the glyph. */
