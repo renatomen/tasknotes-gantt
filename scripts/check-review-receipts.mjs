@@ -2,7 +2,7 @@
 /**
  * Pre-push review gate: a push is allowed only when BOTH local review layers
  * (ce-code-review and an independent cross-model peer) have recorded a clean receipt
- * against every commit being pushed.
+ * against each non-deletion pushed ref tip (archival subjects excepted).
  *
  * The reviews themselves are agentic and run outside git; this script only
  * makes an unreviewed push mechanically impossible by demanding receipts.
@@ -18,7 +18,9 @@
  * write-once - never replaced or deleted through this hook (see
  * ARCHIVAL_SUBJECT_REF_PREFIX); any malformed line fails the push. Run manually without piped input it falls
  * back to HEAD. Receipts live in .git/ (per-clone, never committed), keyed by
- * commit sha: {"receipts": {"<sha>": {"<layer>": "<iso timestamp>"}}}.
+ * commit sha. Peer entries carry { at, family, authors, findings? }; legacy
+ * entries mean Codex reviewing Claude authors. Independence is judged when
+ * recorded, so every ref carrying a commit gets the same receipt verdict.
  *
  * A receipt attests that the chain of reviews ending at that commit was run
  * clean - reviews diff against the previously receipted or pushed state, so
@@ -45,8 +47,10 @@ export const REQUIRED_LAYERS = ['ce-code-review', 'cross-model-peer'];
  */
 const PEER_LAYER = 'cross-model-peer';
 const PEER_ATTESTATION_ENV = 'OG_PEER_REVIEW_ATTESTED_SHA';
-const PEER_WRAPPER = 'bash scripts/cross-model-peer-review.sh <base> <out> --record';
-
+const PEER_FAMILY_ENV = 'OG_PEER_REVIEW_ATTESTED_FAMILY';
+const PEER_AUTHORS_ENV = 'OG_PEER_REVIEW_ATTESTED_AUTHORS';
+const MODEL_FAMILIES = ['codex', 'claude'];
+const PEER_WRAPPER = 'bash scripts/cross-model-peer-review.sh <base> <out> --author <authoring families> --peer <the other family> --record';
 const SHA_PATTERN = /^([0-9a-f]{40}|[0-9a-f]{64})$/;
 const DIGEST_PATTERN = /^[0-9a-f]{64}$/;
 
@@ -127,7 +131,9 @@ export function parsePushedRefLines(stdinText) {
       continue;
     }
     if (tokens[2].startsWith(ARCHIVAL_SUBJECT_REF_PREFIX)) archival.push({ ref: tokens[2], sha: localSha, remoteSha: tokens[3] });
-    else if (!isDeletion(localSha)) shas.add(localSha);
+    else if (!isDeletion(localSha)) {
+      shas.add(localSha);
+    }
   }
   return { shas: [...shas], invalid, archival };
 }
@@ -194,6 +200,50 @@ export function evaluateReceipts(store, shas, requiredLayers = REQUIRED_LAYERS) 
   return { ok: Object.keys(missingBySha).length === 0, missingBySha };
 }
 
+function validAuthors(authors) {
+  return Array.isArray(authors) && authors.length > 0 && authors.every((family) => MODEL_FAMILIES.includes(family));
+}
+
+function peerIndependenceProblem(family, authors) {
+  if (!MODEL_FAMILIES.includes(family)) return 'invalid peer family; the wrapper must attest codex or claude';
+  if (!validAuthors(authors)) return 'missing or invalid author set; rerun the peer wrapper with --author <authoring families>';
+  if (MODEL_FAMILIES.every((candidate) => authors.includes(candidate))) return "both families authored the reviewed range; no eligible peer is available; each family's work must land on its own branch";
+  if (!authors.includes(family)) return null;
+  const other = MODEL_FAMILIES.find((candidate) => candidate !== family);
+  return 'peer family ' + family + ' authored the reviewed range; run bash scripts/cross-model-peer-review.sh <base> <out> --author ' + authors.join(',') + ' --peer ' + other + ' --record';
+}
+
+export function evaluatePeerFamilies(store, shas) {
+  const problems = [];
+  for (const sha of shas) {
+    const peer = store.receipts?.[sha]?.[PEER_LAYER];
+    if (!peer) continue;
+    const legacy = typeof peer === 'string' ||
+      (typeof peer.at === 'string' && !Object.hasOwn(peer, 'family') && !Object.hasOwn(peer, 'authors'));
+    const family = legacy ? 'codex' : peer.family;
+    const authors = legacy ? ['claude'] : peer.authors;
+    const problem = peerIndependenceProblem(family, authors);
+    if (problem !== null) problems.push(sha.slice(0, 7) + ': ' + problem);
+  }
+  return problems;
+}
+
+function attestedPeer(sha) {
+  if (process.env[PEER_ATTESTATION_ENV] !== sha) {
+    console.error(`${PEER_LAYER} is recorded BY the review, not alongside it.`);
+    console.error(`  ${PEER_WRAPPER}`);
+    process.exit(1);
+  }
+  const family = process.env[PEER_FAMILY_ENV];
+  const authors = (process.env[PEER_AUTHORS_ENV] ?? '').split(',');
+  const problem = peerIndependenceProblem(family, authors);
+  if (problem !== null) {
+    console.error('peer attestation refused: ' + problem);
+    process.exit(1);
+  }
+  return { family, authors };
+}
+
 /**
  * `sha` binds the receipt to the commit that was actually reviewed. A long
  * review can outlive its own subject: re-reading HEAD here would stamp
@@ -213,13 +263,10 @@ function record(layer, sha = headSha(), findings = '') {
     console.error(`invalid review digest "${findings}" — expected a sha256 of the review output`);
     process.exit(1);
   }
-  if (layer === PEER_LAYER && process.env[PEER_ATTESTATION_ENV] !== sha) {
-    console.error(`${PEER_LAYER} is recorded BY the review, not alongside it.`);
-    console.error(`  ${PEER_WRAPPER}`);
-    process.exit(1);
-  }
+  const peer = layer === PEER_LAYER ? attestedPeer(sha) : null;
   const store = readReceipts();
-  const entry = findings ? { at: new Date().toISOString(), findings } : new Date().toISOString();
+  const at = new Date().toISOString();
+  const entry = peer ? { at, ...peer, ...(findings ? { findings } : {}) } : (findings ? { at, findings } : at);
   store.receipts[sha] = { ...store.receipts[sha], [layer]: entry };
   writeFileSync(receiptPath(), `${JSON.stringify(store, null, 2)}\n`);
   const kind = findings ? `acknowledged (findings ${findings.slice(0, 12)})` : 'clean';
@@ -289,9 +336,9 @@ function refuseArchivalSubjects(problems) {
   process.exit(1);
 }
 
-function peelPushedCommits(pushed) {
+function peelPushedCommits(shas) {
   try {
-    return [...new Set(pushed.map(peelToCommit))];
+    return [...new Set(shas.map(peelToCommit))];
   } catch (error) {
     console.error('pre-push: cannot resolve a pushed object to a commit - refusing to gate blind');
     console.error(`  ${error instanceof Error ? error.message : error}`);
@@ -338,7 +385,7 @@ function refuseMissingReceipts(verdict) {
     console.error(`pre-push: missing clean review receipts for ${sha.slice(0, 7)}: ${missing.join(', ')}`);
     for (const layer of missing) missingLayers.add(layer);
   }
-  console.error('Run both local review layers against each pushed commit, fix every finding, then record:');
+  console.error('Run both local review layers against each pushed ref tip, fix every finding, then record:');
   for (const layer of missingLayers) {
     // Never print a bare `record cross-model-peer`: that is the hand-stamp this
     // gate exists to prevent, and advertising it is how it kept happening.
@@ -354,7 +401,10 @@ function check() {
   const { shas, archival } = pushToCheck(stdinText);
   const store = readReceipts();
   const verdict = evaluateReceipts(store, shas);
+  const familyProblems = evaluatePeerFamilies(store, shas);
+  for (const problem of familyProblems) console.error('pre-push: ' + problem);
   if (!verdict.ok) refuseMissingReceipts(verdict);
+  if (familyProblems.length > 0) process.exit(1);
   reportAcceptedFindings(acknowledgedFindings(store, shas));
   reportArchivalSubjects(archival);
   reportCleanReceipts(shas, shas.length === 0 && archival.length > 0);

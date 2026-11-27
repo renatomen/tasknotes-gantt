@@ -46,6 +46,9 @@ const childEnv = { ...process.env };
 delete childEnv.GIT_DIR;
 delete childEnv.GIT_WORK_TREE;
 delete childEnv.GIT_INDEX_FILE;
+delete childEnv.OG_PEER_REVIEW_ATTESTED_SHA;
+delete childEnv.OG_PEER_REVIEW_ATTESTED_FAMILY;
+delete childEnv.OG_PEER_REVIEW_ATTESTED_AUTHORS;
 
 function git(args: string[], cwd = repo): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8', env: childEnv }).trim();
@@ -60,13 +63,21 @@ function commitFile(path: string, body: string, message: string): string {
   return git(['rev-parse', 'HEAD']);
 }
 
+interface ReviewEntry {
+  at: string;
+  findings?: string;
+  family?: string;
+  authors?: string[];
+}
+
+type ReceiptLayers = Record<string, string | ReviewEntry>;
 /** Put a controlled receipt store in place; `{}` means nothing is receipted. */
-function writeReceipts(receipts: Record<string, Record<string, string>>): void {
+function writeReceipts(receipts: Record<string, ReceiptLayers>): void {
   writeFileSync(join(repo, '.git', 'review-receipts.json'), JSON.stringify({ receipts }, null, 2));
 }
 
 /** The receipt store as written on disk — the only proof a write did NOT happen. */
-function storedReceipts(): Record<string, Record<string, string>> {
+function storedReceipts(): Record<string, ReceiptLayers> {
   return JSON.parse(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).receipts;
 }
 
@@ -78,12 +89,13 @@ function runScript(
   args: string[],
   stdin: string | number = '',
   extraEnv: Record<string, string> = {},
+  cwd = repo,
 ): Run {
   const env = { ...childEnv, ...extraEnv };
   const options =
     typeof stdin === 'number'
-      ? { cwd: repo, encoding: 'utf8' as const, stdio: [stdin, 'pipe', 'pipe'] as Array<number | 'pipe'>, env }
-      : { cwd: repo, input: stdin, encoding: 'utf8' as const, stdio: ['pipe', 'pipe', 'pipe'] as Array<number | 'pipe'>, env };
+      ? { cwd, encoding: 'utf8' as const, stdio: [stdin, 'pipe', 'pipe'] as Array<number | 'pipe'>, env }
+      : { cwd, input: stdin, encoding: 'utf8' as const, stdio: ['pipe', 'pipe', 'pipe'] as Array<number | 'pipe'>, env };
   try {
     const stdout = execFileSync('node', [SCRIPT, ...args], options);
     return { status: 0, stdout: stdout ?? '', stderr: '' };
@@ -101,7 +113,7 @@ const runCheck = (stdin: string | number): Run => runScript(['check'], stdin);
 const runRecord = (layer: string, sha?: string): Run => {
   const target = sha ?? git(['rev-parse', 'HEAD']);
   const attest: Record<string, string> =
-    layer === 'cross-model-peer' ? { OG_PEER_REVIEW_ATTESTED_SHA: target } : {};
+    layer === 'cross-model-peer' ? { OG_PEER_REVIEW_ATTESTED_SHA: target, OG_PEER_REVIEW_ATTESTED_FAMILY: 'codex', OG_PEER_REVIEW_ATTESTED_AUTHORS: 'claude' } : {};
   return runScript(sha ? ['record', layer, sha] : ['record', layer], '', attest);
 };
 
@@ -461,6 +473,8 @@ describe('check-review-receipts check', () => {
 
     const run = runScript(['record', 'cross-model-peer', sha], '', {
       OG_PEER_REVIEW_ATTESTED_SHA: sha,
+      OG_PEER_REVIEW_ATTESTED_FAMILY: 'codex',
+      OG_PEER_REVIEW_ATTESTED_AUTHORS: 'claude',
     });
 
     expect(run.status).toBe(0);
@@ -480,6 +494,8 @@ describe('check-review-receipts check', () => {
 
     const run = runScript(['record', 'cross-model-peer', unreviewed], '', {
       OG_PEER_REVIEW_ATTESTED_SHA: reviewed,
+      OG_PEER_REVIEW_ATTESTED_FAMILY: 'codex',
+      OG_PEER_REVIEW_ATTESTED_AUTHORS: 'claude',
     });
 
     expect(run.status).toBe(1);
@@ -500,6 +516,8 @@ describe('check-review-receipts check', () => {
 
       const run = runScript(['record', 'cross-model-peer', sha, '--acknowledged', DIGEST], '', {
         OG_PEER_REVIEW_ATTESTED_SHA: sha,
+        OG_PEER_REVIEW_ATTESTED_FAMILY: 'codex',
+        OG_PEER_REVIEW_ATTESTED_AUTHORS: 'claude',
       });
 
       expect(run.status).toBe(0);
@@ -528,6 +546,8 @@ describe('check-review-receipts check', () => {
 
       const run = runScript(['record', 'cross-model-peer', sha, '--acknowledged', ''], '', {
         OG_PEER_REVIEW_ATTESTED_SHA: sha,
+        OG_PEER_REVIEW_ATTESTED_FAMILY: 'codex',
+        OG_PEER_REVIEW_ATTESTED_AUTHORS: 'claude',
       });
 
       expect(run.status).toBe(1);
@@ -542,6 +562,8 @@ describe('check-review-receipts check', () => {
 
       const run = runScript(['record', 'cross-model-peer', sha, '--acknowledged', 'not-a-digest'], '', {
         OG_PEER_REVIEW_ATTESTED_SHA: sha,
+        OG_PEER_REVIEW_ATTESTED_FAMILY: 'codex',
+        OG_PEER_REVIEW_ATTESTED_AUTHORS: 'claude',
       });
 
       expect(run.status).toBe(1);
@@ -555,6 +577,8 @@ describe('check-review-receipts check', () => {
       expect(
         runScript(['record', 'cross-model-peer', sha, '--acknowledged', DIGEST], '', {
           OG_PEER_REVIEW_ATTESTED_SHA: sha,
+          OG_PEER_REVIEW_ATTESTED_FAMILY: 'codex',
+          OG_PEER_REVIEW_ATTESTED_AUTHORS: 'claude',
         }).status,
       ).toBe(0);
 
@@ -585,5 +609,167 @@ describe('check-review-receipts check', () => {
     expect(retired.stderr).toContain('unknown review layer "codex-local"');
     expect(check.status).toBe(1);
     expect(check.stderr).toContain('cross-model-peer');
+  });
+});
+
+describe('peer receipt independence', () => {
+  it('checks legacy receipts by their stored review alone', () => {
+    writeReceipts({ [docsCommit]: clean() });
+
+    const run = runCheck(refLine(docsCommit, baseCommit));
+
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('review receipts OK');
+  });
+
+  it.each([['claude', 'codex', 0], ['codex', 'codex', 1], ['codex', 'claude', 0]])(
+    'checks recorded %s authorship with a %s peer', (author, family, status) => {
+      writeReceipts({ [docsCommit]: { ...clean(), 'cross-model-peer': { at: 'now', family, authors: [author] } } });
+
+      const run = runCheck(refLine(docsCommit, baseCommit));
+
+      expect(run.status).toBe(status);
+      if (status === 1) expect(run.stderr).toContain('--peer claude');
+    },
+  );
+
+  it.each(['codex', 'claude'])('refuses a receipt attesting both-family authorship with a %s peer', (family) => {
+    writeReceipts({ [docsCommit]: { ...clean(), 'cross-model-peer': { at: 'now', family, authors: ['codex', 'claude'] } } });
+
+    const run = runCheck(refLine(docsCommit, baseCommit));
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('no eligible peer');
+  });
+
+  it('refuses a new peer receipt without a recorded author set', () => {
+    writeReceipts({ [docsCommit]: { ...clean(), 'cross-model-peer': { at: 'now', family: 'codex' } } });
+
+    const run = runCheck(refLine(docsCommit, baseCommit));
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('author set');
+  });
+
+  it('refuses a new peer receipt without its reviewing family', () => {
+    writeReceipts({ [docsCommit]: { ...clean(), 'cross-model-peer': { at: 'now', authors: ['codex'] } } });
+
+    const run = runCheck(refLine(docsCommit, baseCommit));
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('invalid peer family');
+  });
+
+  it.each(['2026-07-29T00:00:00.000Z', { at: 'now', findings: 'a'.repeat(64) }])('treats a legacy peer as Codex reviewing Claude authors (%j)', (peer) => {
+    writeReceipts({ [docsCommit]: { ...clean(), 'cross-model-peer': peer } });
+
+    const run = runCheck(refLine(docsCommit, baseCommit));
+
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('review receipts OK');
+  });
+
+  it('uses the receipt once when two pushed branches share a commit', () => {
+    writeReceipts({ [docsCommit]: clean() });
+    const input = refLine(docsCommit, baseCommit, 'refs/heads/a') +
+      'refs/heads/b ' + docsCommit + ' refs/heads/destination ' + baseCommit + '\n';
+
+    const run = runCheck(input);
+
+    expect(run.status).toBe(0);
+    expect(run.stdout).toContain('review receipts OK');
+  });
+
+  it.each([0, 1])('gives the same verdict %s to branch, non-HEAD tag and raw-SHA pushes', (status) => {
+    const family = status === 0 ? 'claude' : 'codex';
+    writeReceipts({ [codeCommit]: { ...clean(), 'cross-model-peer': { at: 'now', family, authors: ['codex'] } } });
+    expect(git(['rev-parse', 'HEAD'])).not.toBe(codeCommit);
+    const inputs = [
+      refLine(codeCommit, ZERO, 'refs/heads/topic'),
+      refLine(tagObject, ZERO, 'refs/tags/probe-tag'),
+      `${codeCommit} ${codeCommit} refs/heads/topic ${ZERO}\n`,
+    ];
+
+    const runs = inputs.map(runCheck);
+
+    expect(runs.map((run) => run.status)).toEqual([status, status, status]);
+    for (const run of runs) {
+      if (status === 1) expect(run.stderr).toContain('--peer claude');
+      else expect(run.stdout).toContain('review receipts OK');
+    }
+  });
+
+  it('checks manual HEAD and pushed tags without looking up a current branch', () => {
+    writeReceipts({ [git(['rev-parse', 'HEAD'])]: clean(), [codeCommit]: clean() });
+    git(['checkout', '-q', '--detach']);
+    try {
+      expect(runCheck('').status).toBe(0);
+      expect(runCheck(refLine(tagObject, ZERO, 'refs/tags/probe-tag')).status).toBe(0);
+    } finally {
+      git(['checkout', '-q', 'main']);
+    }
+  });
+
+  it('refuses a family without the wrapper SHA attestation', () => {
+    const sha = git(['rev-parse', 'HEAD']);
+
+    const run = runScript(['record', 'cross-model-peer', sha], '', { OG_PEER_REVIEW_ATTESTED_FAMILY: 'claude' });
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('recorded BY the review');
+    expect(storedReceipts()[sha]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  it.each([undefined, 'gpt'])('refuses missing or unsupported attested family %s', (family) => {
+    const sha = git(['rev-parse', 'HEAD']);
+    const env: Record<string, string> = { OG_PEER_REVIEW_ATTESTED_SHA: sha };
+    if (family) env.OG_PEER_REVIEW_ATTESTED_FAMILY = family;
+
+    const run = runScript(['record', 'cross-model-peer', sha], '', env);
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('family');
+    expect(storedReceipts()[sha]?.['cross-model-peer']).toBeUndefined();
+  });
+
+  it.each(['codex', 'claude'])('records the attested %s family on a clean peer receipt', (family) => {
+    const sha = git(['rev-parse', 'HEAD']);
+
+    const run = runScript(['record', 'cross-model-peer', sha], '', {
+      OG_PEER_REVIEW_ATTESTED_SHA: sha, OG_PEER_REVIEW_ATTESTED_FAMILY: family,
+      OG_PEER_REVIEW_ATTESTED_AUTHORS: family === 'codex' ? 'claude' : 'codex',
+    });
+
+    expect(run.status).toBe(0);
+    expect(storedReceipts()[sha]?.['cross-model-peer']).toEqual({ at: expect.any(String), family, authors: [family === 'codex' ? 'claude' : 'codex'] });
+  });
+
+  it.each([undefined, '', 'gpt', 'codex,gpt', ',claude', 'claude,'])('refuses a missing or unusable attested author set %s', (authors) => {
+    const sha = git(['rev-parse', 'HEAD']);
+    const env: Record<string, string> = { OG_PEER_REVIEW_ATTESTED_SHA: sha, OG_PEER_REVIEW_ATTESTED_FAMILY: 'codex' };
+    if (authors !== undefined) env.OG_PEER_REVIEW_ATTESTED_AUTHORS = authors;
+    const before = readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8');
+
+    const run = runScript(['record', 'cross-model-peer', sha], '', env);
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain('author set');
+    expect(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).toBe(before);
+  });
+
+  it.each([
+    ['codex', '--peer claude'],
+    ['codex,claude', "each family's work must land on its own branch"],
+  ])('refuses to record a family inside the attested author set %s', (authors, guidance) => {
+    const sha = git(['rev-parse', 'HEAD']);
+    const before = readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8');
+
+    const run = runScript(['record', 'cross-model-peer', sha], '', {
+      OG_PEER_REVIEW_ATTESTED_SHA: sha, OG_PEER_REVIEW_ATTESTED_FAMILY: 'codex', OG_PEER_REVIEW_ATTESTED_AUTHORS: authors,
+    });
+
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(guidance);
+    expect(readFileSync(join(repo, '.git', 'review-receipts.json'), 'utf8')).toBe(before);
   });
 });

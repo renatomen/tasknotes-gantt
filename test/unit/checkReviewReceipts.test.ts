@@ -1,6 +1,9 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   ARCHIVAL_SUBJECT_REF_PREFIX,
   evaluateReceipts,
+  evaluatePeerFamilies,
   parsePushedRefLines,
   REQUIRED_LAYERS,
   validateArchivalSubjects,
@@ -11,6 +14,14 @@ const OTHER_SHA = 'b'.repeat(40);
 const DELETED = '0'.repeat(40);
 const cleanLayers = () =>
   Object.fromEntries(REQUIRED_LAYERS.map((layer) => [layer, '2026-07-28T00:00:00.000Z']));
+
+describe('review-gate trend report', () => {
+  it('rejects revision-state and superseded-implementation wording in the shipping report', () => {
+    const report = readFileSync(resolve('docs/reports/2026-11-27-001-review-gate-trend-report.md'), 'utf8');
+
+    expect(report).not.toMatch(/\b(?:uncommitted|committed|staged|unstaged|HEAD|working[\s-](?:tree|copy)|superseded|old gate)\b/i);
+  });
+});
 
 describe('evaluateReceipts', () => {
   it('passes when both layers hold clean receipts for the pushed sha', () => {
@@ -272,5 +283,66 @@ describe('validateArchivalSubjects', () => {
 
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain('write-once');
+  });
+});
+
+describe('evaluatePeerFamilies', () => {
+  const at = '2026-07-28T00:00:00.000Z';
+  const store = (peer: string | { at: string; family?: string; authors?: string[]; findings?: string }) => ({
+    receipts: { [SHA]: { ...cleanLayers(), 'cross-model-peer': peer } },
+  });
+
+  it('refuses a family-bearing receipt without a recorded author set', () => {
+    expect(evaluatePeerFamilies(store({ at, family: 'codex' }), [SHA]).join('\n')).toContain('author set');
+  });
+
+  it('refuses an author-bearing receipt without a peer family instead of treating it as legacy', () => {
+    expect(evaluatePeerFamilies(store({ at, authors: ['codex'] }), [SHA]).join('\n')).toContain('invalid peer family');
+  });
+
+  it.each([['claude', 'codex'], ['codex', 'claude']])('accepts recorded %s authorship reviewed by %s', (author, family) => {
+    expect(evaluatePeerFamilies(store({ at, family, authors: [author] }), [SHA])).toEqual([]);
+  });
+
+  it.each([['codex', 'claude'], ['claude', 'codex']])('refuses a %s peer for its own author and names --peer %s', (family, other) => {
+    const problems = evaluatePeerFamilies(store({ at, family, authors: [family] }), [SHA]);
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('--peer ' + other);
+  });
+
+  it.each(['codex', 'claude'])('refuses mixed authorship with a %s peer', (family) => {
+    const problems = evaluatePeerFamilies(store({ at, family, authors: ['codex', 'claude'] }), [SHA]);
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain('no eligible peer');
+  });
+
+  it.each([at, { at, findings: 'a'.repeat(64) }])('reads a legacy peer receipt as Codex (%j)', (peer) => {
+    const legacy = store(peer);
+    expect(evaluatePeerFamilies(legacy, [SHA])).toEqual([]);
+  });
+
+  it.each([[[]], [['gpt']]])('refuses an unusable author set %j', (authors) => {
+    expect(evaluatePeerFamilies(store({ at, family: 'codex', authors }), [SHA]).join('\n')).toContain('author set');
+  });
+
+  it('refuses an unsupported peer family instead of treating it as independent', () => {
+    expect(evaluatePeerFamilies(store({ at, family: 'gpt', authors: ['codex'] }), [SHA]).join('\n')).toContain('invalid peer family');
+  });
+
+  it.each([true, 1, [], {}])('does not treat a malformed peer receipt %j as a legacy timestamp', (peer) => {
+    expect(evaluatePeerFamilies(store(peer as never), [SHA]).join('\n')).toContain('invalid peer family');
+  });
+
+  it('checks each pushed commit using its own recorded author set', () => {
+    const mixed = store({ at, family: 'codex', authors: ['claude'] });
+    mixed.receipts[OTHER_SHA] = { ...cleanLayers(), 'cross-model-peer': { at, family: 'claude', authors: ['claude'] } };
+
+    const problems = evaluatePeerFamilies(mixed, [SHA, OTHER_SHA]);
+
+    expect(problems).toHaveLength(1);
+    expect(problems[0]).toContain(OTHER_SHA.slice(0, 7));
+    expect(problems[0]).not.toContain(SHA.slice(0, 7));
   });
 });
