@@ -7,10 +7,13 @@
  * @module datasource/taskLookup
  */
 
+/** A task, its absence, or a promise of either. */
+type TaskPathLookupResult<T> = Promise<T | null | undefined> | T | null | undefined;
+
 /** The slice of a task API that can resolve a task from its note path. */
 export interface TaskPathLookup<T> {
-  getByPath?(path: string): Promise<T | null | undefined> | T | null | undefined;
-  get?(path: string): Promise<T | null | undefined> | T | null | undefined;
+  getByPath?(path: string): TaskPathLookupResult<T>;
+  get?(path: string): TaskPathLookupResult<T>;
 }
 
 /**
@@ -20,7 +23,7 @@ export interface TaskPathLookup<T> {
 export function offersGetByPath<T>(
   tasks: TaskPathLookup<T> | null | undefined,
 ): tasks is TaskPathLookup<T> & {
-  getByPath: (path: string) => Promise<T | null | undefined> | T | null | undefined;
+  getByPath: (path: string) => TaskPathLookupResult<T>;
 } {
   return typeof tasks?.getByPath === 'function';
 }
