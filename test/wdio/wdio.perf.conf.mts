@@ -4,8 +4,9 @@ import fs from "node:fs";
 
 /**
  * WDIO config for the SCHEDULED full-stack perf job (U5/U6, #161 perf plan).
- * Same Obsidian + TaskNotes 4.11.0 download + vault plumbing as the base
- * `wdio.conf.mts`, but runs ONLY the `*.perf.e2e.ts` spec(s) the base config
+ * Same Obsidian download + vault plumbing as the base `wdio.conf.mts`, and
+ * the same pinned TaskNotes release, read from `tasknotes-pin.json` with `fs`
+ * rather than an import. Runs ONLY the `*.perf.e2e.ts` spec(s) the base config
  * EXCLUDES from the per-PR `e2e` run (KD5: heavy generated-vault layer kept off
  * PR CI). Kept self-contained (not an import of the base) to avoid `.mts`→`.mjs`
  * specifier-resolution fragility under the WDIO TS loader; the duplicated block
@@ -22,6 +23,21 @@ const defaultVault = path.resolve(__dirname, "../../.wdio-vault");
 // is the primary one this harness copies from.
 const vaultPath =
   (process.env.OBSIDIAN_TEST_VAULT ?? "").split(";")[0]?.trim() || defaultVault;
+
+function readPinnedTaskNotesVersion(): string {
+  const pinPath = path.join(__dirname, "tasknotes-pin.json");
+  const raw: unknown = JSON.parse(fs.readFileSync(pinPath, "utf8"));
+  if (
+    typeof raw !== "object" ||
+    raw === null ||
+    !("tasknotesVersion" in raw) ||
+    typeof raw.tasknotesVersion !== "string" ||
+    raw.tasknotesVersion.length === 0
+  ) {
+    throw new Error(`${pinPath} has no tasknotesVersion`);
+  }
+  return raw.tasknotesVersion;
+}
 
 try {
   fs.mkdirSync(vaultPath, { recursive: true });
@@ -41,7 +57,7 @@ export const config: WebdriverIO.Config = {
       "wdio:obsidianOptions": {
         plugins: [
           path.resolve(pluginRoot, "dist"),
-          { repo: "callumalpass/tasknotes", version: "4.11.0" },
+          { repo: "callumalpass/tasknotes", version: readPinnedTaskNotesVersion() },
         ],
         vault: vaultPath,
       },

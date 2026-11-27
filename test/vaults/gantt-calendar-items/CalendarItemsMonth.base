@@ -1,6 +1,7 @@
 filters:
   and:
     - 'file.ext == "md"'
+    - '!file.inFolder("_mdbase")'
     - 'file.name != "Torn Overlay"'
 views:
   - type: obsidianGantt
