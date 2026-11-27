@@ -490,8 +490,8 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
     // TaskNotes would persist the canonical write to `status`/`priority`, not to the
     // properties this view reads — so the fields are read-only rather than silently
     // writing where the user cannot see it.
-    expect(controller.isStatusWritable()).toBe(false);
-    expect(controller.isPriorityWritable()).toBe(false);
+    expect(controller.getRoleWritability().status).toBe(false);
+    expect(controller.getRoleWritability().priority).toBe(false);
     await expect(controller.mutateProperty('child.md', 'note.state', 'done')).rejects.toThrow();
   });
 
@@ -508,8 +508,8 @@ describe('GanttController.mutate — field-mapped writes (U3, bases-scoped)', ()
     });
     await controller.init();
 
-    expect(controller.isStatusWritable()).toBe(true);
-    expect(controller.isPriorityWritable()).toBe(true);
+    expect(controller.getRoleWritability().status).toBe(true);
+    expect(controller.getRoleWritability().priority).toBe(true);
   });
 
   it('refuses an estimate write on the resolved read property when no write target is mapped', async () => {

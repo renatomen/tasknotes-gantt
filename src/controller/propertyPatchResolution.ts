@@ -21,6 +21,7 @@ import { matchMappedFieldRole, type MappedFieldRole } from '../datasource/mapped
 import type { FieldMappings } from '../datasource';
 import { bareProperty, toYmd } from '../datasource/dateFieldMapping';
 import type { TaskPatch } from '../datasource/types';
+import type { RoleWritability } from './fieldMappingResolution';
 
 /** The resolved write context {@link resolvePropertyPatch} decides against. */
 export interface PropertyPatchOptions {
@@ -40,14 +41,11 @@ export interface PropertyPatchOptions {
    */
   estimateWritable: boolean;
   /**
-   * Whether the mapped status property is the one the backing system persists to.
-   * TaskNotes writes status through its OWN configured property, so when the view
-   * maps a different one the canonical patch would land somewhere the edited column
-   * does not show. Refuse instead — a write the user cannot see is worse than none.
+   * Per-role answer for status and priority. TaskNotes writes each through its
+   * own configured property, so a view mapped elsewhere must not persist: the
+   * canonical patch would land where the edited column does not show.
    */
-  statusWritable: boolean;
-  /** Whether the mapped priority property is the backing system's own. Mirrors {@link statusWritable}. */
-  priorityWritable: boolean;
+  roleWritability: RoleWritability;
 }
 
 /**
@@ -147,13 +145,13 @@ function mappedFieldPatch(
       return { text: asStringPatchValue(value, propertyId) };
     case 'status':
       refuseUnlessWritable(
-        options.statusWritable,
+        options.roleWritability.status,
         `Mapped status property ${propertyId} is not the field TaskNotes persists to; edit refused`,
       );
       return { status: asStringPatchValue(value, propertyId) };
     case 'priority':
       refuseUnlessWritable(
-        options.priorityWritable,
+        options.roleWritability.priority,
         `Mapped priority property ${propertyId} is not the field TaskNotes persists to; edit refused`,
       );
       return { priority: asStringPatchValue(value, propertyId) };

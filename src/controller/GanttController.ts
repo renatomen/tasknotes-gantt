@@ -60,7 +60,6 @@ import {
   BasesSource,
   CompositeSource,
   TaskNotesSource,
-  resolveDateMapping,
   bareProperty,
   toNoteProperty,
   noteFrontmatterKey,
@@ -122,6 +121,12 @@ import type { Branded } from '../brandedValue';
 import { minutesToSpanDays } from './durationConversion';
 import { resolveParentLink } from '../datasource/parentLink';
 import { resolvePropertyPatch } from './propertyPatchResolution';
+import {
+  resolveFieldMappings,
+  unresolvedRoleWritability,
+  type DateMappingInfo,
+  type RoleWritability,
+} from './fieldMappingResolution';
 import { dlog, isGanttDebugEnabled } from '../debugLog';
 import {
   resolveCompanionTree,
@@ -130,6 +135,8 @@ import {
   type RelationshipIndex,
 } from '../datasource/companionResolve';
 import { positionFetchedAmongMatched } from './sortKeyMapping';
+
+export type { DateMappingInfo };
 
 /**
  * Date-policy + visibility configuration the controller applies when building a
@@ -366,19 +373,6 @@ export interface DerivationInputs {
 export type ChangeListener = () => void;
 
 /**
- * The resolved date-field mapping state for the active source (bases-scoped).
- * Surfaces whether each role's configured property was a valid TaskNotes date
- * target (so the view can show an "invalid mapping" notice) and the effective
- * read property used. All-`false`/`null` when there is no field config.
- */
-export interface DateMappingInfo {
-  startInvalid: boolean;
-  endInvalid: boolean;
-  startReadProp: string | null;
-  endReadProp: string | null;
-}
-
-/**
  * An immutable snapshot of the controller's coherent source graph: the expanded
  * render instances plus the rewritten dependency links for each rewrite mode,
  * with the raw source-level links retained so a mode switch is a cheap re-derive
@@ -482,12 +476,6 @@ export type ChoiceCatalog<Role extends ChoiceRole> = Branded<
   `controller.choiceOptions.${Role}`
 >;
 
-/** {@link GanttController.isStatusWritable}. */
-export type StatusWritable = Branded<boolean, 'controller.statusWritable'>;
-
-/** {@link GanttController.isPriorityWritable}. */
-export type PriorityWritable = Branded<boolean, 'controller.priorityWritable'>;
-
 /**
  * The dependency links together with the arrow mode they were rewritten for,
  * minted as one value by {@link GanttController.buildLinkSet}. A pair the host
@@ -573,13 +561,10 @@ export class GanttController {
     progressProperty: '',
   };
   /**
-   * Whether the mapped status/priority property is the one the backing system
-   * persists to — set in {@link selectSource}. False without a field config (no
-   * backing system to write through) and when the view maps the field to a property
-   * other than the backing system's own, which makes it read-only.
+   * Whether each writable mapped role reads the property the backing system
+   * persists. False until resolution, and when the view maps that role elsewhere.
    */
-  private statusWritable = false;
-  private priorityWritable = false;
+  private roleWritabilityRecord: RoleWritability = unresolvedRoleWritability();
   /**
    * Companion relationship accessor — set in {@link selectSource} when
    * bases-scoped AND the enrichment source exposes `getRelationshipIndex`
@@ -1087,8 +1072,7 @@ export class GanttController {
       mappings: this.effectiveMappings,
       progressWritable: this.progressWriteTarget !== null,
       estimateWritable: this.estimateWriteTarget !== null,
-      statusWritable: this.statusWritable,
-      priorityWritable: this.priorityWritable,
+      roleWritability: this.roleWritabilityRecord,
     });
     await this.mutate(instanceId, patch);
   }
@@ -1305,8 +1289,7 @@ export class GanttController {
     this.progressWriteTarget = null;
     this.estimateWriteTarget = null;
     this.estimateReadKey = null;
-    this.statusWritable = false;
-    this.priorityWritable = false;
+    this.roleWritabilityRecord = unresolvedRoleWritability();
     this.dateMappingInfo = null;
     // Reset companion accessor; the bases-scoped branch repopulates it when
     // TaskNotes (enrichment) exposes the relationship reads.
@@ -1482,70 +1465,17 @@ export class GanttController {
     mappings: FieldMappings,
     fieldConfig: FieldConfig | null,
   ): FieldMappings {
-    if (!fieldConfig) {
-      this.dateMappingInfo = {
-        startInvalid: false,
-        endInvalid: false,
-        startReadProp: null,
-        endReadProp: null,
-      };
-      // No TaskNotes field config (TaskNotes absent): no write targets, and no
-      // property to default to. Read straight from the view-configured properties
-      // — empty when the user mapped none. We do NOT assume note.start/note.due;
-      // the plugins are property-agnostic (a user's field can be any property).
-      return { ...mappings };
-    }
-
-    const startRes = resolveDateMapping(
-      bareProperty(mappings.startProperty),
-      'start',
-      fieldConfig,
-    );
-    const endRes = resolveDateMapping(
-      bareProperty(mappings.endProperty),
-      'end',
-      fieldConfig,
-    );
-
-    this.startWriteTarget = startRes.writeTarget;
-    this.endWriteTarget = endRes.writeTarget;
-    this.dateMappingInfo = {
-      startInvalid: startRes.invalid,
-      endInvalid: endRes.invalid,
-      startReadProp: startRes.readProp,
-      endReadProp: endRes.readProp,
-    };
-
-    const statusProperty = resolveMappedProperty(mappings.statusProperty, fieldConfig.statusProp);
-    const priorityProperty = resolveMappedProperty(
-      mappings.priorityProperty,
-      fieldConfig.priorityProp,
-    );
-    // TaskNotes persists status/priority through ITS OWN configured property, so the
-    // canonical write only lands where the view reads when the two agree — which an
-    // unset mapping guarantees, since it resolves to exactly that property. A view
-    // pointed at a different property is READ-ONLY for that field: an editor there
-    // would write somewhere the edited column does not show.
-    this.statusWritable = writesToSameProperty(statusProperty, fieldConfig.statusProp);
-    this.priorityWritable = writesToSameProperty(priorityProperty, fieldConfig.priorityProp);
-
-    return {
-      ...mappings,
-      startProperty: toNoteProperty(startRes.readProp),
-      endProperty: toNoteProperty(endRes.readProp),
-      statusProperty,
-      priorityProperty,
-    };
+    const resolved = resolveFieldMappings(mappings, fieldConfig);
+    this.startWriteTarget = resolved.startWriteTarget;
+    this.endWriteTarget = resolved.endWriteTarget;
+    this.dateMappingInfo = resolved.dateMappingInfo;
+    this.roleWritabilityRecord = resolved.roleWritability;
+    return resolved.mappings;
   }
 
-  /** Whether an inline edit of the mapped status property can persist where it is read. */
-  public isStatusWritable(): StatusWritable {
-    return this.statusWritable as StatusWritable;
-  }
-
-  /** Whether an inline edit of the mapped priority property can persist where it is read. */
-  public isPriorityWritable(): PriorityWritable {
-    return this.priorityWritable as PriorityWritable;
+  /** The writability record for the resolved mappings. All false before {@link init}. */
+  public getRoleWritability(): RoleWritability {
+    return this.roleWritabilityRecord;
   }
 
   /**
@@ -2251,39 +2181,10 @@ function emptySnapshot(): Snapshot {
 }
 
 /**
- * Resolve the property a field mapping reads: the view's own mapping when it sets
- * one, else the backing system's configured property (note-prefixed to a Bases
- * property id). Unset on both sides stays unset — no property name is assumed.
- */
-function resolveMappedProperty(
-  configured: string | undefined,
-  fallbackProp: string | null,
-): string | undefined {
-  if ((configured ?? '').trim() !== '') return configured;
-  const fallback = (fallbackProp ?? '').trim();
-  return fallback !== '' ? toNoteProperty(fallback) : configured;
-}
-
-/**
- * Whether a canonical write to the backing system's field would land on the very
- * property the view reads — the only case where the round trip is symmetric, so the
- * only case an inline edit may be offered. An unconfigured backing field (`null`)
- * has nowhere to write, so it is never writable.
- */
-function writesToSameProperty(readProperty: string | undefined, backingProp: string | null): boolean {
-  const backing = (backingProp ?? '').trim();
-  if (backing === '') return false;
-  return bareProperty(readProperty) === backing;
-}
-
-/**
- * Build a {@link CompanionAccessor} from a source that exposes the bulk
- * relationship index (`getRelationshipIndex`), or `null` when it doesn't
- * (standalone / non-TaskNotes enrichment). Duck-typed because the enrichment is
- * declared as the capability-typed {@link DataSource}, which doesn't surface the
- * relationship reads. The probe keys on `getRelationshipIndex` — the single
- * O(N) read the resolver consumes (plan #161, U3); the old per-node
- * `getSubtasks` was removed as an O(N²) footgun.
+ * Build a companion accessor from a source that exposes the bulk relationship
+ * index, or `null` when it doesn't. Duck-typed because the enrichment is
+ * declared as the capability-typed data source, which doesn't surface the
+ * relationship reads.
  */
 function toCompanionAccessor(source: DataSource | null): CompanionAccessor | null {
   const candidate = source as unknown as Partial<CompanionAccessor> | null;
@@ -2298,9 +2199,10 @@ function toCompanionAccessor(source: DataSource | null): CompanionAccessor | nul
 
 /**
  * Extract the `correlationId` a TaskNotes change-event payload carries for a
- * write the controller originated. TaskNotes (4.11.0) surfaces it on the
- * normalized event; defensively we also accept a nested `context.correlationId`.
- * Returns `undefined` for external edits (no recognizable correlationId).
+ * write the controller originated. The normalized event copies it to the top
+ * level from the mutation context; defensively we also accept a nested
+ * `context.correlationId`. Returns `undefined` for external edits (no
+ * recognizable correlationId).
  */
 function extractCorrelationId(payload: unknown): string | undefined {
   if (!payload || typeof payload !== 'object') {
