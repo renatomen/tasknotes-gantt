@@ -154,6 +154,12 @@ export interface TaskNotesTaskInfo {
   recurrence_parent?: string | null;
   /** The materialized occurrence's date (`yyyy-MM-dd`). */
   occurrence_date?: string | null;
+  /** The occurrence a scheduled-anchored move left behind. */
+  recurrence_original_date?: string | null;
+  /** Rule days a calendar move vacated. */
+  googleCalendarMovedOriginalDates?: readonly string[] | null;
+  /** Original scheduled instant of a calendar exception, matched by its date prefix. */
+  googleCalendarExceptionOriginalScheduled?: string | null;
   /** Time estimate in minutes. */
   timeEstimate?: number | null;
   /** Tracked work sessions (finished and running). */
