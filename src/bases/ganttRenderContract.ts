@@ -18,6 +18,7 @@
  */
 
 import { isSafeColor } from './barTreatment';
+import { cellRendersWithPaletteMarks } from './paletteCellMarks';
 import { resolveGridCellEditors } from './cellEditability';
 import { gridColumnsKey, type GridColumn } from './gridColumns';
 import { hasNonAuthoredEdgeInstance } from './visualSemantics';
@@ -458,7 +459,12 @@ export function projectRenderContract(input: RenderContractInput): GanttData {
     barIcon: input.barIconSource,
     taskNotesPresent: input.taskNotesPresent,
     propertyValues: cellData.propertyValues,
-    cellRenders: cellData.cellRenders,
+    cellRenders: cellRendersWithPaletteMarks(
+      cellData.cellRenders,
+      cellData.propertyValues,
+      input.effectiveMappings,
+      { status: input.statusColors, priority: input.priorityColors },
+    ),
     dateLocale: cellData.dateLocale,
     managedPaths: input.managedPaths,
     cellEditors,

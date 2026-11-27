@@ -24,7 +24,7 @@
  * @module bases/barTreatment
  */
 
-import type { PriorityColor, StatusColor } from '../datasource/types';
+import type { PaletteGlyph, PriorityColor, StatusColor } from '../datasource/types';
 
 /**
  * The internal rule-emission mode used by the channel rule builders: paint the bar
@@ -261,6 +261,11 @@ export interface IconSpec {
    * a completion flip re-fingerprints the chip even for icon statuses.
    */
   completed?: true;
+  /**
+   * Glyph state from the palette entry. Absent when the entry has none; the
+   * chip then draws today's ring, disc, or dot. A configured icon still wins.
+   */
+  glyph?: PaletteGlyph;
 }
 
 /**
@@ -864,8 +869,13 @@ export function resolveIconSpec(
   if (iconSource === 'none') return null;
   const value = iconSource === 'status' ? instance.status : instance.priority;
   if (!value) return null;
-  const palette: ReadonlyArray<{ value: string; color: string; icon?: string; isCompleted?: boolean }> =
-    iconSource === 'status' ? palettes.status : palettes.priority;
+  const palette: ReadonlyArray<{
+    value: string;
+    color: string;
+    icon?: string;
+    isCompleted?: boolean;
+    glyph?: PaletteGlyph;
+  }> = iconSource === 'status' ? palettes.status : palettes.priority;
   const entry = palette.find((p) => p.value === value);
   if (!entry?.color) return null;
   // Guard the chip color the same as the CSS-rule paths. BarContent renders it
@@ -882,5 +892,6 @@ export function resolveIconSpec(
     color,
     ...(entry.icon ? { iconName: entry.icon } : {}),
     ...(completed ? { completed: true } : {}),
+    ...(entry.glyph ? { glyph: entry.glyph } : {}),
   };
 }

@@ -602,6 +602,55 @@ describe('projectRenderContract: the legend context', () => {
   });
 });
 
+describe('projectRenderContract: palette marks on mapped cells', () => {
+  it('stamps the status glyph onto the mapped column and not onto another column with the same text', () => {
+    const glyph = { role: 'status' as const, kind: 'progress' as const, progress: 1 / 2 };
+    const cellData = mint<CellData>({
+      cellRenders: new Map([
+        [
+          'Tasks/A.md',
+          {
+            'note.status': { mode: 'text', text: 'in-progress' },
+            'note.copy': { mode: 'text', text: 'in-progress' },
+          },
+        ],
+      ]),
+      propertyValues: new Map([
+        [
+          'Tasks/A.md',
+          {
+            'note.status': { kind: 'text', value: 'in-progress' },
+            'note.copy': { kind: 'text', value: 'in-progress' },
+          },
+        ],
+      ]),
+      dateLocale: 'en-GB',
+    });
+    const contract = projectRenderContract(
+      makeInput({
+        cellData,
+        effectiveMappings: mint<EffectiveFieldMappings>({
+          ...EMPTY_MAPPINGS,
+          statusProperty: 'note.status',
+        }),
+        statusColors: mint<StatusColorCatalog>([
+          { value: 'in-progress', color: '#0066cc', isCompleted: false, glyph },
+        ]),
+      }),
+    );
+
+    expect(contract.cellRenders.get('Tasks/A.md')?.['note.status']).toEqual({
+      mode: 'text',
+      text: 'in-progress',
+      paletteMark: { kind: 'glyph', glyph, color: '#0066cc' },
+    });
+    expect(contract.cellRenders.get('Tasks/A.md')?.['note.copy']).toEqual({
+      mode: 'text',
+      text: 'in-progress',
+    });
+  });
+});
+
 /**
  * The miswires no runtime tier can observe, rejected at compile time.
  *

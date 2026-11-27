@@ -28,6 +28,7 @@ import {
   resolveOccupancyDisplay,
 } from './occupancyDisplay';
 import type { PriorityColor, StatusColor } from '../datasource/types';
+import { paletteGlyphKey } from '../datasource/taskNotesIconState';
 import {
   resolveTreatmentClass,
   resolveIconSpec,
@@ -784,7 +785,8 @@ export function taskStateKey(t: SvarTask): string {
 function barIconKey(icon: IconSpec | null): string {
   if (!icon) return '';
   const completedFlag = icon.completed ? 'c' : '';
-  return `${icon.kind}:${icon.iconName ?? ''}:${icon.color}:${completedFlag}`;
+  const glyphFlag = icon.glyph ? paletteGlyphKey(icon.glyph) : '';
+  return `${icon.kind}:${icon.iconName ?? ''}:${icon.color}:${completedFlag}:${glyphFlag}`;
 }
 
 /** Deterministic fingerprint of a bar's ghost runs (order-preserving). */

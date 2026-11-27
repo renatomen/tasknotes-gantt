@@ -39,10 +39,27 @@ interface FakeApiOptions {
   parents?: Record<string, TaskNotesTaskInfo[]>;
   hasWrite?: boolean;
   omitHasCapability?: boolean;
-  /** When provided, `api.config()` returns `{ statuses }`; omitted ⇒ no `config`. */
-  statuses?: Array<{ value?: string; label?: string; color?: string; isCompleted?: boolean; icon?: string }>;
+  /** When provided, `api.catalog.statuses()` returns these; omitted ⇒ absent. */
+  statuses?: Array<{
+    id?: string;
+    value?: string;
+    label?: string;
+    color?: string;
+    isCompleted?: boolean;
+    isSkipped?: boolean;
+    order?: number;
+    icon?: string;
+  }>;
   /** When provided, `api.catalog.priorities()` returns these; omitted ⇒ absent. */
-  priorities?: Array<{ value?: string; label?: string; color?: string; icon?: string }>;
+  priorities?: Array<{
+    value?: string;
+    label?: string;
+    color?: string;
+    icon?: string;
+    weight?: number;
+  }>;
+  /** When set, `tasks.getByPath` is a function, the same gate the glyph state uses. */
+  offerGetByPath?: boolean;
 }
 
 /**
@@ -76,6 +93,12 @@ function makeApi(opts: FakeApiOptions = {}) {
       list: () => opts.tasks ?? [],
       get: (path: string) =>
         (opts.tasks ?? []).find((t) => t.path === path) ?? null,
+      ...(opts.offerGetByPath
+        ? {
+            getByPath: (path: string) =>
+              (opts.tasks ?? []).find((t) => t.path === path) ?? null,
+          }
+        : {}),
       update: updateSpy,
       delete: deleteSpy,
     },
@@ -400,6 +423,83 @@ describe('TaskNotesSource — getStatusColors', () => {
       { value: 'done', color: '#0f0', isCompleted: true },
     ]);
   });
+
+  it('carries each status glyph when tasks.getByPath is offered', async () => {
+    const source = await makeSource({
+      offerGetByPath: true,
+      statuses: [
+        { id: 'none', value: 'none', color: '#ccc', order: 0 },
+        { id: 'open', value: 'open', color: '#808080', order: 1 },
+        { id: 'in-progress', value: 'in-progress', color: '#0066cc', order: 2 },
+        { id: 'done', value: 'done', color: '#00aa00', isCompleted: true, order: 3 },
+      ],
+    });
+
+    expect(await source.getStatusColors()).toEqual([
+      { value: 'none', color: '#ccc', isCompleted: false, glyph: { role: 'status', kind: 'unset', progress: 0 } },
+      { value: 'open', color: '#808080', isCompleted: false, glyph: { role: 'status', kind: 'open', progress: 0 } },
+      {
+        value: 'in-progress',
+        color: '#0066cc',
+        isCompleted: false,
+        glyph: { role: 'status', kind: 'progress', progress: 1 / 2 },
+      },
+      { value: 'done', color: '#00aa00', isCompleted: true, glyph: { role: 'status', kind: 'complete', progress: 1 } },
+    ]);
+  });
+
+  it('keeps a configured status icon and still carries the glyph when getByPath is offered', async () => {
+    const source = await makeSource({
+      offerGetByPath: true,
+      statuses: [{ id: 'open', value: 'open', color: '#808080', order: 0, icon: 'circle' }],
+    });
+
+    expect(await source.getStatusColors()).toEqual([
+      {
+        value: 'open',
+        color: '#808080',
+        isCompleted: false,
+        icon: 'circle',
+        glyph: { role: 'status', kind: 'open', progress: 0 },
+      },
+    ]);
+  });
+
+  it('counts a colorless status in the open workflow when computing glyphs', async () => {
+    const source = await makeSource({
+      offerGetByPath: true,
+      statuses: [
+        { id: 'open', value: 'open', order: 1 },
+        { id: 'in-progress', value: 'in-progress', color: '#0066cc', order: 2 },
+        { id: 'review', value: 'review', color: '#cc8800', order: 3 },
+      ],
+    });
+
+    expect(await source.getStatusColors()).toEqual([
+      {
+        value: 'in-progress',
+        color: '#0066cc',
+        isCompleted: false,
+        glyph: { role: 'status', kind: 'progress', progress: 1 / 3 },
+      },
+      {
+        value: 'review',
+        color: '#cc8800',
+        isCompleted: false,
+        glyph: { role: 'status', kind: 'progress', progress: 2 / 3 },
+      },
+    ]);
+  });
+
+  it('carries no status glyph when only tasks.get is offered', async () => {
+    const source = await makeSource({
+      statuses: [{ id: 'open', value: 'open', color: '#808080', order: 1 }],
+    });
+
+    expect(await source.getStatusColors()).toEqual([
+      { value: 'open', color: '#808080', isCompleted: false },
+    ]);
+  });
 });
 
 describe('TaskNotesSource — getPriorityColors', () => {
@@ -433,6 +533,33 @@ describe('TaskNotesSource — getPriorityColors', () => {
       { value: 'high', color: '#f00', icon: 'flag' },
       { value: 'mid', color: '#fa0' },
     ]);
+  });
+
+  it('carries each priority glyph when tasks.getByPath is offered', async () => {
+    const source = await makeSource({
+      offerGetByPath: true,
+      priorities: [
+        { value: 'urgent', color: '#f00', weight: 3 },
+        { value: 'normal', color: '#fa0', weight: 2 },
+        { value: 'low', color: '#0a0', weight: 1 },
+        { value: 'none', color: '#ccc', weight: 0 },
+      ],
+    });
+
+    expect(await source.getPriorityColors()).toEqual([
+      { value: 'urgent', color: '#f00', glyph: { role: 'priority', kind: 'dot', rank: 'top' } },
+      { value: 'normal', color: '#fa0', glyph: { role: 'priority', kind: 'dot', rank: 'middle' } },
+      { value: 'low', color: '#0a0', glyph: { role: 'priority', kind: 'dot', rank: 'bottom' } },
+      { value: 'none', color: '#ccc', glyph: { role: 'priority', kind: 'unset' } },
+    ]);
+  });
+
+  it('carries no priority glyph when only tasks.get is offered', async () => {
+    const source = await makeSource({
+      priorities: [{ value: 'high', color: '#f00', weight: 3 }],
+    });
+
+    expect(await source.getPriorityColors()).toEqual([{ value: 'high', color: '#f00' }]);
   });
 
   it('drops entries missing a value or a color', async () => {

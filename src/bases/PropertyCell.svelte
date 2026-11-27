@@ -16,6 +16,8 @@
   import { Component, MarkdownRenderer } from 'obsidian';
   import type { App } from 'obsidian';
   import type { CellRender } from './cellRender';
+  import PaletteMark from './PaletteMark.svelte';
+  import type { DrawnIcon } from './paletteIcon';
   import { resolveDateLocale } from './dateLocale';
   import {
     GRID_APP_CONTEXT_KEY,
@@ -41,6 +43,8 @@
   const render = $derived(
     (row?.custom?.cellRenders as Record<string, CellRender> | undefined)?.[column.id as string],
   );
+  const paletteMark = $derived(render?.paletteMark);
+  const paletteDrawn = $derived(drawnFromMark(paletteMark));
 
   // Conventional/degrade text: the formatted typed value. Used for text-mode
   // cells, and as the graceful fallback for a markdown cell when `app` is absent
@@ -106,6 +110,12 @@
       mo.disconnect();
     };
   });
+
+  function drawnFromMark(mark: CellRender['paletteMark']): DrawnIcon | null {
+    if (!mark) return null;
+    if (mark.kind === 'configured') return { kind: 'configured', iconName: mark.iconName };
+    return { kind: 'glyph', glyph: mark.glyph };
+  }
 
   /** Open Obsidian's global search for a tag (mirrors a tag click in a note). */
   function openTagSearch(currentApp: App, tag: string): void {
@@ -202,19 +212,43 @@
 
 {#if useMarkdown}
   <span class="og-md-cell" title={fallbackText}>
+    {#if paletteMark && paletteDrawn}
+      <PaletteMark drawn={paletteDrawn} color={paletteMark.color} onChip={false} />
+    {/if}
     <span class="og-grid-cell og-grid-cell--md" class:og-cell-editable={isEditable} bind:this={el}
     ></span>
     {#if showCount}<span class="og-count-badge" aria-hidden="true">{itemCount}</span>{/if}
   </span>
 {:else}
-  <span class="og-grid-cell" class:og-cell-editable={isEditable} title={displayText}
-    >{displayText}</span
+  <span
+    class="og-grid-cell"
+    class:og-grid-cell--marked={!!paletteMark}
+    class:og-cell-editable={isEditable}
+    title={displayText}
   >
+    {#if paletteMark && paletteDrawn}
+      <PaletteMark drawn={paletteDrawn} color={paletteMark.color} onChip={false} />
+      <span class="og-grid-cell-text">{displayText}</span>
+    {:else}
+      {displayText}
+    {/if}
+  </span>
 {/if}
 
 <style>
   .og-grid-cell {
     display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .og-grid-cell--marked {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .og-grid-cell-text {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
