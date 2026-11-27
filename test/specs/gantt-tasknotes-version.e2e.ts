@@ -1,4 +1,5 @@
 import { browser, expect } from "@wdio/globals";
+import { TASKNOTES_SPEC_VERSION } from "@tasknotes/model";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -28,9 +29,12 @@ function readTaskNotesPin(): TaskNotesPin {
     raw === null ||
     !("tasknotesVersion" in raw) ||
     typeof raw.tasknotesVersion !== "string" ||
-    raw.tasknotesVersion.length === 0
+    raw.tasknotesVersion.length === 0 ||
+    !("modelVersion" in raw) ||
+    typeof raw.modelVersion !== "string" ||
+    raw.modelVersion.length === 0
   ) {
-    throw new Error(`${pinPath} has no tasknotesVersion`);
+    throw new Error(`${pinPath} must name a TaskNotes release and a model version`);
   }
   return { tasknotesVersion: raw.tasknotesVersion };
 }
@@ -94,5 +98,19 @@ describe("pinned TaskNotes release", () => {
         ? `${READINESS_MEMBER} is a function`
         : `TaskNotes api.lifecycle.${READINESS_MEMBER} is not a function (got ${loaded.readinessType})`;
     expect(observed).toBe(`${READINESS_MEMBER} is a function`);
+  });
+
+  it("reports the same model spec version the plugin bundles", async () => {
+    const loaded = await browser.executeObsidian(({ app }) => {
+      const plugin = (app as unknown as {
+        plugins?: {
+          getPlugin?: (id: string) => {
+            api?: { model?: { info?: () => { specVersion?: string } } };
+          } | null;
+        };
+      }).plugins?.getPlugin?.("tasknotes");
+      return plugin?.api?.model?.info?.().specVersion ?? null;
+    });
+    expect(loaded).toBe(TASKNOTES_SPEC_VERSION);
   });
 });

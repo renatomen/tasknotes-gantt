@@ -159,6 +159,15 @@ function buildMaterializedIndex(
   return index;
 }
 
+/**
+ * A trailing newline makes the model treat an inline rule as a DTSTART-only
+ * property and fall back to yearly. A TZID parameter left in place lands a
+ * two-line rule a day late in some timezones. Normalize before either choice.
+ */
+function recurrenceForExpansion(recurrence: string): string {
+  return recurrence.replace(/;TZID=[^:;\r\n]+/g, '').trim();
+}
+
 /** Pattern days from the model expansion, window-filtered as the calendar does. */
 function patternDays(
   task: TaskNotesTaskInfo & { recurrence: string },
@@ -233,7 +242,10 @@ function addVirtualInstances(scope: InstanceExpansionScope): void {
   ) {
     states.set(scheduledDay, rules.recordedState(scheduledDay) ?? 'next');
   }
-  for (const day of patternDays(task, window)) {
+  for (const day of patternDays(
+    { ...task, recurrence: recurrenceForExpansion(task.recurrence) },
+    window,
+  )) {
     if (day === scheduledDay || materializedDays.has(day) || !rules.passesSubToggles(day)) continue;
     states.set(day, rules.recordedState(day) ?? 'projected');
   }
