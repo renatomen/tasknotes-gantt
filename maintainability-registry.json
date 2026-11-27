@@ -80,7 +80,7 @@
       "report": "docs/reports/2026-11-27-001-review-gate-trend-report.md",
       "concernCounts": {
         "scripts/cross-model-peer-review.sh": 10,
-        "scripts/check-review-receipts.mjs": 7
+        "scripts/check-review-receipts.mjs": 6
       }
     }
   ],
