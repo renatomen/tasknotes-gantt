@@ -73,7 +73,7 @@ function asDateString(value: Date | string | null | undefined): string | undefin
 }
 
 function calendarDate(value: string | undefined, timezone: string): string | undefined {
-  if (!value) return value;
+  if (typeof value !== 'string' || value === '') return undefined;
   const trimmed = value.trim().replace(/^(\d{4}-\d{2}-\d{2}) (?=\d)/, '$1T');
   for (const candidate of [value, trimmed]) {
     try {
@@ -87,7 +87,7 @@ function calendarDate(value: string | undefined, timezone: string): string | und
 }
 
 function validDateList(values: readonly string[] | null | undefined, timezone: string): string[] | undefined {
-  if (!values) return undefined;
+  if (!Array.isArray(values)) return undefined;
   return values.flatMap((value) => {
     const parsed = calendarDate(value, timezone);
     return parsed ? [parsed] : [];
@@ -115,14 +115,17 @@ function scheduledForModel(value: Date | string | null | undefined, timezone: st
 }
 
 function projectTask(task: TaskNotesTaskInfo, timezone: string): CalendarTask {
-  const timeEntries = task.timeEntries?.flatMap((entry) => {
-    const startTime = calendarDate(entry.startTime, timezone);
-    const endTime = calendarDate(entry.endTime, timezone);
-    if (!startTime) return [];
-    if (entry.endTime && !endTime) return [];
-    const projected: TaskNotesTimeEntry = { ...entry, startTime, ...(endTime ? { endTime } : {}) };
-    return [projected];
-  });
+  const timeEntries = Array.isArray(task.timeEntries)
+    ? task.timeEntries.flatMap((entry) => {
+        if (typeof entry?.startTime !== 'string') return [];
+        const startTime = calendarDate(entry.startTime, timezone);
+        const endTime = typeof entry.endTime === 'string' ? calendarDate(entry.endTime, timezone) : undefined;
+        if (!startTime) return [];
+        if (typeof entry.endTime === 'string' && !endTime) return [];
+        const projected: TaskNotesTimeEntry = { ...entry, startTime, ...(endTime ? { endTime } : {}) };
+        return [projected];
+      })
+    : undefined;
   return {
     path: task.path,
     title: task.title ?? '',
@@ -139,8 +142,8 @@ function projectTask(task: TaskNotesTaskInfo, timezone: string): CalendarTask {
     skipped_instances: validDateList(task.skipped_instances, timezone),
     timeEntries,
     // A rejected calendar date does not throw here; the prefix is compared as text.
-    googleCalendarMovedOriginalDates: task.googleCalendarMovedOriginalDates
-      ? [...task.googleCalendarMovedOriginalDates]
+    googleCalendarMovedOriginalDates: Array.isArray(task.googleCalendarMovedOriginalDates)
+      ? task.googleCalendarMovedOriginalDates.filter((value): value is string => typeof value === 'string')
       : undefined,
     googleCalendarExceptionOriginalScheduled: optionalText(task.googleCalendarExceptionOriginalScheduled),
   };
@@ -164,11 +167,17 @@ function parentPath(task: TaskNotesTaskInfo, resolve: RecurringModelInput['resol
   return resolved;
 }
 
+function occurrenceIdentity(value: string | null | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const day = value.slice(0, 10);
+  return isRealCalendarDay(day) ? day : undefined;
+}
+
 function materializedForModel(tasks: readonly TaskNotesTaskInfo[], input: RecurringModelInput): Record<string, string[]> {
-  const occurrences: Record<string, string[]> = {};
+  const occurrences: Record<string, string[]> = Object.create(null);
   for (const task of tasks) {
-    const occurrence = task.occurrence_date?.slice(0, 10);
-    if (!task.recurrence_parent || !occurrence || !isRealCalendarDay(occurrence)) continue;
+    const occurrence = occurrenceIdentity(task.occurrence_date);
+    if (!task.recurrence_parent || !occurrence) continue;
     const parent = normalizeTaskReference(parentPath(task, input.resolveTaskReference));
     if (!parent) continue;
     const dates = occurrences[parent] ?? [];
@@ -187,10 +196,9 @@ function materializedFacts(
   const parentKey = normalizeTaskReference(parent.path);
   const facts: OccupancyFact[] = [];
   for (const task of tasks) {
-    if (!task.recurrence_parent || !task.occurrence_date) continue;
+    const identity = occurrenceIdentity(task.occurrence_date);
+    if (!task.recurrence_parent || !identity) continue;
     if (normalizeTaskReference(parentPath(task, input.resolveTaskReference)) !== parentKey) continue;
-    const identity = task.occurrence_date.slice(0, 10);
-    if (!isRealCalendarDay(identity)) continue;
     const timezone = input.timezone ?? defaultCalendarTimezone();
     const scheduled = scheduledForModel(task.scheduled, timezone);
     const placed = scheduled ? placementDay(scheduled, timezone) : identity;

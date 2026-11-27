@@ -602,6 +602,34 @@ describe('recurringSource — moved occurrences and date guards', () => {
   });
 });
 
+describe('recurringSource — a bad value does not hide the batch', () => {
+  it('keeps other series when a parent link is named constructor', async () => {
+    const states = await collectStates([
+      weeklyTask(),
+      {
+        path: 'notes/odd.md',
+        recurrence_parent: '[[constructor]]',
+        occurrence_date: '2026-01-13',
+      },
+    ]);
+
+    expect(states).toContainEqual(['2026-01-06', 'next']);
+    expect(states).toContainEqual(['2026-01-13', 'projected']);
+  });
+
+  it('keeps a series when a time entry start is not text', async () => {
+    const states = await collectStates([
+      weeklyTask({
+        complete_instances: ['2026-01-13'],
+        timeEntries: [{ startTime: 123 as unknown as string }],
+      }),
+    ]);
+
+    expect(states).toContainEqual(['2026-01-06', 'next']);
+    expect(states).toContainEqual(['2026-01-13', 'completed']);
+  });
+});
+
 describe('recurringSource — field-mapper resolution', () => {
   it('expands a task whose recurrence properties are user-remapped, resolved through the field mapper', async () => {
     // The calendar's read path: user frontmatter property names resolve to
