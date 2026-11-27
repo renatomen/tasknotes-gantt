@@ -422,9 +422,21 @@ describe('resolveCellEditor — TaskNotes-owned fields', () => {
   });
 
   it('offers no editor for recurrence_original_date when the stored mapping omits it', () => {
-    const d = deps({ ownership: taskNotesWithAssignees() });
+    const d = deps({
+      ownership: taskNotesWithAssignees(),
+      taskNotesFieldType: registered('recurrence_original_date', { type: 'date' }),
+    });
 
     expect(resolveCellEditor('note.recurrence_original_date', d)).toBeNull();
+  });
+
+  it('keeps a user field whose name is only a tag setting', () => {
+    const d = deps({
+      ownership: resolveFieldOwnership({ icsEventTag: 'ics_event' }),
+      taskNotesFieldType: registered('ics_event', { type: 'text' }),
+    });
+
+    expect(resolveCellEditor('note.ics_event', d)).toEqual({ kind: 'text' });
   });
 
   it('keeps the editor of a user field no built-in field maps to', () => {

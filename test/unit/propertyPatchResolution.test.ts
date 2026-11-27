@@ -340,6 +340,14 @@ describe('resolvePropertyPatch — TaskNotes-owned fields', () => {
     ).toThrow(TypeError);
   });
 
+  it('writes a user field whose name is only a tag setting', () => {
+    const ownership = resolveFieldOwnership({ icsEventTag: 'ics_event', title: 'title' });
+
+    const out = resolvePropertyPatch('note.ics_event', 'standup', makeOptions({}, {}, ownership));
+
+    expect(out).toEqual({ fieldWrite: { key: 'ics_event', value: 'standup' } });
+  });
+
   it('writes a user field that no built-in field maps to', () => {
     const out = resolvePropertyPatch(
       'note.client',

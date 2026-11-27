@@ -13,6 +13,12 @@ import type { FieldMapping, TaskUpdateInput } from '@tasknotes/model';
 import { isRecognizedProperty } from '@tasknotes/model/mapping';
 
 /**
+ * Mapping members whose values are tags, not frontmatter properties. TaskNotes
+ * does not treat them as property keys, so a user field may reuse the name.
+ */
+const TAG_SETTING_KEYS = ['archiveTag', 'icsEventTag'] as const satisfies readonly (keyof FieldMapping)[];
+
+/**
  * Every key of the bundled update type. A model bump that adds a field fails
  * typecheck until this record covers it.
  */
@@ -169,10 +175,17 @@ export function refusesGenericWrite(
 /**
  * The checker types a complete mapping. A stored mapping omits members, and
  * the function itself supplies the two optional defaults, so the cast is the
- * boundary rather than a second copy of that defaulting.
+ * boundary rather than a second copy of that defaulting. Tag settings are
+ * left out first: their values are tags, and including them would make a user
+ * field of that name read-only.
  */
 function propertyIsOwned(mapping: Readonly<Record<string, string>>, key: string): boolean {
-  return isRecognizedProperty(mapping as unknown as FieldMapping, key);
+  const properties: Record<string, string> = {};
+  for (const [member, value] of Object.entries(mapping)) {
+    if ((TAG_SETTING_KEYS as readonly string[]).includes(member)) continue;
+    properties[member] = value;
+  }
+  return isRecognizedProperty(properties as unknown as FieldMapping, key);
 }
 
 /** The ownership a writability record carries, or the legacy set when it carries none. */
