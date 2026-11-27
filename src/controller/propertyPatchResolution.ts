@@ -21,6 +21,7 @@ import { matchMappedFieldRole, completeMappedRolePrecedence, type MappedFieldRol
 import type { FieldMappings } from '../datasource';
 import { bareProperty, toYmd } from '../datasource/dateFieldMapping';
 import type { TaskPatch } from '../datasource/types';
+import { readFieldOwnership, refusesGenericWrite } from './fieldOwnership';
 import type { RoleWritability } from './fieldMappingResolution';
 
 /** The resolved write context {@link resolvePropertyPatch} decides against. */
@@ -47,36 +48,6 @@ export interface PropertyPatchOptions {
    */
   roleWritability: RoleWritability;
 }
-
-/**
- * Keys TaskNotes' `tasks.update` interprets as `Partial<TaskInfo>` fields and
- * gives canonical treatment (`title` can rename the file, `details` replaces
- * the note body, list fields are normalized). A generic fieldWrite must never
- * collide with them. These are TaskNotes API field names — a stable API
- * contract — not vault property names, so this set is not a hardcoded-property
- * table (the plugins stay property-agnostic).
- */
-const CANONICAL_TASKINFO_KEYS: ReadonlySet<string> = new Set([
-  'title',
-  'status',
-  'priority',
-  'due',
-  'scheduled',
-  'tags',
-  'contexts',
-  'projects',
-  'timeEstimate',
-  'recurrence',
-  'blockedBy',
-  'details',
-  'archived',
-  'sortOrder',
-  'timeEntries',
-  'complete_instances',
-  'skipped_instances',
-  'dateCreated',
-  'dateModified',
-]);
 
 /**
  * Resolve an edited property id + raw value into the right {@link TaskPatch}
@@ -108,10 +79,8 @@ export function resolvePropertyPatch(
   if (role) {
     return mappedFieldPatch(role, propertyId, value, options);
   }
-  if (CANONICAL_TASKINFO_KEYS.has(key)) {
-    throw new TypeError(
-      `Refusing generic write to canonical TaskNotes field key: ${key}`,
-    );
+  if (refusesGenericWrite(key, readFieldOwnership(options.roleWritability))) {
+    throw new TypeError(`Refusing generic write to a TaskNotes-owned field: ${key}`);
   }
   return { fieldWrite: { key, value: asFieldWriteValue(value, propertyId) } };
 }

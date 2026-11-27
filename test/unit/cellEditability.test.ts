@@ -18,6 +18,11 @@ import {
 import type { TaskNotesFieldMeta } from '../../src/bases/cellRenderType';
 import type { FieldMappings } from '../../src/bases/types/field-mapping';
 import type { RoleWritability } from '../../src/controller/fieldMappingResolution';
+import {
+  resolveFieldOwnership,
+  unknownFieldOwnership,
+  type FieldOwnership,
+} from '../../src/controller/fieldOwnership';
 
 function roleFlags(status: boolean, priority: boolean, assignees = false): RoleWritability {
   return { status, priority, assignees } as RoleWritability;
@@ -33,24 +38,54 @@ function mappings(over: Partial<FieldMappings> = {}): FieldMappings {
   };
 }
 
+function withOwnership(record: RoleWritability, ownership?: FieldOwnership): RoleWritability {
+  return ownership ? ({ ...record, ownership } as RoleWritability) : record;
+}
+
 function deps(
   over: Partial<Omit<CellEditorDeps, 'roleWritability'>> & {
     roleWritability?: RoleWritability;
     statusWritable?: boolean;
     priorityWritable?: boolean;
     assigneesWritable?: boolean;
+    ownership?: FieldOwnership;
   } = {},
 ): CellEditorDeps {
-  const { statusWritable, priorityWritable, assigneesWritable, roleWritability: given, ...rest } = over;
+  const {
+    statusWritable,
+    priorityWritable,
+    assigneesWritable,
+    roleWritability: given,
+    ownership,
+    ...rest
+  } = over;
   return {
     taskNotesFieldType: rest.taskNotesFieldType ?? (() => null),
     mappings: rest.mappings ?? mappings(),
     progressWritable: rest.progressWritable ?? false,
     estimateWritable: rest.estimateWritable ?? false,
-    roleWritability:
+    roleWritability: withOwnership(
       given ?? roleFlags(statusWritable ?? true, priorityWritable ?? true, assigneesWritable ?? false),
+      ownership,
+    ),
     isNameColumn: rest.isNameColumn ?? false,
   };
+}
+
+function taskNotesWithAssignees(): FieldOwnership {
+  return resolveFieldOwnership({
+    title: 'title',
+    due: 'due',
+    attachments: 'files',
+    assignees: 'assignee',
+  });
+}
+
+function taskNotesWithoutAssignees(): FieldOwnership {
+  return resolveFieldOwnership({
+    title: 'title',
+    due: 'due',
+  });
 }
 
 describe('resolveCellEditor — status/priority mapped away from TaskNotes own field', () => {
@@ -361,5 +396,93 @@ describe('resolveGridCellEditors — the grid-wide resolution', () => {
     );
 
     expect(editors.size).toBe(0);
+  });
+});
+
+describe('resolveCellEditor — TaskNotes-owned fields', () => {
+  const listField = (key: string) => registered(key, { type: 'list' });
+
+  it('offers the assignees list editor for the property the role claims', () => {
+    const d = deps({
+      mappings: mappings({ assigneesProperty: 'note.assignee' }),
+      assigneesWritable: true,
+      ownership: taskNotesWithAssignees(),
+    });
+
+    expect(resolveCellEditor('note.assignee', d)).toEqual({ kind: 'list' });
+  });
+
+  it('offers no editor for the property Attachments is mapped to', () => {
+    const d = deps({
+      ownership: taskNotesWithAssignees(),
+      taskNotesFieldType: listField('files'),
+    });
+
+    expect(resolveCellEditor('note.files', d)).toBeNull();
+  });
+
+  it('keeps a user field named recurrence_original_date when the mapping has no such field', () => {
+    const d = deps({
+      ownership: taskNotesWithAssignees(),
+      taskNotesFieldType: registered('recurrence_original_date', { type: 'date' }),
+    });
+
+    expect(resolveCellEditor('note.recurrence_original_date', d)).toEqual({ kind: 'date' });
+  });
+
+  it('offers no editor for recurrence_original_date when the reported mapping names that field', () => {
+    const d = deps({
+      ownership: resolveFieldOwnership({ recurrenceOriginalDate: 'recurrence_original_date' }),
+      taskNotesFieldType: registered('recurrence_original_date', { type: 'date' }),
+    });
+
+    expect(resolveCellEditor('note.recurrence_original_date', d)).toBeNull();
+  });
+
+  it('keeps a user field whose name is only a tag setting', () => {
+    const d = deps({
+      ownership: resolveFieldOwnership({ icsEventTag: 'ics_event' }),
+      taskNotesFieldType: registered('ics_event', { type: 'text' }),
+    });
+
+    expect(resolveCellEditor('note.ics_event', d)).toEqual({ kind: 'text' });
+  });
+
+  it('keeps the editor of a user field no built-in field maps to', () => {
+    const d = deps({
+      ownership: taskNotesWithAssignees(),
+      taskNotesFieldType: registered('client', { type: 'text' }),
+    });
+
+    expect(resolveCellEditor('note.client', d)).toEqual({ kind: 'text' });
+  });
+
+  it('offers no editor for a user field named assignees while Assignees maps elsewhere', () => {
+    const d = deps({
+      ownership: taskNotesWithAssignees(),
+      taskNotesFieldType: listField('assignees'),
+    });
+
+    expect(resolveCellEditor('note.assignees', d)).toBeNull();
+  });
+
+  it('keeps a user field named assignees when the mapping has no Assignees field', () => {
+    const d = deps({
+      ownership: taskNotesWithoutAssignees(),
+      taskNotesFieldType: listField('assignees'),
+    });
+
+    expect(resolveCellEditor('note.assignees', d)).toEqual({ kind: 'list' });
+  });
+
+  it('offers no editor for an unclaimed column when the mapping could not be read, and a mapped role still edits', () => {
+    const unknown = deps({
+      mappings: mappings({ startProperty: 'note.start' }),
+      ownership: unknownFieldOwnership(),
+      taskNotesFieldType: registered('client', { type: 'text' }),
+    });
+
+    expect(resolveCellEditor('note.client', unknown)).toBeNull();
+    expect(resolveCellEditor('note.start', unknown)).toEqual({ kind: 'date', dateRole: 'start' });
   });
 });

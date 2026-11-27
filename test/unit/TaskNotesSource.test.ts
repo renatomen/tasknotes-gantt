@@ -583,6 +583,7 @@ describe('TaskNotesSource — getFieldConfig (U1)', () => {
       statusProp: null,
       priorityProp: null,
       assigneesProp: null,
+      fieldMapping: { scheduled: 'scheduled', due: 'due' },
     });
   });
 
@@ -649,7 +650,17 @@ describe('TaskNotesSource — getFieldConfig (U1)', () => {
       statusProp: null,
       priorityProp: null,
       assigneesProp: null,
+      fieldMapping: null,
     });
+  });
+
+  it('keeps the whole field mapping, including members the sliced props do not name', async () => {
+    const cfg = await fieldConfigFrom({
+      fieldMapping: { scheduled: 'scheduled', attachments: 'files' },
+      userFields: [],
+    });
+
+    expect(cfg?.fieldMapping).toEqual({ scheduled: 'scheduled', attachments: 'files' });
   });
 
   it('drops date fields missing a key (cannot address the frontmatter property)', async () => {

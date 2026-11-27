@@ -17,6 +17,11 @@ import { describe, it, expect } from '@jest/globals';
 import { resolvePropertyPatch } from '../../src/controller/propertyPatchResolution';
 import type { PropertyPatchOptions } from '../../src/controller/propertyPatchResolution';
 import type { RoleWritability } from '../../src/controller/fieldMappingResolution';
+import {
+  resolveFieldOwnership,
+  unknownFieldOwnership,
+  type FieldOwnership,
+} from '../../src/controller/fieldOwnership';
 import type { FieldMappings } from '../../src/bases/types/field-mapping';
 
 function makeOptions(
@@ -28,6 +33,7 @@ function makeOptions(
     priorityWritable?: boolean;
     assigneesWritable?: boolean;
   } = {},
+  ownership?: FieldOwnership,
 ): PropertyPatchOptions {
   return {
     mappings: {
@@ -43,8 +49,29 @@ function makeOptions(
       status: flags.statusWritable ?? true,
       priority: flags.priorityWritable ?? true,
       assignees: flags.assigneesWritable ?? false,
+      ...(ownership ? { ownership } : {}),
     } as RoleWritability,
   };
+}
+
+/** A mapping that names Assignees as `assignee` and Attachments as `files`. */
+function taskNotesWithAssignees(): FieldOwnership {
+  return resolveFieldOwnership({
+    title: 'title',
+    due: 'due',
+    contexts: 'contexts',
+    attachments: 'files',
+    assignees: 'assignee',
+  });
+}
+
+/** A mapping with no Assignees member, so a user field of that name stays writable. */
+function taskNotesWithoutAssignees(): FieldOwnership {
+  return resolveFieldOwnership({
+    title: 'title',
+    due: 'due',
+    contexts: 'contexts',
+  });
 }
 
 describe('resolvePropertyPatch — status/priority mapped away from TaskNotes own field', () => {
@@ -279,5 +306,110 @@ describe('resolvePropertyPatch — assignees', () => {
         makeOptions({ assigneesProperty: 'note.people' }, { assigneesWritable: false }),
       ),
     ).toThrow();
+  });
+
+  it('writes the assignee column through the Assignees role even though that property is owned', () => {
+    const out = resolvePropertyPatch(
+      'note.assignee',
+      ['[[Alice]]'],
+      makeOptions(
+        { assigneesProperty: 'note.assignee' },
+        { assigneesWritable: true },
+        taskNotesWithAssignees(),
+      ),
+    );
+
+    expect(out).toEqual({ assignees: ['[[Alice]]'] });
+  });
+});
+
+describe('resolvePropertyPatch — TaskNotes-owned fields', () => {
+  it('refuses a generic write to the property Attachments is mapped to', () => {
+    expect(() =>
+      resolvePropertyPatch('note.files', ['a.pdf'], makeOptions({}, {}, taskNotesWithAssignees())),
+    ).toThrow(TypeError);
+  });
+
+  it('writes a user field named recurrence_original_date when the mapping has no such field', () => {
+    const out = resolvePropertyPatch(
+      'note.recurrence_original_date',
+      '2026-03-18',
+      makeOptions({}, {}, taskNotesWithAssignees()),
+    );
+
+    expect(out).toEqual({ fieldWrite: { key: 'recurrence_original_date', value: '2026-03-18' } });
+  });
+
+  it('refuses recurrence_original_date when the reported mapping names that field', () => {
+    const ownership = resolveFieldOwnership({
+      ...{
+        title: 'title',
+        due: 'due',
+        contexts: 'contexts',
+        attachments: 'files',
+        assignees: 'assignee',
+      },
+      recurrenceOriginalDate: 'recurrence_original_date',
+    });
+
+    expect(() =>
+      resolvePropertyPatch('note.recurrence_original_date', '2026-03-18', makeOptions({}, {}, ownership)),
+    ).toThrow(TypeError);
+  });
+
+  it('writes a user field whose name is only a tag setting', () => {
+    const ownership = resolveFieldOwnership({ icsEventTag: 'ics_event', title: 'title' });
+
+    const out = resolvePropertyPatch('note.ics_event', 'standup', makeOptions({}, {}, ownership));
+
+    expect(out).toEqual({ fieldWrite: { key: 'ics_event', value: 'standup' } });
+  });
+
+  it('writes a user field that no built-in field maps to', () => {
+    const out = resolvePropertyPatch(
+      'note.client',
+      'Ada',
+      makeOptions({}, {}, taskNotesWithAssignees()),
+    );
+
+    expect(out).toEqual({ fieldWrite: { key: 'client', value: 'Ada' } });
+  });
+
+  it('refuses a user field named assignees while Assignees is mapped to another property', () => {
+    expect(() =>
+      resolvePropertyPatch('note.assignees', ['Ada'], makeOptions({}, {}, taskNotesWithAssignees())),
+    ).toThrow(TypeError);
+  });
+
+  it('writes a user field named assignees when the mapping has no Assignees field', () => {
+    const out = resolvePropertyPatch(
+      'note.assignees',
+      ['Ada'],
+      makeOptions({}, {}, taskNotesWithoutAssignees()),
+    );
+
+    expect(out).toEqual({ fieldWrite: { key: 'assignees', value: ['Ada'] } });
+  });
+
+  it.each(['due', 'title', 'details', 'contexts'])(
+    'refuses a generic write to %s when no role claims it',
+    (key) => {
+      expect(() =>
+        resolvePropertyPatch(`note.${key}`, 'x', makeOptions({}, {}, taskNotesWithAssignees())),
+      ).toThrow(TypeError);
+    },
+  );
+
+  it('refuses a user field when the field mapping could not be read, and a mapped role still writes', () => {
+    expect(() =>
+      resolvePropertyPatch('note.client', 'Ada', makeOptions({}, {}, unknownFieldOwnership())),
+    ).toThrow(TypeError);
+
+    const out = resolvePropertyPatch(
+      'note.status',
+      'done',
+      makeOptions({ statusProperty: 'note.status' }, { statusWritable: true }, unknownFieldOwnership()),
+    );
+    expect(out).toEqual({ status: 'done' });
   });
 });

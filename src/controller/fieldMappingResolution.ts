@@ -19,13 +19,19 @@ import type { Branded } from '../brandedValue';
 import { bareProperty, resolveDateMapping, toNoteProperty } from '../datasource/dateFieldMapping';
 import type { FieldMappings } from '../datasource/fieldMappings';
 import type { DateWriteTarget, FieldConfig } from '../datasource/types';
+import {
+  legacyFieldOwnership,
+  resolveFieldOwnership,
+  unknownFieldOwnership,
+  type FieldOwnership,
+} from './fieldOwnership';
 
 /** Roles whose inline edit persists only when the view reads TaskNotes' own property. */
 export type WritableMappedRole = 'status' | 'priority' | 'assignees';
 
 /** One writability answer per {@link WritableMappedRole}, minted here. */
 export type RoleWritability = Branded<
-  { [Role in WritableMappedRole]: boolean },
+  { [Role in WritableMappedRole]: boolean } & { ownership?: FieldOwnership },
   'fieldMapping.roleWritability'
 >;
 
@@ -51,13 +57,20 @@ export interface FieldMappingResolution {
   roleWritability: RoleWritability;
 }
 
-function mintRoleWritability(flags: { [Role in WritableMappedRole]: boolean }): RoleWritability {
+function mintRoleWritability(
+  flags: { [Role in WritableMappedRole]: boolean } & { ownership?: FieldOwnership },
+): RoleWritability {
   return flags as RoleWritability;
 }
 
 /** A fresh all-false record, for before resolution and for a missing field config. */
 export function unresolvedRoleWritability(): RoleWritability {
-  return mintRoleWritability({ status: false, priority: false, assignees: false });
+  return mintRoleWritability({
+    status: false,
+    priority: false,
+    assignees: false,
+    ownership: unknownFieldOwnership(),
+  });
 }
 
 /**
@@ -103,7 +116,12 @@ export function resolveFieldMappings(
         startReadProp: null,
         endReadProp: null,
       },
-      roleWritability: mintRoleWritability({ status: false, priority: false, assignees: false }),
+      roleWritability: mintRoleWritability({
+        status: false,
+        priority: false,
+        assignees: false,
+        ownership: unknownFieldOwnership(),
+      }),
     };
   }
 
@@ -140,6 +158,20 @@ export function resolveFieldMappings(
       status: writesToSameProperty(statusProperty, fieldConfig.statusProp),
       priority: writesToSameProperty(priorityProperty, fieldConfig.priorityProp),
       assignees: writesToSameProperty(assigneesProperty, fieldConfig.assigneesProp ?? null),
+      ownership: ownershipFor(fieldConfig),
     }),
   };
+}
+
+/**
+ * A mapping that was read decides ownership from that mapping. A read that
+ * found no mapping cannot tell an owned property from a user field, so every
+ * generic write is refused. A caller that never loaded a mapping keeps the
+ * update-key refusal that already shipped, rather than suddenly allowing
+ * those keys.
+ */
+function ownershipFor(fieldConfig: FieldConfig): FieldOwnership {
+  if (fieldConfig.fieldMapping === undefined) return legacyFieldOwnership();
+  if (fieldConfig.fieldMapping === null) return unknownFieldOwnership();
+  return resolveFieldOwnership(fieldConfig.fieldMapping);
 }
