@@ -166,6 +166,12 @@ export interface FieldConfig {
    * has no Assignees field.
    */
   assigneesProp?: string | null;
+  /**
+   * The running field mapping, built-in field to frontmatter property.
+   * `null` means a read found no mapping, so ownership is unknown. Omitted
+   * means the caller never loaded one.
+   */
+  fieldMapping?: Readonly<Record<string, string>> | null;
 }
 
 /**

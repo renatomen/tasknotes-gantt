@@ -6,6 +6,7 @@
 
 import { describe, expect, it } from '@jest/globals';
 import { resolveFieldMappings } from '../../src/controller/fieldMappingResolution';
+import { refusesGenericWrite } from '../../src/controller/fieldOwnership';
 import type { FieldMappings } from '../../src/datasource/fieldMappings';
 import type { FieldConfig } from '../../src/datasource/types';
 
@@ -189,5 +190,52 @@ describe('resolveFieldMappings — no TaskNotes field config', () => {
     expect(resolved.roleWritability.status).toBe(false);
     expect(resolved.roleWritability.priority).toBe(false);
     expect(resolved.roleWritability.assignees).toBe(false);
+    expect(resolved.roleWritability.ownership?.known).toBe(false);
+    expect(refusesGenericWrite('client', resolved.roleWritability.ownership!)).toBe(true);
+  });
+});
+
+describe('resolveFieldMappings — owned fields', () => {
+  it('refuses the mapped Attachments property and a missing recurrence original date, and allows an unrelated user field', () => {
+    const resolved = resolveFieldMappings(
+      mappings(),
+      fieldConfig({
+        fieldMapping: {
+          attachments: 'files',
+          assignees: 'assignee',
+          due: 'due',
+          title: 'title',
+        },
+      }),
+    );
+    const ownership = resolved.roleWritability.ownership;
+    if (!ownership) throw new Error('expected ownership');
+
+    expect(ownership.known).toBe(true);
+    expect(refusesGenericWrite('files', ownership)).toBe(true);
+    expect(refusesGenericWrite('recurrence_original_date', ownership)).toBe(true);
+    expect(refusesGenericWrite('client', ownership)).toBe(false);
+    expect(refusesGenericWrite('assignees', ownership)).toBe(true);
+  });
+
+  it('refuses every generic write when a read found no field mapping', () => {
+    const resolved = resolveFieldMappings(mappings(), fieldConfig({ fieldMapping: null }));
+    const ownership = resolved.roleWritability.ownership;
+    if (!ownership) throw new Error('expected ownership');
+
+    expect(ownership.known).toBe(false);
+    expect(refusesGenericWrite('client', ownership)).toBe(true);
+    expect(refusesGenericWrite('due', ownership)).toBe(true);
+  });
+
+  it('allows a user field named assignees when the mapping has no Assignees field', () => {
+    const resolved = resolveFieldMappings(
+      mappings(),
+      fieldConfig({ fieldMapping: { title: 'title', due: 'due' } }),
+    );
+    const ownership = resolved.roleWritability.ownership;
+    if (!ownership) throw new Error('expected ownership');
+
+    expect(refusesGenericWrite('assignees', ownership)).toBe(false);
   });
 });

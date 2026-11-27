@@ -333,6 +333,18 @@ const RELTYPE_MAP: Readonly<Record<string, DependencyRelType>> = {
 const TASKNOTES_PLUGIN_ID = 'tasknotes';
 
 /** The uid string of a raw `blockedBy` entry (bare string or `{ uid }` object). */
+/**
+ * Keep only string property names. Ownership is decided from the whole map the
+ * running TaskNotes reports, and a non-string entry is not a property name.
+ */
+function stringFieldMapping(raw: object): Record<string, string> {
+  const mapping: Record<string, string> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (typeof value === 'string') mapping[key] = value;
+  }
+  return mapping;
+}
+
 function extractEdgeUid(entry: TaskNotesBlockedByEntry): string {
   if (typeof entry === 'string') return entry;
   return typeof entry.uid === 'string' ? entry.uid : '';
@@ -784,14 +796,15 @@ export class TaskNotesSource implements DataSource {
       if (!config) {
         return null;
       }
-      const fieldMapping = config.fieldMapping ?? {};
+      const rawMapping = config.fieldMapping;
+      const fieldMapping =
+        rawMapping && typeof rawMapping === 'object' ? stringFieldMapping(rawMapping) : null;
       const dateFields: CustomDateField[] = [];
       for (const f of config.userFields ?? []) {
         const field = this.toCustomDateField(f);
         if (field) dateFields.push(field);
       }
-      const configuredProp = (name: string): string | null =>
-        typeof fieldMapping[name] === 'string' ? fieldMapping[name] : null;
+      const configuredProp = (name: string): string | null => fieldMapping?.[name] ?? null;
       return {
         scheduledProp: configuredProp('scheduled'),
         dueProp: configuredProp('due'),
@@ -800,6 +813,7 @@ export class TaskNotesSource implements DataSource {
         statusProp: configuredProp('status'),
         priorityProp: configuredProp('priority'),
         assigneesProp: configuredProp('assignees'),
+        fieldMapping,
       };
     } catch {
       return null;

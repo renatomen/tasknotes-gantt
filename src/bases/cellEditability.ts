@@ -23,6 +23,7 @@ import { bareProperty } from '../datasource/dateFieldMapping';
 import type { TaskNotesFieldMeta } from './cellRenderType';
 import { matchMappedFieldRole, completeMappedRolePrecedence, type MappedFieldRole } from '../datasource/mappedFieldRole';
 import type { FieldMappings } from './types/field-mapping';
+import { readFieldOwnership, refusesGenericWrite } from '../controller/fieldOwnership';
 import type { RoleWritability } from '../controller/fieldMappingResolution';
 
 /** The inline editor families a cell can resolve to. */
@@ -89,6 +90,9 @@ export function resolveCellEditor(propId: string, deps: CellEditorDeps): CellEdi
 
   const role = matchMappedFieldRole(key, deps.mappings, EDITOR_ROLE_PRECEDENCE);
   if (role) return editorForMappedField(role, deps);
+  // An owned field that no role claims has no editor, including when ownership
+  // itself could not be read: offering one would write a field TaskNotes owns.
+  if (refusesGenericWrite(key, readFieldOwnership(deps.roleWritability))) return null;
 
   const field = deps.taskNotesFieldType(key);
   return field ? editorForUserField(field) : null;
