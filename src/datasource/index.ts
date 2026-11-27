@@ -50,6 +50,7 @@ export type {
 
 export { BasesSource } from './BasesSource';
 export { parseDateValue } from './dateValue';
+export { offersGetByPath } from './taskLookup';
 export { CompositeSource } from './CompositeSource';
 export {
   TaskNotesSource,

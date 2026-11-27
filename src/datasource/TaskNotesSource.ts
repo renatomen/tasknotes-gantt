@@ -36,6 +36,7 @@ import type { App } from 'obsidian';
 import type { RelationshipIndex } from './companionResolve';
 import { toYmd } from './dateFieldMapping';
 import { parseDateValue } from './dateValue';
+import { canLookupTaskByPath, lookupTaskByPath } from './taskLookup';
 import type {
   ChoiceOption,
   ChoiceRole,
@@ -193,9 +194,8 @@ export interface TaskNotesPriorityConfig {
  * A resolved `blockedBy` dependency edge for a task, as returned by TaskNotes'
  * `relationships.dependencies(path)`.
  *
- * The live API (verified against TaskNotes 4.11.0 via the dependency e2e) nests
- * the relationship under `dependency` and puts the resolved predecessor at the
- * top-level `path`: `{ dependency: { uid, reltype, gap }, path, task }`. Older/
+ * The live API nests the relationship under `dependency` and puts the resolved
+ * predecessor at the top-level `path`: `{ dependency: { uid, reltype, gap }, path, task }`. Older/
  * flat shapes (`{ path|uid, reltype, gap }`) are still accepted as a fallback.
  */
 export interface TaskNotesDependencyEdge {
@@ -230,9 +230,15 @@ export interface TaskNotesApi {
     list(query?: unknown): Promise<TaskNotesTaskInfo[]> | TaskNotesTaskInfo[];
     get(path: string): Promise<TaskNotesTaskInfo | null> | TaskNotesTaskInfo | null;
     /**
-     * Atomically apply a field patch to a task (TaskNotes 4.11.0:
-     * `update(path, updates, options)` → `withMutationContext`). The third
-     * `options` arg carries the {@link MutationContext}; TaskNotes tags the
+     * Path lookup on releases that offer it. Earlier releases only have `get`.
+     * Chosen by presence: a miss does not fall back to `get`.
+     */
+    getByPath?(
+      path: string,
+    ): Promise<TaskNotesTaskInfo | null> | TaskNotesTaskInfo | null;
+    /**
+     * Atomically apply a field patch to a task. The third `options` arg carries
+     * the {@link MutationContext}; TaskNotes tags the
      * emitted change event with `context.correlationId` for echo suppression.
      */
     update?(
@@ -248,17 +254,15 @@ export interface TaskNotesApi {
       path: string
     ): Promise<TaskNotesDependencyEdge[]> | TaskNotesDependencyEdge[];
     /**
-     * Direct subtasks of `path` (tasks whose `projects` field links to it).
-     * TaskNotes 4.11.0: `relationships.subtasks` → `getSubtasks`, returning
-     * resolved `TaskInfo[]`. Optional/guarded (older versions lack it).
+     * Direct subtasks of `path` (tasks whose `projects` field links to it),
+     * as resolved task info. Optional: older releases lack it.
      */
     subtasks?(
       path: string
     ): Promise<TaskNotesTaskInfo[]> | TaskNotesTaskInfo[];
     /**
-     * Direct parents of `path` (the tasks its `projects` field references).
-     * TaskNotes 4.11.0: `relationships.parents` → `getParentTasks`, returning
-     * resolved `TaskInfo[]`. Optional/guarded.
+     * Direct parents of `path` (the tasks its `projects` field references),
+     * as resolved task info. Optional: older releases lack it.
      */
     parents?(
       path: string
@@ -624,8 +628,8 @@ export class TaskNotesSource implements DataSource {
 
   /**
    * Read the resolved vault paths of the direct parents of `path` (the tasks its
-   * `projects` field references), via `api.relationships.parents(path)`
-   * (TaskNotes 4.11.0). Returns `[]` when the accessor is absent or on failure.
+   * `projects` field references), via `api.relationships.parents(path)`.
+   * Returns `[]` when the accessor is absent or on failure.
    *
    * @param path - The task whose direct parents to read.
    */
@@ -856,7 +860,7 @@ export class TaskNotesSource implements DataSource {
     // `tasks.update` touches, so it may only land on a TaskNotes-managed row.
     // Fails closed when task info cannot be resolved at all.
     if (patch.fieldWrite) {
-      const info = typeof tasks.get === 'function' ? await tasks.get(path) : null;
+      const info = await lookupTaskByPath<TaskNotesTaskInfo>(tasks, path);
       if (!info) {
         throw new Error(`Refusing field write: no TaskNotes task at ${path}`);
       }
@@ -886,8 +890,8 @@ export class TaskNotesSource implements DataSource {
   /**
    * Add a Finish-to-Start (or given reltype) dependency: `dependentPath` becomes
    * blocked by `predecessorPath`. Read-modify-write of the dependent's raw
-   * `blockedBy` (via `tasks.get`, preserving every existing edge verbatim — incl.
-   * ones with reltypes the read path doesn't recognize), appending one new edge,
+   * `blockedBy`, preserving every existing edge verbatim — including ones with
+   * reltypes the read path doesn't recognize — appending one new edge,
    * then `tasks.update({ blockedBy })`. A no-op when an equivalent edge already
    * exists (its uid resolves to `predecessorPath`). Propagates write failures.
    */
@@ -898,7 +902,7 @@ export class TaskNotesSource implements DataSource {
     context?: MutationContext,
   ): Promise<void> {
     const tasks = this.api.tasks;
-    if (!tasks || typeof tasks.update !== 'function' || typeof tasks.get !== 'function') {
+    if (!tasks || typeof tasks.update !== 'function' || !canLookupTaskByPath(tasks)) {
       throw new Error('TaskNotes API does not support dependency writes');
     }
     const current = await this.readBlockedBy(dependentPath);
@@ -924,7 +928,7 @@ export class TaskNotesSource implements DataSource {
     context?: MutationContext,
   ): Promise<void> {
     const tasks = this.api.tasks;
-    if (!tasks || typeof tasks.update !== 'function' || typeof tasks.get !== 'function') {
+    if (!tasks || typeof tasks.update !== 'function' || !canLookupTaskByPath(tasks)) {
       throw new Error('TaskNotes API does not support dependency writes');
     }
     const current = await this.readBlockedBy(dependentPath);
@@ -939,10 +943,16 @@ export class TaskNotesSource implements DataSource {
     );
   }
 
-  /** Read the dependent task's raw `blockedBy` array (or `[]`). */
+  /**
+   * Read the dependent task's raw `blockedBy` array.
+   * A missing task is a refusal: treating it as no edges would overwrite the stored ones.
+   */
   private async readBlockedBy(path: string): Promise<TaskNotesBlockedByEntry[]> {
-    const task = await this.api.tasks?.get?.(path);
-    const raw = task?.blockedBy;
+    const task = await lookupTaskByPath<TaskNotesTaskInfo>(this.api.tasks, path);
+    if (!task) {
+      throw new Error(`Refusing dependency write: no TaskNotes task at ${path}`);
+    }
+    const raw = task.blockedBy;
     return Array.isArray(raw) ? [...raw] : [];
   }
 
@@ -1141,7 +1151,7 @@ export function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
   applyEstimateWrite(updates, patch);
   // Generic field write: verbatim under the resolved bare frontmatter key,
   // top-level — TaskNotes' frontmatter writer reads custom user fields from
-  // `task[key]`, never a nested `userFields` object (confirmed vs 4.11.0).
+  // `task[key]`, never a nested `userFields` object.
   // `null` clears the property (matching the date-clear convention).
   if (patch.fieldWrite) {
     updates[patch.fieldWrite.key] = patch.fieldWrite.value;
@@ -1161,8 +1171,8 @@ function clampProgressPercent(value: number): number {
  *
  * Custom user fields: TaskNotes' frontmatter writer (mapToFrontmatter) reads
  * each user field's value from the TOP LEVEL of the updates object, keyed by the
- * field's frontmatter `key` — NOT from a `userFields` object and NOT by field id
- * (confirmed vs 4.11.0 main.js). Write it under the key accordingly.
+ * field's frontmatter `key` — not from a `userFields` object and not by field id.
+ * Write it under the key accordingly.
  */
 function applyDateWrite(updates: Record<string, unknown>, write: DateWrite): void {
   const value = write.value === null ? null : toYmd(write.value);

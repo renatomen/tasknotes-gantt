@@ -68,6 +68,10 @@ function makeEnv(opts: {
   missingPaths?: string[];
   /** TaskNotes tracks no task for this path (an unmanaged note). */
   taskMissing?: boolean;
+  /** Which path lookups the fake TaskNotes offers. Defaults to `get` only. */
+  lookup?: 'get' | 'getByPath' | 'both' | 'neither';
+  /** `getByPath` resolves nothing even when `get` would find the task. */
+  getByPathMiss?: boolean;
 } = {}) {
   const present = opts.present !== false;
   const openFile = jest.fn((_file: { path: string }) => Promise.resolve());
@@ -107,6 +111,10 @@ function makeEnv(opts: {
   const tasksGet = jest.fn((path: string) =>
     Promise.resolve(opts.taskMissing ? undefined : taskFor(path)),
   );
+  const tasksGetByPath = jest.fn((path: string) =>
+    Promise.resolve(opts.getByPathMiss || opts.taskMissing ? null : taskFor(path)),
+  );
+  const lookup = opts.lookup ?? 'get';
   const openTaskEditModal = jest.fn((_task: unknown) => {
     if (opts.editModalThrows) throw new Error('modal boom');
     return undefined;
@@ -119,7 +127,10 @@ function makeEnv(opts: {
         doubleClickAction: opts.doubleClickAction,
       }),
     },
-    tasks: { get: tasksGet },
+    tasks: {
+      ...(lookup === 'get' || lookup === 'both' ? { get: tasksGet } : {}),
+      ...(lookup === 'getByPath' || lookup === 'both' ? { getByPath: tasksGetByPath } : {}),
+    },
     ui: { taskMenu: { show: taskMenuShow } },
   };
 
@@ -141,6 +152,7 @@ function makeEnv(opts: {
     getAbstractFileByPath,
     taskMenuShow,
     tasksGet,
+    tasksGetByPath,
     openTaskEditModal,
     fileFor,
     taskFor,
@@ -177,6 +189,46 @@ describe('TaskNotesInteractions.handleActivate', () => {
     expect(env.openFile).toHaveBeenCalledTimes(1);
     expect(env.openedNote()).toBe(env.fileFor('tasks/b.md'));
     expect(env.openTaskEditModal).not.toHaveBeenCalled();
+  });
+
+  it('opens the edit modal through getByPath and does not call get when both are offered', async () => {
+    const env = makeEnv({ singleClickAction: 'edit', lookup: 'both' });
+    await new TaskNotesInteractions(env.app).handleActivate('tasks/c.md', {
+      kind: 'single',
+      ctrlOrMeta: false,
+    });
+
+    expect(env.tasksGetByPath).toHaveBeenCalledWith('tasks/c.md');
+    expect(env.tasksGet).not.toHaveBeenCalled();
+    expect(env.openTaskEditModal).toHaveBeenCalledTimes(1);
+    expect(env.editedTask()).toBe(env.taskFor('tasks/c.md'));
+    expect(env.openFile).not.toHaveBeenCalled();
+  });
+
+  it('opens the note when neither path lookup is offered', async () => {
+    const env = makeEnv({ singleClickAction: 'edit', lookup: 'neither' });
+    await new TaskNotesInteractions(env.app).handleActivate('tasks/c.md', {
+      kind: 'single',
+      ctrlOrMeta: false,
+    });
+
+    expect(env.tasksGet).not.toHaveBeenCalled();
+    expect(env.tasksGetByPath).not.toHaveBeenCalled();
+    expect(env.openTaskEditModal).not.toHaveBeenCalled();
+    expect(env.openedNote()).toBe(env.fileFor('tasks/c.md'));
+  });
+
+  it('opens the note when getByPath finds no task, and does not call get', async () => {
+    const env = makeEnv({ singleClickAction: 'edit', lookup: 'both', getByPathMiss: true });
+    await new TaskNotesInteractions(env.app).handleActivate('tasks/c.md', {
+      kind: 'single',
+      ctrlOrMeta: false,
+    });
+
+    expect(env.tasksGetByPath).toHaveBeenCalledWith('tasks/c.md');
+    expect(env.tasksGet).not.toHaveBeenCalled();
+    expect(env.openTaskEditModal).not.toHaveBeenCalled();
+    expect(env.openedNote()).toBe(env.fileFor('tasks/c.md'));
   });
 
   it('opens the native edit modal for an edit action (via guarded plugin call)', async () => {
