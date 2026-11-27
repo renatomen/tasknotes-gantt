@@ -165,7 +165,11 @@ function patternDays(
   window: CalendarDerivationWindow,
 ): LocalDay[] {
   const windowStart = utcDayStart(window.startDate);
-  const searchEnd = task.recurrence.includes('FREQ=YEARLY')
+  // A trailing newline makes the model treat an inline rule as a DTSTART-only
+  // property and fall back to yearly. A TZID parameter left in place lands a
+  // two-line rule a day late in some timezones. Normalize before either choice.
+  const recurrence = task.recurrence.replace(/;TZID=[^:;\r\n]+/g, '').trim();
+  const searchEnd = recurrence.includes('FREQ=YEARLY')
     ? new Date(
         Math.max(
           windowStart.getTime() + YEARLY_LOOKAHEAD_DAYS * MILLISECONDS_PER_DAY,
@@ -174,9 +178,6 @@ function patternDays(
       )
     : utcDayStart(window.endDateExclusive);
   const scheduled = task.scheduled instanceof Date ? toLocalDay(task.scheduled) : task.scheduled;
-  // The model calendar drops a TZID parameter before expansion. Left in place,
-  // a two-line rule lands a day late in some timezones.
-  const recurrence = task.recurrence.replace(/;TZID=[^:;\r\n]+/g, '');
   const occurrences = generateRecurringInstances(
     { title: task.title ?? '', recurrence, ...(scheduled ? { scheduled } : {}) },
     windowStart,

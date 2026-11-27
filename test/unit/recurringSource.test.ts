@@ -352,6 +352,19 @@ describe('recurringSource — DTSTART quirk parity', () => {
     ]);
   });
 
+  it('expands a weekly rule that ends with a newline every week', async () => {
+    const states = await collectStates([
+      weeklyTask({ recurrence: 'DTSTART:20260106;FREQ=WEEKLY\n' }),
+    ]);
+
+    expect(states.map(([day]) => day)).toEqual([
+      '2026-01-06',
+      '2026-01-13',
+      '2026-01-20',
+      '2026-01-27',
+    ]);
+  });
+
   it('keeps yearly expansion reaching the active horizon when another source widens the start', async () => {
     const batch = await makeSource([
       weeklyTask({
