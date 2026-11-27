@@ -120,7 +120,7 @@ Waits on: nothing.
   - With `--author codex,claude`, every `--peer` is refused before any review runs.
   - The receipt the wrapper stamps carries the asserted authors, attested the same way as the family.
   - The Claude route runs with `--safe-mode`, and both routes are given the base commit's `AGENTS.md` § Review guidelines as a data file, so a diff that edits that section is still reviewed under the base version.
-- **Verification:** Unit gates green; one real `--peer claude --record` run against this PR's own diff stamps its receipt locally. The receipt and the review report stay local, because the receipt carries the author set; the PR states only that both receipts are OK and the peer verdict was clean (R6).
+- **Verification:** Unit gates green; one real `--author codex --peer claude --record` run against this PR's own diff stamps its receipt locally. The receipt and the review report stay local, because the receipt carries the author set; the PR states only that both receipts are OK and the peer verdict was clean (R6).
 
 ### U3. The roles in the guidance
 
@@ -141,7 +141,7 @@ Waits on: nothing.
 | Unit tests | `npm test` | U1, U2 |
 | Typecheck | `npm run typecheck` | U1, U2 |
 | Lint | `npm run lint` | Every unit |
-| Real Claude peer run | `bash scripts/cross-model-peer-review.sh <base> <out> --peer claude --record` | U2 |
+| Real Claude peer run | `bash scripts/cross-model-peer-review.sh <base> <out> --author codex --peer claude --record` | U2 |
 | Ranked-file trend measurement | the per-PR trend output the pre-push hook prints | The PR |
 | Review receipts and final gate | `node scripts/check-review-receipts.mjs check`; hosted final gate | The PR |
 
