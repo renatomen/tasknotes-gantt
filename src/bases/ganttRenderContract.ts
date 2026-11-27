@@ -40,14 +40,13 @@ import type {
   EstimateDerivation,
   ManagedTaskPaths,
   PriorityColorCatalog,
-  PriorityWritable,
   RefreshGenerationReader,
   RenderLinkSet,
   SourceCapabilities,
   SpanDerivation,
   StatusColorCatalog,
-  StatusWritable,
 } from '../controller/GanttController';
+import type { RoleWritability } from '../controller/fieldMappingResolution';
 
 /**
  * Two host reads whose brands are declared here rather than beside their
@@ -292,8 +291,7 @@ export interface RenderContractInput {
   /** The mappings as resolved — which property IS each field. */
   effectiveMappings: EffectiveFieldMappings;
   taskNotesFieldType: TaskNotesFieldTypeLookup;
-  statusWritable: StatusWritable;
-  priorityWritable: PriorityWritable;
+  roleWritability: RoleWritability;
   taskNotesPresent: TaskNotesPresence;
   showDateIndicators: DateIndicatorToggle;
   barFillSource: BarFillChannel;
@@ -442,8 +440,7 @@ export function projectRenderContract(input: RenderContractInput): GanttData {
     mappings: input.effectiveMappings,
     progressWritable: !isProgressReadonly(input.rawMappings),
     estimateWritable: isTimeEstimateWriteEnabled(input.rawMappings),
-    statusWritable: input.statusWritable,
-    priorityWritable: input.priorityWritable,
+    roleWritability: input.roleWritability,
   });
 
   return {

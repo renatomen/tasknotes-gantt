@@ -17,6 +17,11 @@ import {
 } from '../../src/bases/cellEditability';
 import type { TaskNotesFieldMeta } from '../../src/bases/cellRenderType';
 import type { FieldMappings } from '../../src/bases/types/field-mapping';
+import type { RoleWritability } from '../../src/controller/fieldMappingResolution';
+
+function roleFlags(status: boolean, priority: boolean): RoleWritability {
+  return { status, priority } as RoleWritability;
+}
 
 function mappings(over: Partial<FieldMappings> = {}): FieldMappings {
   return {
@@ -28,15 +33,21 @@ function mappings(over: Partial<FieldMappings> = {}): FieldMappings {
   };
 }
 
-function deps(over: Partial<CellEditorDeps> = {}): CellEditorDeps {
+function deps(
+  over: Partial<Omit<CellEditorDeps, 'roleWritability'>> & {
+    roleWritability?: RoleWritability;
+    statusWritable?: boolean;
+    priorityWritable?: boolean;
+  } = {},
+): CellEditorDeps {
+  const { statusWritable, priorityWritable, roleWritability: given, ...rest } = over;
   return {
-    taskNotesFieldType: over.taskNotesFieldType ?? (() => null),
-    mappings: over.mappings ?? mappings(),
-    progressWritable: over.progressWritable ?? false,
-    estimateWritable: over.estimateWritable ?? false,
-    statusWritable: over.statusWritable ?? true,
-    priorityWritable: over.priorityWritable ?? true,
-    isNameColumn: over.isNameColumn ?? false,
+    taskNotesFieldType: rest.taskNotesFieldType ?? (() => null),
+    mappings: rest.mappings ?? mappings(),
+    progressWritable: rest.progressWritable ?? false,
+    estimateWritable: rest.estimateWritable ?? false,
+    roleWritability: given ?? roleFlags(statusWritable ?? true, priorityWritable ?? true),
+    isNameColumn: rest.isNameColumn ?? false,
   };
 }
 
@@ -247,14 +258,20 @@ describe('resolveCellEditor — everything else', () => {
 describe('resolveGridCellEditors — the grid-wide resolution', () => {
   const col = (propId: string, isName = false) => ({ id: `c:${propId}`, propId, isName });
 
-  function gridDeps(over: Partial<GridCellEditorDeps> = {}): GridCellEditorDeps {
+  function gridDeps(
+    over: Partial<Omit<GridCellEditorDeps, 'roleWritability'>> & {
+      roleWritability?: RoleWritability;
+      statusWritable?: boolean;
+      priorityWritable?: boolean;
+    } = {},
+  ): GridCellEditorDeps {
+    const { statusWritable, priorityWritable, roleWritability: given, ...rest } = over;
     return {
-      taskNotesFieldType: over.taskNotesFieldType ?? (() => null),
-      mappings: over.mappings ?? mappings(),
-      progressWritable: over.progressWritable ?? false,
-      estimateWritable: over.estimateWritable ?? false,
-      statusWritable: over.statusWritable ?? true,
-      priorityWritable: over.priorityWritable ?? true,
+      taskNotesFieldType: rest.taskNotesFieldType ?? (() => null),
+      mappings: rest.mappings ?? mappings(),
+      progressWritable: rest.progressWritable ?? false,
+      estimateWritable: rest.estimateWritable ?? false,
+      roleWritability: given ?? roleFlags(statusWritable ?? true, priorityWritable ?? true),
     };
   }
 

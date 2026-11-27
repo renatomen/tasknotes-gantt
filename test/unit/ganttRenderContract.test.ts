@@ -28,15 +28,14 @@ import type {
   EstimateDerivation,
   ManagedTaskPaths,
   PriorityColorCatalog,
-  PriorityWritable,
   RecomputeGeneration,
   RefreshGenerationReader,
   RenderLinkSet,
   SourceCapabilities,
   SpanDerivation,
   StatusColorCatalog,
-  StatusWritable,
 } from '../../src/controller/GanttController';
+import type { RoleWritability } from '../../src/controller/fieldMappingResolution';
 import type { RenderInstance } from '../../src/controller/InstanceExpansion';
 import { gridColumnsKey, type GridColumn } from '../../src/bases/gridColumns';
 import type { CellData } from '../../src/bases/cellRender';
@@ -180,8 +179,7 @@ function makeInput(overrides: Partial<RenderContractInput> = {}): RenderContract
     rawMappings: mint<RawFieldMappings>(EMPTY_MAPPINGS),
     effectiveMappings: mint<EffectiveFieldMappings>(EMPTY_MAPPINGS),
     taskNotesFieldType: () => null,
-    statusWritable: mint<StatusWritable>(true),
-    priorityWritable: mint<PriorityWritable>(true),
+    roleWritability: mint<RoleWritability>({ status: true, priority: true }),
     taskNotesPresent: mint<TaskNotesPresence>(true),
     // Distinguishable from taskNotesPresent on purpose: the two are branded
     // apart on the input, but the projection publishes them into GanttData's
@@ -493,8 +491,10 @@ describe('projectRenderContract: the inline cell editors', () => {
         makeInput({
           gridColumns: columns,
           effectiveMappings: mint<EffectiveFieldMappings>(mappings),
-          statusWritable: mint<StatusWritable>(statusWritable),
-          priorityWritable: mint<PriorityWritable>(priorityWritable),
+          roleWritability: mint<RoleWritability>({
+            status: statusWritable,
+            priority: priorityWritable,
+          }),
         }),
       ).cellEditors;
 
@@ -655,10 +655,10 @@ const _crossedFlags: RenderContractInput = {
   // @ts-expect-error TaskNotes presence and the date-indicator toggle are both plain booleans
   showDateIndicators: miswire.taskNotesPresent,
 };
-const _crossedWritability: RenderContractInput = {
+const _plainWritability: RenderContractInput = {
   ...miswire,
-  // @ts-expect-error the two writability answers are both plain booleans
-  statusWritable: miswire.priorityWritable,
+  // @ts-expect-error the writability record is minted by field-mapping resolution
+  roleWritability: { status: true, priority: false },
 };
 
 // Values only a collaborator can answer: uniquely typed, so no pairwise guard

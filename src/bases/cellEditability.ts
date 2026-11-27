@@ -23,6 +23,7 @@ import { bareProperty } from '../datasource/dateFieldMapping';
 import type { TaskNotesFieldMeta } from './cellRenderType';
 import { matchMappedFieldRole, type MappedFieldRole } from '../datasource/mappedFieldRole';
 import type { FieldMappings } from './types/field-mapping';
+import type { RoleWritability } from '../controller/fieldMappingResolution';
 
 /** The inline editor families a cell can resolve to. */
 export type CellEditorKind =
@@ -66,14 +67,10 @@ export interface CellEditorDeps {
   /** Whether a Time Estimate write target is resolved (mode ≠ `dont-update`). */
   estimateWritable: boolean;
   /**
-   * Whether the mapped status property is the one TaskNotes persists to. TaskNotes
-   * writes status through its OWN configured property, so a view mapped to a
-   * different one can only be read — an editor there would write somewhere the
-   * column does not show.
+   * Per-role answer for status and priority. An editor is offered only when the
+   * view reads the property TaskNotes persists, so the column and the write agree.
    */
-  statusWritable: boolean;
-  /** Whether the mapped priority property is TaskNotes' own. Mirrors {@link statusWritable}. */
-  priorityWritable: boolean;
+  roleWritability: RoleWritability;
   /** `true` for the name/hierarchy column (never editable inline). */
   isNameColumn: boolean;
 }
@@ -113,7 +110,7 @@ const EDITOR_ROLE_PRECEDENCE: ReadonlyArray<MappedFieldRole> = [
 
 type MappedFieldWritability = Pick<
   CellEditorDeps,
-  'statusWritable' | 'priorityWritable' | 'progressWritable' | 'estimateWritable'
+  'roleWritability' | 'progressWritable' | 'estimateWritable'
 >;
 
 function editorForMappedField(
@@ -126,9 +123,9 @@ function editorForMappedField(
     case 'end':
       return { kind: 'date', dateRole: 'end' };
     case 'status':
-      return writability.statusWritable ? { kind: 'choice-status' } : null;
+      return writability.roleWritability.status ? { kind: 'choice-status' } : null;
     case 'priority':
-      return writability.priorityWritable ? { kind: 'choice-priority' } : null;
+      return writability.roleWritability.priority ? { kind: 'choice-priority' } : null;
     case 'progress':
       return writability.progressWritable ? { kind: 'number' } : null;
     case 'estimate':

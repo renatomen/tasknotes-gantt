@@ -16,6 +16,7 @@
 import { describe, it, expect } from '@jest/globals';
 import { resolvePropertyPatch } from '../../src/controller/propertyPatchResolution';
 import type { PropertyPatchOptions } from '../../src/controller/propertyPatchResolution';
+import type { RoleWritability } from '../../src/controller/fieldMappingResolution';
 import type { FieldMappings } from '../../src/bases/types/field-mapping';
 
 function makeOptions(
@@ -37,8 +38,10 @@ function makeOptions(
     },
     progressWritable: flags.progressWritable ?? true,
     estimateWritable: flags.estimateWritable ?? true,
-    statusWritable: flags.statusWritable ?? true,
-    priorityWritable: flags.priorityWritable ?? true,
+    roleWritability: {
+      status: flags.statusWritable ?? true,
+      priority: flags.priorityWritable ?? true,
+    } as RoleWritability,
   };
 }
 
