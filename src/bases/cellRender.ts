@@ -56,6 +56,12 @@ interface CellDataFields {
   /** `sourcePath → { propId: TypedValue }` — kept for the diff-sync fingerprint. */
   propertyValues: Map<string, Record<string, TypedValue>>;
   /**
+   * The extracted string each cell was built from, before display classification.
+   * A status stored as `Review.md` classifies as a link named `Review`; the
+   * palette still matches the stored string.
+   */
+  storedTexts: Map<string, Record<string, string>>;
+  /**
    * The display locale every date in {@link cellRenders} was formatted with —
    * the pass's own locale, carried out on its result rather than published
    * separately. The render contract republishes this value, so only one locale
@@ -148,7 +154,10 @@ export function buildCellData(
   const { extractor, resolveRenderType, dateLocale } = context;
   const cellRenders = new Map<string, Record<string, CellRender>>();
   const propertyValues = new Map<string, Record<string, TypedValue>>();
-  if (visiblePropIds.length === 0) return toCellData({ cellRenders, propertyValues, dateLocale });
+  const storedTexts = new Map<string, Record<string, string>>();
+  if (visiblePropIds.length === 0) {
+    return toCellData({ cellRenders, propertyValues, storedTexts, dateLocale });
+  }
 
   for (const entry of entries) {
     const path = (entry as { file?: { path?: unknown } })?.file?.path;
@@ -156,16 +165,19 @@ export function buildCellData(
 
     const renders: Record<string, CellRender> = {};
     const typed: Record<string, TypedValue> = {};
+    const stored: Record<string, string> = {};
     for (const propId of visiblePropIds) {
       const raw = extractor.extractValue(entry, propId);
       const tv = classifyTypedValue(raw);
       typed[propId] = tv;
       renders[propId] = buildCellRender(raw, tv, resolveRenderType(propId, tv.kind), dateLocale);
+      if (typeof raw === 'string') stored[propId] = raw;
     }
     cellRenders.set(path, renders);
     propertyValues.set(path, typed);
+    if (Object.keys(stored).length > 0) storedTexts.set(path, stored);
   }
-  return toCellData({ cellRenders, propertyValues, dateLocale });
+  return toCellData({ cellRenders, propertyValues, storedTexts, dateLocale });
 }
 
 /**

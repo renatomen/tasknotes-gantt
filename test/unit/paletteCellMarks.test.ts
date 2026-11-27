@@ -1,6 +1,6 @@
 import { describe, expect, it } from '@jest/globals';
+import { buildCellData, type CellRender } from '../../src/bases/cellRender';
 import { cellRendersWithPaletteMarks } from '../../src/bases/paletteCellMarks';
-import type { CellRender } from '../../src/bases/cellRender';
 import type { TypedValue } from '../../src/bases/propertyValues';
 import type { PriorityColor, StatusColor } from '../../src/datasource/types';
 
@@ -127,5 +127,40 @@ describe('cellRendersWithPaletteMarks', () => {
       glyph: progress,
       color: 'currentColor',
     });
+  });
+
+  it('marks a status stored as a note path after classification turns it into a link', () => {
+    const glyph = { role: 'status' as const, kind: 'open' as const, progress: 0 };
+    const data = buildCellData(
+      [{ file: { path: 'A.md' }, fm: { 'note.status': 'Review.md', 'note.copy': 'Review.md' } }],
+      ['note.status', 'note.copy'],
+      {
+        extractor: {
+          extractValue: (entry, propId) =>
+            (entry as { fm?: Record<string, unknown> }).fm?.[propId],
+        },
+        resolveRenderType: () => ({ display: 'conventional', tags: false }),
+        dateLocale: 'en-US',
+      },
+    );
+    expect(data.propertyValues.get('A.md')?.['note.status']?.kind).toBe('link');
+
+    const marked = cellRendersWithPaletteMarks(
+      data.cellRenders,
+      data.propertyValues,
+      { statusProperty: 'note.status' },
+      {
+        status: [{ value: 'Review.md', color: '#abc', isCompleted: false, glyph }],
+        priority: [],
+      },
+      data.storedTexts,
+    );
+
+    expect(marked.get('A.md')?.['note.status']?.paletteMark).toEqual({
+      kind: 'glyph',
+      glyph,
+      color: '#abc',
+    });
+    expect(marked.get('A.md')?.['note.copy']?.paletteMark).toBeUndefined();
   });
 });

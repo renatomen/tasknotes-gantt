@@ -37,10 +37,11 @@ function storedText(value: TypedValue | undefined): string | null {
 }
 
 function markFor(
+  stored: string | undefined,
   value: TypedValue | undefined,
   palette: MarkedColumn['palette'],
 ): CellPaletteMark | null {
-  const text = storedText(value);
+  const text = stored ?? storedText(value);
   if (text === null) return null;
   const entry = palette.find((candidate) => candidate.value === text);
   if (!entry?.glyph) return null;
@@ -60,6 +61,7 @@ export function cellRendersWithPaletteMarks(
   propertyValues: CellData['propertyValues'],
   mappings: { statusProperty?: string; priorityProperty?: string },
   palettes: { status: readonly StatusColor[]; priority: readonly PriorityColor[] },
+  storedTexts?: CellData['storedTexts'],
 ): CellData['cellRenders'] {
   const columns = markedColumns(mappings, palettes);
   if (columns.length === 0) return cellRenders;
@@ -68,11 +70,12 @@ export function cellRendersWithPaletteMarks(
   const next = new Map(cellRenders);
   for (const [path, renders] of cellRenders) {
     const values = propertyValues.get(path);
+    const stored = storedTexts?.get(path);
     let record = renders;
     for (const column of columns) {
       const current = record[column.id];
       if (!current) continue;
-      const mark = markFor(values?.[column.id], column.palette);
+      const mark = markFor(stored?.[column.id], values?.[column.id], column.palette);
       if (!mark) continue;
       record = { ...record, [column.id]: withMark(current, mark) };
       changed = true;
