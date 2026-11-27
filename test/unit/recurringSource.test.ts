@@ -617,6 +617,36 @@ describe('recurringSource — a bad value does not hide the batch', () => {
     expect(states).toContainEqual(['2026-01-13', 'projected']);
   });
 
+  it('keeps a series when due is an invalid Date', async () => {
+    const states = await collectStates([weeklyTask({ due: new Date(Number.NaN) })]);
+
+    expect(states).toContainEqual(['2026-01-06', 'next']);
+  });
+
+  it('uses the occurrence date when a materialized scheduled Date is invalid', async () => {
+    const parent = 'tasks/series.md';
+    const child = 'tasks/series bad-date.md';
+    const batch = await makeSource([
+      {
+        path: parent,
+        title: 'Series',
+        recurrence: 'DTSTART:20260310;FREQ=DAILY;COUNT=2',
+        scheduled: '2026-03-10',
+      },
+      {
+        path: child,
+        recurrence_parent: parent,
+        occurrence_date: '2026-03-10',
+        scheduled: new Date(Number.NaN),
+      },
+    ]).collect(queryContext(MARCH));
+
+    expect(batch.occupancyByTaskPath.get(parent)?.find((entry) => entry.day === '2026-03-10')).toMatchObject({
+      stateClass: 'materialized',
+      notePath: child,
+    });
+  });
+
   it('keeps a series when a time entry start is not text', async () => {
     const states = await collectStates([
       weeklyTask({

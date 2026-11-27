@@ -69,7 +69,8 @@ function defaultCalendarNow(): string {
 
 function asDateString(value: Date | string | null | undefined): string | undefined {
   if (value == null || value === '') return undefined;
-  return value instanceof Date ? value.toISOString() : value;
+  if (value instanceof Date) return Number.isNaN(value.getTime()) ? undefined : value.toISOString();
+  return value;
 }
 
 function calendarDate(value: string | undefined, timezone: string): string | undefined {
