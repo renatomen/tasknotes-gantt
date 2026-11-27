@@ -213,7 +213,7 @@
 {#if useMarkdown}
   <span class="og-md-cell" title={fallbackText}>
     {#if paletteMark && paletteDrawn}
-      <PaletteMark drawn={paletteDrawn} color={paletteMark.color} />
+      <PaletteMark drawn={paletteDrawn} color={paletteMark.color} onChip={false} />
     {/if}
     <span class="og-grid-cell og-grid-cell--md" class:og-cell-editable={isEditable} bind:this={el}
     ></span>
@@ -227,7 +227,7 @@
     title={displayText}
   >
     {#if paletteMark && paletteDrawn}
-      <PaletteMark drawn={paletteDrawn} color={paletteMark.color} />
+      <PaletteMark drawn={paletteDrawn} color={paletteMark.color} onChip={false} />
       <span class="og-grid-cell-text">{displayText}</span>
     {:else}
       {displayText}

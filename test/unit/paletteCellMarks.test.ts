@@ -1,5 +1,5 @@
 import { describe, expect, it } from '@jest/globals';
-import { buildCellData, type CellRender } from '../../src/bases/cellRender';
+import { buildCellData, buildFetchedCellData, type CellRender } from '../../src/bases/cellRender';
 import { cellRendersWithPaletteMarks } from '../../src/bases/paletteCellMarks';
 import type { TypedValue } from '../../src/bases/propertyValues';
 import type { PriorityColor, StatusColor } from '../../src/datasource/types';
@@ -153,7 +153,6 @@ describe('cellRendersWithPaletteMarks', () => {
         status: [{ value: 'Review.md', color: '#abc', isCompleted: false, glyph }],
         priority: [],
       },
-      data.storedTexts,
     );
 
     expect(marked.get('A.md')?.['note.status']?.paletteMark).toEqual({
@@ -162,5 +161,39 @@ describe('cellRendersWithPaletteMarks', () => {
       color: '#abc',
     });
     expect(marked.get('A.md')?.['note.copy']?.paletteMark).toBeUndefined();
+  });
+
+  it('keeps that stored path on a fetched context row', () => {
+    const glyph = { role: 'status' as const, kind: 'open' as const, progress: 0 };
+    const data = buildFetchedCellData(
+      [{ path: 'Child.md', basename: 'Child', frontmatter: { status: 'Review.md' } }],
+      ['note.status'],
+      {
+        extractor: {
+          extractValue: (entry, propId) => {
+            const key = propId.replace(/^note\./, '');
+            return (entry as { frontmatter?: Record<string, unknown> }).frontmatter?.[key];
+          },
+        },
+        resolveRenderType: () => ({ display: 'conventional', tags: false }),
+        dateLocale: 'en-US',
+      },
+    );
+
+    const marked = cellRendersWithPaletteMarks(
+      data.cellRenders,
+      data.propertyValues,
+      { statusProperty: 'note.status' },
+      {
+        status: [{ value: 'Review.md', color: '#abc', isCompleted: false, glyph }],
+        priority: [],
+      },
+    );
+
+    expect(marked.get('Child.md')?.['note.status']?.paletteMark).toEqual({
+      kind: 'glyph',
+      glyph,
+      color: '#abc',
+    });
   });
 });

@@ -1169,6 +1169,17 @@
     width: 13px;
     height: 13px;
   }
+  /* A configured icon in the grid has no light chip behind it, so it follows
+     the theme foreground instead of the chip's fixed near-black. */
+  .og-bases-gantt :global(.og-grid-glyph) {
+    display: inline-flex;
+    flex: 0 0 auto;
+    color: var(--text-normal);
+  }
+  .og-bases-gantt :global(.og-grid-glyph svg) {
+    width: 13px;
+    height: 13px;
+  }
   /* Icon glyph (setIcon SVG): a fixed soft near-black in both themes (the chip is
      always light gray), rather than tinted per status — cleaner, higher contrast.
      Lucide icons stroke with currentColor, so setting `color` recolors the glyph. */

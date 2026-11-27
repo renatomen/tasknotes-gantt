@@ -464,7 +464,6 @@ export function projectRenderContract(input: RenderContractInput): GanttData {
       cellData.propertyValues,
       input.effectiveMappings,
       { status: input.statusColors, priority: input.priorityColors },
-      cellData.storedTexts,
     ),
     dateLocale: cellData.dateLocale,
     managedPaths: input.managedPaths,

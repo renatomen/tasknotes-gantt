@@ -104,7 +104,11 @@ describe('buildCellData', () => {
       ['note.assignee', 'note.due'],
       context,
     );
-    expect(cellRenders.get('a.md')?.['note.assignee']).toEqual({ mode: 'markdown', source: '[[Justin]]' });
+    expect(cellRenders.get('a.md')?.['note.assignee']).toEqual({
+      mode: 'markdown',
+      source: '[[Justin]]',
+      storedText: '[[Justin]]',
+    });
     expect(cellRenders.get('a.md')?.['note.due']).toEqual({
       mode: 'text',
       text: intlReference(due, 'de-DE'),
@@ -162,7 +166,11 @@ describe('buildFetchedCellData', () => {
       ['note.assignee'],
       { extractor, resolveRenderType: resolve, dateLocale: 'en-US' },
     );
-    expect(cellRenders.get('c.md')?.['note.assignee']).toEqual({ mode: 'markdown', source: '[[Hayden]]' });
+    expect(cellRenders.get('c.md')?.['note.assignee']).toEqual({
+      mode: 'markdown',
+      source: '[[Hayden]]',
+      storedText: '[[Hayden]]',
+    });
   });
 });
 

@@ -10,16 +10,22 @@
   interface Props {
     drawn: DrawnIcon;
     color: string;
+    /**
+     * The bar and legend sit the mark on a light chip, whose glyph colour is a
+     * fixed near-black. The grid has no chip, so a configured icon uses the
+     * theme foreground instead.
+     */
+    onChip?: boolean;
   }
 
-  let { drawn, color }: Props = $props();
+  let { drawn, color, onChip = true }: Props = $props();
 
   const figure = $derived(drawn.kind === 'glyph' ? paletteGlyphFigure(drawn.glyph) : null);
   const marker = $derived(drawn.kind === 'glyph' ? paletteGlyphMarker(drawn.glyph) : null);
 </script>
 
 {#if drawn.kind === 'configured'}
-  <span class="og-bar-glyph" use:lucideIcon={drawn.iconName}></span>
+  <span class={onChip ? 'og-bar-glyph' : 'og-grid-glyph'} use:lucideIcon={drawn.iconName}></span>
 {:else if drawn.kind === 'glyph' && figure && marker}
   <span
     class="og-palette-glyph"
