@@ -421,9 +421,18 @@ describe('resolveCellEditor — TaskNotes-owned fields', () => {
     expect(resolveCellEditor('note.files', d)).toBeNull();
   });
 
-  it('offers no editor for recurrence_original_date when the stored mapping omits it', () => {
+  it('keeps a user field named recurrence_original_date when the mapping has no such field', () => {
     const d = deps({
       ownership: taskNotesWithAssignees(),
+      taskNotesFieldType: registered('recurrence_original_date', { type: 'date' }),
+    });
+
+    expect(resolveCellEditor('note.recurrence_original_date', d)).toEqual({ kind: 'date' });
+  });
+
+  it('offers no editor for recurrence_original_date when the reported mapping names that field', () => {
+    const d = deps({
+      ownership: resolveFieldOwnership({ recurrenceOriginalDate: 'recurrence_original_date' }),
       taskNotesFieldType: registered('recurrence_original_date', { type: 'date' }),
     });
 

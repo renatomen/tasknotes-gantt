@@ -7,6 +7,7 @@
 import { describe, expect, it } from '@jest/globals';
 import { resolveFieldMappings } from '../../src/controller/fieldMappingResolution';
 import { refusesGenericWrite } from '../../src/controller/fieldOwnership';
+import { resolveModelConfig, type FieldMapping } from '@tasknotes/model';
 import type { FieldMappings } from '../../src/datasource/fieldMappings';
 import type { FieldConfig } from '../../src/datasource/types';
 
@@ -196,7 +197,7 @@ describe('resolveFieldMappings — no TaskNotes field config', () => {
 });
 
 describe('resolveFieldMappings — owned fields', () => {
-  it('refuses the mapped Attachments property and a missing recurrence original date, and allows an unrelated user field', () => {
+  it('refuses the mapped Attachments property and allows an unrelated user field', () => {
     const resolved = resolveFieldMappings(
       mappings(),
       fieldConfig({
@@ -213,7 +214,7 @@ describe('resolveFieldMappings — owned fields', () => {
 
     expect(ownership.known).toBe(true);
     expect(refusesGenericWrite('files', ownership)).toBe(true);
-    expect(refusesGenericWrite('recurrence_original_date', ownership)).toBe(true);
+    expect(refusesGenericWrite('recurrence_original_date', ownership)).toBe(false);
     expect(refusesGenericWrite('client', ownership)).toBe(false);
     expect(refusesGenericWrite('assignees', ownership)).toBe(true);
   });
@@ -226,6 +227,23 @@ describe('resolveFieldMappings — owned fields', () => {
     expect(ownership.known).toBe(false);
     expect(refusesGenericWrite('client', ownership)).toBe(true);
     expect(refusesGenericWrite('due', ownership)).toBe(true);
+  });
+
+  it('owns recurrence_original_date when the reported mapping fills that default', () => {
+    // Stored settings can omit a member the type requires. The resolver fills it.
+    const reported = resolveModelConfig({
+      fieldMapping: { title: 'title', due: 'due' } as FieldMapping,
+    }).fieldMapping;
+    const mapping: Record<string, string> = {};
+    for (const [member, value] of Object.entries(reported)) {
+      if (typeof value === 'string') mapping[member] = value;
+    }
+    const ownership = resolveFieldMappings(mappings(), fieldConfig({ fieldMapping: mapping }))
+      .roleWritability.ownership;
+    if (!ownership) throw new Error('expected ownership');
+
+    expect(mapping.recurrenceOriginalDate).toBe('recurrence_original_date');
+    expect(refusesGenericWrite('recurrence_original_date', ownership)).toBe(true);
   });
 
   it('allows a user field named assignees when the mapping has no Assignees field', () => {

@@ -10,13 +10,67 @@
  */
 
 import type { FieldMapping, TaskUpdateInput } from '@tasknotes/model';
-import { isRecognizedProperty } from '@tasknotes/model/mapping';
-
 /**
  * Mapping members whose values are tags, not frontmatter properties. TaskNotes
  * does not treat them as property keys, so a user field may reuse the name.
  */
 const TAG_SETTING_KEYS = ['archiveTag', 'icsEventTag'] as const satisfies readonly (keyof FieldMapping)[];
+
+/**
+ * The field-mapping member an update key addresses, or `null` when `tasks.update`
+ * reads the key on every TaskNotes. A member is reserved only when the running
+ * mapping reports it, so a newer field does not lock a user field of that name
+ * on a TaskNotes that does not have the field.
+ */
+const UPDATE_KEY_MEMBER = {
+  id: 'id',
+  title: 'title',
+  status: 'status',
+  priority: 'priority',
+  due: 'due',
+  scheduled: 'scheduled',
+  path: null,
+  archived: null,
+  tags: null,
+  contexts: 'contexts',
+  projects: 'projects',
+  attachments: 'attachments',
+  assignees: 'assignees',
+  recurrence: 'recurrence',
+  recurrence_anchor: 'recurrenceAnchor',
+  recurrence_original_date: 'recurrenceOriginalDate',
+  complete_instances: 'completeInstances',
+  skipped_instances: 'skippedInstances',
+  recurrence_parent: 'recurrenceParent',
+  occurrence_date: 'occurrenceDate',
+  occurrence_materialization: 'occurrenceMaterialization',
+  occurrence_next_trigger: 'occurrenceNextTrigger',
+  occurrence_template: 'occurrenceTemplate',
+  occurrence_past_horizon: 'occurrencePastHorizon',
+  occurrence_future_horizon: 'occurrenceFutureHorizon',
+  completedDate: 'completedDate',
+  timeEstimate: 'timeEstimate',
+  timeEntries: 'timeEntries',
+  totalTrackedTime: null,
+  dateCreated: 'dateCreated',
+  dateModified: 'dateModified',
+  icsEventId: 'icsEventId',
+  googleCalendarEventId: 'googleCalendarEventId',
+  googleCalendarExceptionEventId: 'googleCalendarExceptionEventId',
+  googleCalendarExceptionOriginalScheduled: 'googleCalendarExceptionOriginalScheduled',
+  googleCalendarMovedOriginalDates: 'googleCalendarMovedOriginalDates',
+  reminders: 'reminders',
+  customProperties: null,
+  basesData: null,
+  blockedBy: 'blockedBy',
+  blocking: null,
+  isBlocked: null,
+  isBlocking: null,
+  hasSubtasks: null,
+  details: null,
+  sortOrder: 'sortOrder',
+  customFrontmatter: null,
+} as const satisfies Record<keyof TaskUpdateInput, keyof FieldMapping | null>;
 
 /**
  * Every key of the bundled update type. A model bump that adds a field fails
@@ -71,52 +125,6 @@ export const TASK_UPDATE_KEYS = {
   sortOrder: true,
   customFrontmatter: true,
 } as const satisfies Record<keyof TaskUpdateInput, true>;
-
-/**
- * Field-mapping members. An update key that appears here is reserved only
- * when the running mapping has it, so a user field can keep a name that this
- * TaskNotes does not use as a built-in field.
- */
-const BUILT_IN_FIELD_KEYS = {
-  id: true,
-  title: true,
-  status: true,
-  priority: true,
-  due: true,
-  scheduled: true,
-  contexts: true,
-  projects: true,
-  attachments: true,
-  assignees: true,
-  timeEstimate: true,
-  completedDate: true,
-  dateCreated: true,
-  dateModified: true,
-  recurrence: true,
-  recurrenceAnchor: true,
-  recurrenceOriginalDate: true,
-  recurrenceParent: true,
-  occurrenceDate: true,
-  occurrenceMaterialization: true,
-  occurrenceNextTrigger: true,
-  occurrenceTemplate: true,
-  occurrencePastHorizon: true,
-  occurrenceFutureHorizon: true,
-  archiveTag: true,
-  timeEntries: true,
-  completeInstances: true,
-  skippedInstances: true,
-  blockedBy: true,
-  pomodoros: true,
-  icsEventId: true,
-  icsEventTag: true,
-  googleCalendarEventId: true,
-  googleCalendarExceptionEventId: true,
-  googleCalendarExceptionOriginalScheduled: true,
-  googleCalendarMovedOriginalDates: true,
-  reminders: true,
-  sortOrder: true,
-} as const satisfies Record<keyof FieldMapping, true>;
 
 /** The running mapping's answer, or unreadable when it could not be read. */
 export interface FieldOwnership {
@@ -173,19 +181,16 @@ export function refusesGenericWrite(
 }
 
 /**
- * The checker types a complete mapping. A stored mapping omits members, and
- * the function itself supplies the two optional defaults, so the cast is the
- * boundary rather than a second copy of that defaulting. Tag settings are
- * left out first: their values are tags, and including them would make a user
- * field of that name read-only.
+ * A reported mapping value, excluding tag settings. The model's property
+ * checker also fills defaults for members the running mapping did not report,
+ * which would lock a user field on a TaskNotes that has no such field.
  */
 function propertyIsOwned(mapping: Readonly<Record<string, string>>, key: string): boolean {
-  const properties: Record<string, string> = {};
   for (const [member, value] of Object.entries(mapping)) {
     if ((TAG_SETTING_KEYS as readonly string[]).includes(member)) continue;
-    properties[member] = value;
+    if (value === key) return true;
   }
-  return isRecognizedProperty(properties as unknown as FieldMapping, key);
+  return false;
 }
 
 /** The ownership a writability record carries, or the legacy set when it carries none. */
@@ -206,20 +211,17 @@ function reservedUpdateKeys(
 }
 
 /**
- * An update key that is also a field-mapping member is reserved only when the
- * running mapping has that member. Keys the mapping type never carries, such
- * as `details` and `tags`, stay reserved: `tasks.update` reads them, and a
+ * An update key that addresses a field-mapping member is reserved only when
+ * the running mapping reports that member. Keys no member addresses, such as
+ * `details` and `tags`, stay reserved: `tasks.update` reads them, and a
  * generic write of `details` replaces the note body.
  */
 function runningHasUpdateKey(
   key: string,
   mapping: Readonly<Record<string, string>>
 ): boolean {
-  if (
-    Object.prototype.hasOwnProperty.call(mapping, key) &&
-    typeof mapping[key] === 'string'
-  ) {
-    return true;
-  }
-  return !Object.prototype.hasOwnProperty.call(BUILT_IN_FIELD_KEYS, key);
+  const member = UPDATE_KEY_MEMBER[key as keyof typeof UPDATE_KEY_MEMBER];
+  if (member === undefined) return true;
+  if (member === null) return true;
+  return typeof mapping[member] === 'string';
 }

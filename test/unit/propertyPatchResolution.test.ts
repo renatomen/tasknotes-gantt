@@ -330,13 +330,30 @@ describe('resolvePropertyPatch — TaskNotes-owned fields', () => {
     ).toThrow(TypeError);
   });
 
-  it('refuses recurrence_original_date when the stored mapping omits that member', () => {
+  it('writes a user field named recurrence_original_date when the mapping has no such field', () => {
+    const out = resolvePropertyPatch(
+      'note.recurrence_original_date',
+      '2026-03-18',
+      makeOptions({}, {}, taskNotesWithAssignees()),
+    );
+
+    expect(out).toEqual({ fieldWrite: { key: 'recurrence_original_date', value: '2026-03-18' } });
+  });
+
+  it('refuses recurrence_original_date when the reported mapping names that field', () => {
+    const ownership = resolveFieldOwnership({
+      ...{
+        title: 'title',
+        due: 'due',
+        contexts: 'contexts',
+        attachments: 'files',
+        assignees: 'assignee',
+      },
+      recurrenceOriginalDate: 'recurrence_original_date',
+    });
+
     expect(() =>
-      resolvePropertyPatch(
-        'note.recurrence_original_date',
-        '2026-03-18',
-        makeOptions({}, {}, taskNotesWithAssignees()),
-      ),
+      resolvePropertyPatch('note.recurrence_original_date', '2026-03-18', makeOptions({}, {}, ownership)),
     ).toThrow(TypeError);
   });
 
