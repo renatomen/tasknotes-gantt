@@ -21,7 +21,7 @@
 
 import { bareProperty } from '../datasource/dateFieldMapping';
 import type { TaskNotesFieldMeta } from './cellRenderType';
-import { matchMappedFieldRole, type MappedFieldRole } from '../datasource/mappedFieldRole';
+import { matchMappedFieldRole, completeMappedRolePrecedence, type MappedFieldRole } from '../datasource/mappedFieldRole';
 import type { FieldMappings } from './types/field-mapping';
 import type { RoleWritability } from '../controller/fieldMappingResolution';
 
@@ -98,15 +98,16 @@ export function resolveCellEditor(propId: string, deps: CellEditorDeps): CellEdi
  * The editor resolver's mapped-field precedence. Text ranks LAST — the write
  * path ranks it ahead of status, and both orders are pinned by tests.
  */
-const EDITOR_ROLE_PRECEDENCE: ReadonlyArray<MappedFieldRole> = [
+const EDITOR_ROLE_PRECEDENCE: readonly MappedFieldRole[] = completeMappedRolePrecedence([
   'start',
   'end',
   'status',
   'priority',
+  'assignees',
   'progress',
   'estimate',
   'text',
-];
+]);
 
 type MappedFieldWritability = Pick<
   CellEditorDeps,
@@ -126,6 +127,8 @@ function editorForMappedField(
       return writability.roleWritability.status ? { kind: 'choice-status' } : null;
     case 'priority':
       return writability.roleWritability.priority ? { kind: 'choice-priority' } : null;
+    case 'assignees':
+      return writability.roleWritability.assignees ? { kind: 'list' } : null;
     case 'progress':
       return writability.progressWritable ? { kind: 'number' } : null;
     case 'estimate':

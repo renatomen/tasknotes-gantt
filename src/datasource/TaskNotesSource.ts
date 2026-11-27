@@ -799,6 +799,7 @@ export class TaskNotesSource implements DataSource {
         timeEstimateProp: configuredProp('timeEstimate'),
         statusProp: configuredProp('status'),
         priorityProp: configuredProp('priority'),
+        assigneesProp: configuredProp('assignees'),
       };
     } catch {
       return null;
@@ -1146,6 +1147,9 @@ export function buildTaskUpdates(patch: TaskPatch): Record<string, unknown> {
   }
   if (patch.priority !== undefined) {
     updates.priority = patch.priority;
+  }
+  if (patch.assignees !== undefined) {
+    updates.assignees = [...patch.assignees];
   }
   applyProgressWrite(updates, patch);
   applyEstimateWrite(updates, patch);

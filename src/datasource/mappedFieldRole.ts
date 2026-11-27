@@ -24,6 +24,7 @@ export type MappedFieldRole =
   | 'text'
   | 'status'
   | 'priority'
+  | 'assignees'
   | 'progress'
   | 'estimate';
 
@@ -35,6 +36,7 @@ const ROLE_PROPERTY: Readonly<
   text: (mappings) => mappings.textProperty,
   status: (mappings) => mappings.statusProperty,
   priority: (mappings) => mappings.priorityProperty,
+  assignees: (mappings) => mappings.assigneesProperty,
   progress: (mappings) => mappings.progressProperty,
   estimate: (mappings) => mappings.timeEstimateProperty,
 };
@@ -54,4 +56,14 @@ export function matchMappedFieldRole(
     if (key === bareProperty(ROLE_PROPERTY[role](mappings))) return role;
   }
   return null;
+}
+
+/**
+ * A precedence list names every mapped role. A role added to {@link MappedFieldRole}
+ * and left off the list is not assignable here, so it cannot stay unmatched.
+ */
+export function completeMappedRolePrecedence<const T extends readonly MappedFieldRole[]>(
+  roles: Exclude<MappedFieldRole, T[number]> extends never ? T : never,
+): readonly MappedFieldRole[] {
+  return roles;
 }

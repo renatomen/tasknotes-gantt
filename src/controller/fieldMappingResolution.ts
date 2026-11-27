@@ -21,7 +21,7 @@ import type { FieldMappings } from '../datasource/fieldMappings';
 import type { DateWriteTarget, FieldConfig } from '../datasource/types';
 
 /** Roles whose inline edit persists only when the view reads TaskNotes' own property. */
-export type WritableMappedRole = 'status' | 'priority';
+export type WritableMappedRole = 'status' | 'priority' | 'assignees';
 
 /** One writability answer per {@link WritableMappedRole}, minted here. */
 export type RoleWritability = Branded<
@@ -57,7 +57,7 @@ function mintRoleWritability(flags: { [Role in WritableMappedRole]: boolean }): 
 
 /** A fresh all-false record, for before resolution and for a missing field config. */
 export function unresolvedRoleWritability(): RoleWritability {
-  return mintRoleWritability({ status: false, priority: false });
+  return mintRoleWritability({ status: false, priority: false, assignees: false });
 }
 
 /**
@@ -103,7 +103,7 @@ export function resolveFieldMappings(
         startReadProp: null,
         endReadProp: null,
       },
-      roleWritability: unresolvedRoleWritability(),
+      roleWritability: mintRoleWritability({ status: false, priority: false, assignees: false }),
     };
   }
 
@@ -111,6 +111,13 @@ export function resolveFieldMappings(
   const endRes = resolveDateMapping(bareProperty(mappings.endProperty), 'end', fieldConfig);
   const statusProperty = resolveMappedProperty(mappings.statusProperty, fieldConfig.statusProp);
   const priorityProperty = resolveMappedProperty(mappings.priorityProperty, fieldConfig.priorityProp);
+  // No Assignees field: leave the role unset even when the view names a column,
+  // so a registered user field of that name keeps its own editor.
+  const assigneesBacking = (fieldConfig.assigneesProp ?? '').trim();
+  const assigneesProperty =
+    assigneesBacking !== ''
+      ? resolveMappedProperty(mappings.assigneesProperty, fieldConfig.assigneesProp ?? null)
+      : undefined;
 
   return {
     mappings: {
@@ -119,6 +126,7 @@ export function resolveFieldMappings(
       endProperty: toNoteProperty(endRes.readProp),
       statusProperty,
       priorityProperty,
+      assigneesProperty,
     },
     startWriteTarget: startRes.writeTarget,
     endWriteTarget: endRes.writeTarget,
@@ -131,6 +139,7 @@ export function resolveFieldMappings(
     roleWritability: mintRoleWritability({
       status: writesToSameProperty(statusProperty, fieldConfig.statusProp),
       priority: writesToSameProperty(priorityProperty, fieldConfig.priorityProp),
+      assignees: writesToSameProperty(assigneesProperty, fieldConfig.assigneesProp ?? null),
     }),
   };
 }

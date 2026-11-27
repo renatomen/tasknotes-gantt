@@ -179,7 +179,7 @@ function makeInput(overrides: Partial<RenderContractInput> = {}): RenderContract
     rawMappings: mint<RawFieldMappings>(EMPTY_MAPPINGS),
     effectiveMappings: mint<EffectiveFieldMappings>(EMPTY_MAPPINGS),
     taskNotesFieldType: () => null,
-    roleWritability: mint<RoleWritability>({ status: true, priority: true }),
+    roleWritability: mint<RoleWritability>({ status: true, priority: true, assignees: false }),
     taskNotesPresent: mint<TaskNotesPresence>(true),
     // Distinguishable from taskNotesPresent on purpose: the two are branded
     // apart on the input, but the projection publishes them into GanttData's
@@ -494,6 +494,7 @@ describe('projectRenderContract: the inline cell editors', () => {
           roleWritability: mint<RoleWritability>({
             status: statusWritable,
             priority: priorityWritable,
+            assignees: false,
           }),
         }),
       ).cellEditors;
@@ -658,7 +659,7 @@ const _crossedFlags: RenderContractInput = {
 const _plainWritability: RenderContractInput = {
   ...miswire,
   // @ts-expect-error the writability record is minted by field-mapping resolution
-  roleWritability: { status: true, priority: false },
+  roleWritability: { status: true, priority: false, assignees: false },
 };
 
 // Values only a collaborator can answer: uniquely typed, so no pairwise guard

@@ -161,6 +161,11 @@ export interface FieldConfig {
   statusProp: string | null;
   /** TaskNotes' configured `priority` property; the unset "Priority Property" fallback. */
   priorityProp: string | null;
+  /**
+   * TaskNotes' configured Assignees property, or `null` when this TaskNotes
+   * has no Assignees field.
+   */
+  assigneesProp?: string | null;
 }
 
 /**
@@ -204,6 +209,8 @@ export interface TaskPatch {
   text?: string;
   status?: string;
   priority?: string;
+  /** Assignees list written through TaskNotes' Assignees field. */
+  assignees?: readonly string[];
   /** Resolved date targets (preferred over start/end for field-mapped writes). */
   dateWrites?: DateWrite[];
   /**

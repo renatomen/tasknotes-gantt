@@ -22,6 +22,7 @@ export const FIELD_MAPPING_KEYS = {
   parent: 'tngantt_parentProperty',
   status: 'tngantt_statusProperty',
   priority: 'tngantt_priorityProperty',
+  assignees: 'tngantt_assigneesProperty',
   timeEstimate: 'tngantt_timeEstimateProperty',
   calendar: 'tngantt_calendarProperty',
   estimateMeaning: 'tngantt_estimateMeaningProperty',
@@ -36,6 +37,7 @@ export interface FieldMappingDefaults {
   parentProperty: string;
   statusProperty: string;
   priorityProperty: string;
+  assigneesProperty: string;
   timeEstimateProperty: string;
   calendarProperty: string;
   estimateMeaningProperty: string;
@@ -56,6 +58,7 @@ const BASE_DEFAULTS: FieldMappingDefaults = {
   parentProperty: '',
   statusProperty: '',
   priorityProperty: '',
+  assigneesProperty: '',
   timeEstimateProperty: '',
   calendarProperty: '',
   estimateMeaningProperty: '',
@@ -81,6 +84,7 @@ export function readFieldMappings(
     parentProperty: (get(FIELD_MAPPING_KEYS.parent) as string) || d.parentProperty,
     statusProperty: (get(FIELD_MAPPING_KEYS.status) as string) || d.statusProperty,
     priorityProperty: (get(FIELD_MAPPING_KEYS.priority) as string) || d.priorityProperty,
+    assigneesProperty: (get(FIELD_MAPPING_KEYS.assignees) as string) || d.assigneesProperty,
     timeEstimateProperty: (get(FIELD_MAPPING_KEYS.timeEstimate) as string) || d.timeEstimateProperty,
     calendarProperty: (get(FIELD_MAPPING_KEYS.calendar) as string) || d.calendarProperty,
     estimateMeaningProperty:

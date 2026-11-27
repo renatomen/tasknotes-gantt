@@ -46,6 +46,12 @@ export interface FieldMappings {
   /** Property ID for task priority (empty string / unset = no priority) */
   priorityProperty?: string;
   /**
+   * Property ID for task assignees. Empty / unset resolves to TaskNotes'
+   * Assignees property when that field exists. When TaskNotes has no Assignees
+   * field, the role claims no column.
+   */
+  assigneesProperty?: string;
+  /**
    * Progress source (see {@link ProgressMode}). `tasknotes` computes the
    * bar's progress from the note's checklist (read-only); `property` reads the
    * `progressProperty`. Absent = legacy `property` behavior. Resolved per view by

@@ -26,6 +26,7 @@ function makeOptions(
     estimateWritable?: boolean;
     statusWritable?: boolean;
     priorityWritable?: boolean;
+    assigneesWritable?: boolean;
   } = {},
 ): PropertyPatchOptions {
   return {
@@ -41,6 +42,7 @@ function makeOptions(
     roleWritability: {
       status: flags.statusWritable ?? true,
       priority: flags.priorityWritable ?? true,
+      assignees: flags.assigneesWritable ?? false,
     } as RoleWritability,
   };
 }
@@ -245,5 +247,37 @@ describe('resolvePropertyPatch — generic fieldWrite', () => {
   it('passes an empty list through the fieldWrite as []', () => {
     const out = resolvePropertyPatch('note.labels', [], makeOptions());
     expect(out).toEqual({ fieldWrite: { key: 'labels', value: [] } });
+  });
+});
+
+describe('resolvePropertyPatch — assignees', () => {
+  it('writes a wikilink list through the assignees field, not a generic write', () => {
+    const out = resolvePropertyPatch(
+      'note.assignee',
+      ['[[Alice]]', 'Bob'],
+      makeOptions({ assigneesProperty: 'note.assignee' }, { assigneesWritable: true }),
+    );
+
+    expect(out).toEqual({ assignees: ['[[Alice]]', 'Bob'] });
+  });
+
+  it('writes an empty assignees list as an empty list', () => {
+    const out = resolvePropertyPatch(
+      'note.assignee',
+      [],
+      makeOptions({ assigneesProperty: 'note.assignee' }, { assigneesWritable: true }),
+    );
+
+    expect(out).toEqual({ assignees: [] });
+  });
+
+  it('refuses an assignees edit when the mapped property is not the one TaskNotes writes', () => {
+    expect(() =>
+      resolvePropertyPatch(
+        'note.people',
+        ['[[Alice]]'],
+        makeOptions({ assigneesProperty: 'note.people' }, { assigneesWritable: false }),
+      ),
+    ).toThrow();
   });
 });
