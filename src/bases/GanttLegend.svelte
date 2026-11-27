@@ -4,6 +4,8 @@
   import type { LegendGroup, LegendIconSample, LegendSampleDescriptor } from './legendCatalog';
   import type { LegendLayout, LegendPosition } from './legendLayout';
   import { lucideIcon } from './lucideIconAction';
+  import PaletteMark from './PaletteMark.svelte';
+  import { drawnIcon } from './paletteIcon';
   import { GANTT_VISUAL_CLASS_TOKENS as classes } from './visualSemantics';
 
   interface Props {
@@ -193,15 +195,7 @@
 
 {#snippet icon(descriptor: LegendIconSample)}
   <span class={classes.iconChip} aria-hidden="true">
-    {#if descriptor.shape === 'glyph' && descriptor.iconName}
-      <span class={classes.iconGlyph} use:lucideIcon={descriptor.iconName}></span>
-    {:else if descriptor.shape === 'ring'}
-      <span class={classes.iconRing} style={`border-color:${descriptor.color}`}></span>
-    {:else if descriptor.shape === 'disc'}
-      <span class={classes.iconDisc} style={`background-color:${descriptor.color}`}></span>
-    {:else}
-      <span class={classes.iconDot} style={`background-color:${descriptor.color}`}></span>
-    {/if}
+    <PaletteMark drawn={drawnIcon(descriptor)} color={descriptor.color} />
   </span>
 {/snippet}
 

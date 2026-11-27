@@ -65,6 +65,37 @@ export interface SourceDependency {
   gap: string | null;
 }
 
+/** How a status glyph reads. `unknown` is a value the catalog does not contain. */
+export type StatusGlyphKind = 'unset' | 'unknown' | 'open' | 'progress' | 'complete' | 'skipped';
+
+/**
+ * A status glyph. `progress` is 0 to 1: how far through the open workflow this
+ * status sits.
+ */
+export interface StatusPaletteGlyph {
+  role: 'status';
+  kind: StatusGlyphKind;
+  progress: number;
+}
+
+/** Where a ranked priority sits. The top and bottom ranks get their own shape. */
+export type PriorityGlyphRank = 'top' | 'middle' | 'bottom';
+
+/** A priority glyph. Weight zero and a missing priority are unset. */
+export type PriorityPaletteGlyph =
+  | { role: 'priority'; kind: 'unset' }
+  | { role: 'priority'; kind: 'unknown' }
+  | { role: 'priority'; kind: 'dot'; rank: PriorityGlyphRank };
+
+/**
+ * Glyph state carried on a palette entry.
+ *
+ * One type for both palettes: a status entry already carries every priority
+ * field, and a different glyph type on this property would stop a status
+ * palette from being assignable to a priority slot.
+ */
+export type PaletteGlyph = StatusPaletteGlyph | PriorityPaletteGlyph;
+
 /**
  * A status value paired with its configured display color, sourced from the
  * backing system's status configuration (e.g. TaskNotes custom statuses). The
@@ -83,6 +114,11 @@ export interface StatusColor {
    * which case the view falls back to a colored dot (mirroring TaskNotes).
    */
   icon?: string;
+  /**
+   * Glyph state for this status. Absent when the backing system does not offer
+   * path lookup; the view then draws its ring, disc, or dot.
+   */
+  glyph?: PaletteGlyph;
 }
 
 /**
@@ -102,6 +138,11 @@ export interface PriorityColor {
    * priority has no configured icon (colored-dot fallback).
    */
   icon?: string;
+  /**
+   * Glyph state for this priority. Absent when the backing system does not offer
+   * path lookup; the view then draws its dot.
+   */
+  glyph?: PaletteGlyph;
 }
 
 /** The restricted-choice roles a backing system configures value sets for. */

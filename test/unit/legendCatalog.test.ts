@@ -1,3 +1,4 @@
+import { drawnIcon } from '../../src/bases/paletteIcon';
 import {
   buildLegendCatalog,
   LEGEND_CATALOGUE,
@@ -136,6 +137,24 @@ describe('buildLegendCatalog', () => {
       'bar-icon',
     );
     expect(priorityIcons.sample.icons?.map((icon) => icon.shape)).toEqual(['glyph', 'dot']);
+  });
+
+  it('carries a status glyph on the legend sample, and a configured icon still wins', () => {
+    const glyph = { role: 'status' as const, kind: 'progress' as const, progress: 1 / 3 };
+    const icons = entry(
+      baseContext({
+        taskNotesPresent: true,
+        barIconSource: 'status',
+        statusColors: [
+          { value: 'Doing', color: '#2563eb', isCompleted: false, glyph },
+          { value: 'Queued', color: '#a855f7', isCompleted: false, icon: 'loader', glyph },
+        ],
+      }),
+      'bar-icon',
+    ).sample.icons ?? [];
+
+    expect(drawnIcon(icons[0]!)).toEqual({ kind: 'glyph', glyph });
+    expect(drawnIcon(icons[1]!)).toEqual({ kind: 'configured', iconName: 'loader' });
   });
 
   it('uses fixed multi-piece geometry for split non-working time and occurrence occupancy', () => {

@@ -19,6 +19,8 @@
  */
 
 import type { Branded } from '../brandedValue';
+import type { PaletteGlyph } from '../datasource/types';
+import { paletteGlyphKey } from '../datasource/taskNotesIconState';
 import { buildCellMarkdownSource } from './cellMarkdownSource';
 import type { CellRenderType } from './cellRenderType';
 import { formatPropertyValue } from './propertyFormat';
@@ -30,10 +32,19 @@ import {
   type FetchedFileMeta,
 } from './propertyValues';
 
+/**
+ * A status or priority mark drawn before a mapped cell's value. A configured
+ * icon wins over the glyph. Absent on every other column, and on releases
+ * whose palette entries carry no glyph.
+ */
+export type CellPaletteMark =
+  | { kind: 'configured'; iconName: string; color: string }
+  | { kind: 'glyph'; glyph: PaletteGlyph; color: string };
+
 /** How a grid cell renders: conventional text, or a markdown source string. */
 export type CellRender =
-  | { mode: 'text'; text: string }
-  | { mode: 'markdown'; source: string };
+  | { mode: 'text'; text: string; storedText?: string; paletteMark?: CellPaletteMark }
+  | { mode: 'markdown'; source: string; storedText?: string; paletteMark?: CellPaletteMark };
 
 /** Resolve a column's render directive from its id and classified value kind. */
 export type ResolveRenderType = (propId: string, valueKind: TypedValueKind) => CellRenderType;
@@ -149,12 +160,21 @@ export function buildCellData(
       const raw = extractor.extractValue(entry, propId);
       const tv = classifyTypedValue(raw);
       typed[propId] = tv;
-      renders[propId] = buildCellRender(raw, tv, resolveRenderType(propId, tv.kind), dateLocale);
+      renders[propId] = withStoredText(
+        buildCellRender(raw, tv, resolveRenderType(propId, tv.kind), dateLocale),
+        raw,
+      );
     }
     cellRenders.set(path, renders);
     propertyValues.set(path, typed);
   }
   return toCellData({ cellRenders, propertyValues, dateLocale });
+}
+
+/** Keep the extracted string on the descriptor. Display classification can drop it. */
+function withStoredText(render: CellRender, raw: unknown): CellRender {
+  if (typeof raw !== 'string') return render;
+  return { ...render, storedText: raw };
 }
 
 /**
@@ -182,7 +202,14 @@ export function buildFetchedCellData(
 }
 
 /** Deterministic fingerprint of one cell's render descriptor (for diff-sync). */
+function paletteMarkKey(mark: CellPaletteMark | undefined): string {
+  if (!mark) return '';
+  if (mark.kind === 'configured') return `|i:${mark.iconName}:${mark.color}`;
+  return `|g:${paletteGlyphKey(mark.glyph)}:${mark.color}`;
+}
+
 export function cellRenderKey(render: CellRender | undefined): string {
   if (!render) return '';
-  return render.mode === 'markdown' ? `m:${render.source}` : `t:${render.text}`;
+  const body = render.mode === 'markdown' ? `m:${render.source}` : `t:${render.text}`;
+  return `${body}${paletteMarkKey(render.paletteMark)}`;
 }

@@ -36,7 +36,13 @@ import type { App } from 'obsidian';
 import type { RelationshipIndex } from './companionResolve';
 import { toYmd } from './dateFieldMapping';
 import { parseDateValue } from './dateValue';
-import { canLookupTaskByPath, lookupTaskByPath } from './taskLookup';
+import { canLookupTaskByPath, lookupTaskByPath, offersGetByPath } from './taskLookup';
+import {
+  priorityGlyphInputs,
+  priorityGlyphsByValue,
+  statusGlyphInputs,
+  statusGlyphsByValue,
+} from './taskNotesIconState';
 import type {
   ChoiceOption,
   ChoiceRole,
@@ -176,14 +182,19 @@ export interface TaskNotesStatusConfig {
   color?: string | null;
   /** Whether this status represents completion. */
   isCompleted?: boolean | null;
+  /** Whether this status counts as a skipped occurrence. */
+  isSkipped?: boolean | null;
+  /** Catalog id. The none status is the unset glyph. */
+  id?: string | null;
+  /** Sort order among the configured statuses. */
+  order?: number | null;
   /** Optional icon name (`setIcon`-accepted); absent in many TaskNotes builds. */
   icon?: string | null;
 }
 
 /**
  * A TaskNotes custom-priority definition (the slice consumed for bar coloring).
- * Priorities carry a sort `weight` rather than an `isCompleted` flag; only
- * `value`/`color`/`icon` are consumed here.
+ * Priorities carry a sort `weight` rather than an `isCompleted` flag.
  */
 export interface TaskNotesPriorityConfig {
   /** The priority value (matches a task's `priority`). */
@@ -194,6 +205,8 @@ export interface TaskNotesPriorityConfig {
   color?: string | null;
   /** Optional icon name (`setIcon`-accepted); absent in many TaskNotes builds. */
   icon?: string | null;
+  /** Sort weight. Zero is the unset glyph; higher weights rank above lower ones. */
+  weight?: number | null;
 }
 
 /**
@@ -704,12 +717,19 @@ export class TaskNotesSource implements DataSource {
   public async getStatusColors(): Promise<StatusColor[]> {
     try {
       const raw = this.api.catalog?.statuses?.() ?? this.api.model?.config?.()?.statuses;
-      return this.mapPalette(raw, (s) => ({
-        value: s.value,
-        color: s.color,
-        isCompleted: s.isCompleted === true,
-        ...(typeof s.icon === 'string' && s.icon.length > 0 ? { icon: s.icon } : {}),
-      }));
+      const glyphs = offersGetByPath(this.api.tasks)
+        ? statusGlyphsByValue(statusGlyphInputs(raw))
+        : undefined;
+      return this.mapPalette(raw, (s) => {
+        const glyph = glyphs?.get(s.value);
+        return {
+          value: s.value,
+          color: s.color,
+          isCompleted: s.isCompleted === true,
+          ...(typeof s.icon === 'string' && s.icon.length > 0 ? { icon: s.icon } : {}),
+          ...(glyph ? { glyph } : {}),
+        };
+      });
     } catch {
       return [];
     }
@@ -725,11 +745,18 @@ export class TaskNotesSource implements DataSource {
   public async getPriorityColors(): Promise<PriorityColor[]> {
     try {
       const raw = this.api.catalog?.priorities?.() ?? this.api.model?.config?.()?.priorities;
-      return this.mapPalette(raw, (p) => ({
-        value: p.value,
-        color: p.color,
-        ...(typeof p.icon === 'string' && p.icon.length > 0 ? { icon: p.icon } : {}),
-      }));
+      const glyphs = offersGetByPath(this.api.tasks)
+        ? priorityGlyphsByValue(priorityGlyphInputs(raw))
+        : undefined;
+      return this.mapPalette(raw, (p) => {
+        const glyph = glyphs?.get(p.value);
+        return {
+          value: p.value,
+          color: p.color,
+          ...(typeof p.icon === 'string' && p.icon.length > 0 ? { icon: p.icon } : {}),
+          ...(glyph ? { glyph } : {}),
+        };
+      });
     } catch {
       return [];
     }

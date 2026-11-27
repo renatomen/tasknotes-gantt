@@ -1629,6 +1629,10 @@ describe('taskStateKey — composite sub-key components', () => {
     iconName: [icon({ iconName: 'circle' }), icon({ iconName: 'square' })],
     color: [icon({ color: '#c0392b' }), icon({ color: '#2980b9' })],
     completed: [icon({ completed: true }), icon({ completed: undefined })],
+    glyph: [
+      icon({ glyph: { role: 'status', kind: 'open', progress: 0 } }),
+      icon({ glyph: { role: 'status', kind: 'progress', progress: 0.5 } }),
+    ],
   };
 
   it.each(Object.entries(BAR_ICON))(
