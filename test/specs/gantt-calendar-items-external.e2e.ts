@@ -55,24 +55,34 @@ const UPSTREAM_EVENT_COUNT = 5;
 const EXPECTED_EXTERNAL_ROWS = 3;
 const SERIES_ID_FRAGMENT = "daily-sync%40e2e";
 
-function utcDay(daysBeforeToday: number): Date {
-  const day = new Date();
+function utcDay(anchor: Date, daysBeforeAnchor: number): Date {
+  const day = new Date(anchor.getTime());
   day.setUTCHours(0, 0, 0, 0);
-  day.setUTCDate(day.getUTCDate() - daysBeforeToday);
+  day.setUTCDate(day.getUTCDate() - daysBeforeAnchor);
   return day;
+}
+
+function addUtcDays(day: Date, days: number): Date {
+  const next = new Date(day.getTime());
+  next.setUTCDate(next.getUTCDate() + days);
+  return next;
 }
 
 function compactUtcDay(day: Date): string {
   return day.toISOString().slice(0, 10).replace(/-/g, "");
 }
 
-const officeClosedDay = utcDay(6);
+const feedAnchor = new Date();
+const reviewDay = utcDay(feedAnchor, 8);
+const officeClosedDay = utcDay(feedAnchor, 6);
+const officeClosedEnd = addUtcDays(officeClosedDay, 1);
+const seriesDay = utcDay(feedAnchor, 4);
 const ALL_DAY_SINGLE_FRAGMENT = `external-event/ics%3A${SUBSCRIPTION_ID}@${officeClosedDay.toISOString().slice(0, 10)}`;
 
 function writeWindowedExternalFeed(vaultDir: string): void {
-  const review = utcDay(8);
-  const closedEnd = utcDay(5);
-  const series = utcDay(4);
+  const review = reviewDay;
+  const closedEnd = officeClosedEnd;
+  const series = seriesDay;
   const lines = [
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
