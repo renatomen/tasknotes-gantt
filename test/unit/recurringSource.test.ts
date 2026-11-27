@@ -603,6 +603,33 @@ describe('recurringSource — moved occurrences and date guards', () => {
 });
 
 describe('recurringSource — a bad value does not hide the batch', () => {
+  it('drops a child whose parent lookup throws and keeps the other series', async () => {
+    const materializedNote: TaskNotesTaskInfo = {
+      path: 'routines/standup 2026-01-13.md',
+      title: 'Standup 2026-01-13',
+      recurrence_parent: '[[standup]]',
+      occurrence_date: '2026-01-13',
+    };
+    const states = await collectStates(
+      [
+        weeklyTask(),
+        materializedNote,
+        { path: 'notes/odd.md', recurrence_parent: '[[broken]]', occurrence_date: '2026-01-20' },
+      ],
+      {},
+      {
+        resolveTaskReference: (linkPath) => {
+          if (linkPath === 'broken') throw new Error('lookup failed');
+          return linkPath === 'standup' ? STANDUP_PATH : null;
+        },
+      },
+    );
+
+    expect(states).toContainEqual(['2026-01-06', 'next']);
+    expect(states).toContainEqual(['2026-01-13', 'materialized']);
+    expect(states).toContainEqual(['2026-01-20', 'projected']);
+  });
+
   it('keeps other series when a parent link is named constructor', async () => {
     const states = await collectStates([
       weeklyTask(),

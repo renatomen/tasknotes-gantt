@@ -174,37 +174,56 @@ function occurrenceIdentity(value: string | null | undefined): string | undefine
   return isRealCalendarDay(day) ? day : undefined;
 }
 
-function materializedForModel(tasks: readonly TaskNotesTaskInfo[], input: RecurringModelInput): Record<string, string[]> {
-  const occurrences: Record<string, string[]> = Object.create(null);
+interface ResolvedMaterializedChild {
+  parentKey: string;
+  identity: string;
+  task: TaskNotesTaskInfo;
+}
+
+/** One failing parent lookup drops that child. The resolved key is reused later. */
+function resolvedMaterializedChildren(
+  tasks: readonly TaskNotesTaskInfo[],
+  resolve: RecurringModelInput['resolveTaskReference'],
+): ResolvedMaterializedChild[] {
+  const children: ResolvedMaterializedChild[] = [];
   for (const task of tasks) {
-    const occurrence = occurrenceIdentity(task.occurrence_date);
-    if (!task.recurrence_parent || !occurrence) continue;
-    const parent = normalizeTaskReference(parentPath(task, input.resolveTaskReference));
-    if (!parent) continue;
-    const dates = occurrences[parent] ?? [];
-    dates.push(occurrence);
-    occurrences[parent] = dates;
+    try {
+      const identity = occurrenceIdentity(task.occurrence_date);
+      if (!task.recurrence_parent || !identity) continue;
+      const parentKey = normalizeTaskReference(parentPath(task, resolve));
+      if (!parentKey) continue;
+      children.push({ parentKey, identity, task });
+    } catch {
+      // A resolver that throws drops this child, not the batch.
+    }
+  }
+  return children;
+}
+
+function materializedForModel(children: readonly ResolvedMaterializedChild[]): Record<string, string[]> {
+  const occurrences: Record<string, string[]> = Object.create(null);
+  for (const child of children) {
+    const dates = occurrences[child.parentKey] ?? [];
+    dates.push(child.identity);
+    occurrences[child.parentKey] = dates;
   }
   return occurrences;
 }
 
 function materializedFacts(
-  tasks: readonly TaskNotesTaskInfo[],
+  children: readonly ResolvedMaterializedChild[],
   parent: TaskNotesTaskInfo,
   window: CalendarDerivationWindow,
-  input: RecurringModelInput,
+  timezone: string,
 ): OccupancyFact[] {
   const parentKey = normalizeTaskReference(parent.path);
   const facts: OccupancyFact[] = [];
-  for (const task of tasks) {
-    const identity = occurrenceIdentity(task.occurrence_date);
-    if (!task.recurrence_parent || !identity) continue;
-    if (normalizeTaskReference(parentPath(task, input.resolveTaskReference)) !== parentKey) continue;
-    const timezone = input.timezone ?? defaultCalendarTimezone();
-    const scheduled = scheduledForModel(task.scheduled, timezone);
-    const placed = scheduled ? placementDay(scheduled, timezone) : identity;
+  for (const child of children) {
+    if (child.parentKey !== parentKey) continue;
+    const scheduled = scheduledForModel(child.task.scheduled, timezone);
+    const placed = scheduled ? placementDay(scheduled, timezone) : child.identity;
     if (!isRealCalendarDay(placed) || placed < window.startDate || placed >= window.endDateExclusive) continue;
-    facts.push({ day: placed, state: 'materialized', identity, notePath: task.path });
+    facts.push({ day: placed, state: 'materialized', identity: child.identity, notePath: child.task.path });
   }
   return facts;
 }
@@ -252,7 +271,8 @@ export function deriveRecurringOccupancy(input: RecurringModelInput): {
 } {
   const timezone = input.timezone ?? defaultCalendarTimezone();
   const now = input.now ?? defaultCalendarNow();
-  const materializedOccurrences = materializedForModel(input.tasks, input);
+  const materializedChildren = resolvedMaterializedChildren(input.tasks, input.resolveTaskReference);
+  const materializedOccurrences = materializedForModel(materializedChildren);
   const occupancyByTaskPath = new Map<string, readonly CalendarOccupancy[]>();
   const plainBarSuppressedTaskPaths = new Set<string>();
 
@@ -283,7 +303,7 @@ export function deriveRecurringOccupancy(input: RecurringModelInput): {
           const fact = entryFact(entry, timezone, input.window);
           return fact ? [fact] : [];
         }),
-        ...materializedFacts(input.tasks, task, input.window, input),
+        ...materializedFacts(materializedChildren, task, input.window, timezone),
       ];
       const chosen = chooseFacts(facts);
       if (chosen.length > 0) occupancyByTaskPath.set(task.path, toOccupancy(task.path, chosen));
