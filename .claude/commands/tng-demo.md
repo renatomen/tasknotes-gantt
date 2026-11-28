@@ -49,11 +49,12 @@ Produce a brief plan: `<section> → <gif|image|none> → <feature-slug>`.
 
 ## Step 3 — Generate each asset with a shots spec (fixtures only)
 
-The capture engine is **repo-owned**: a local-only `_local-*-shots.e2e.ts` spec
-drives real Obsidian through the same WDIO harness the e2e suite uses. Author
-one on the existing pattern (`test/specs/_local-*-shots.e2e.ts`, named per
-asset set) — it stages a committed `test/vaults/*` fixture, applies the house
-staging, and writes captures to `.demo-out/`. Run it with
+The capture engine is **repo-owned**: a shots spec drives real Obsidian through
+the same WDIO harness the e2e suite uses. Author one on the committed pattern
+(`test/specs/gantt-calendar-editor-shots.e2e.ts`), named `_local-*-shots.e2e.ts`
+per asset set — the `_local-` prefix keeps it gitignored and out of CI. It
+stages a committed `test/vaults/*` fixture, applies the house staging, and
+writes captures to `.demo-out/`. Run it with
 `npm run e2e:local -- --spec test/specs/<name>.e2e.ts`, then **open each
 produced image and check it** before landing.
 
@@ -64,9 +65,10 @@ produced image and check it** before landing.
 - **Apply the house staging** (from the convention): window **maximized** (the plugin's
   in-Obsidian maximize, not native fullscreen), **side panels closed**, sensible theme
   (capture both light and dark only when the feature differs materially between them).
-- **The `_local-` prefix keeps it out of CI** — these specs capture, they don't
-  assert. Reuse an existing one when its fixture and staging already produce
-  the shot needed; author a new one only for a new surface or scenario.
+- **The `_local-` prefix keeps it out of CI and uncommitted** — these specs
+  capture, they don't assert, so they're local tooling; the produced asset is
+  what ships. Reuse an existing one when its fixture and staging already
+  produce the shot needed; author a new one only for a new surface or scenario.
 
 Never catbox / litterbox / R2 — assets are committed to the repo, not hosted.
 

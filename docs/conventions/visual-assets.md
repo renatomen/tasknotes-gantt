@@ -110,18 +110,19 @@ Per change, the director records which of these applies:
   Record the decision; no asset is required.
 
 Generation is automated by **`/tng-demo`**. The capture engine is repo-owned: a
-local-only `_local-*-shots.e2e.ts` spec drives real Obsidian through the same
-WDIO harness the e2e suite uses, stages a committed `test/vaults/*` fixture,
-and writes captures to `.demo-out/`; `scripts/addVisualAsset.mjs` lands the
-output into `docs/media/`.
+shots spec drives real Obsidian through the same WDIO harness the e2e suite
+uses — authored on the committed `test/specs/gantt-calendar-editor-shots.e2e.ts`
+pattern, named `_local-*` so it stays gitignored and out of CI. It stages a
+committed `test/vaults/*` fixture and writes captures to `.demo-out/`;
+`scripts/addVisualAsset.mjs` lands the output into `docs/media/`.
 
 ## Capturing at PR time
 
 For a UI-affecting change, generate the demo while building it — run **`/tng-demo`**,
 which:
 
-1. **Generates** each asset with a `_local-*-shots` spec (on the existing
-   pattern, named per asset set) driving Obsidian against a committed fixture
+1. **Generates** each asset with a `_local-*-shots` spec (on the committed
+   shots-spec pattern, named per asset set) driving Obsidian against a committed fixture
    — never a real vault, never catbox — applying the house staging above,
    run via `npm run e2e:local -- --spec <spec>`.
 2. **Lands** it into `docs/media/` via `scripts/addVisualAsset.mjs` (branch/SHA-pinned).
