@@ -79,6 +79,9 @@ with judgment:
   Native fullscreen uses the browser top layer and hides Obsidian popups (modals,
   menus, Notices), so a demo of a modal/menu interaction would capture a blank
   popup. Minimize only when the un-maximized layout is the point of the demo.
+- **Viewport: a reasonable width** — wide enough that bars, labels, and the left
+  grid read uncramped (the shots-spec viewport is a good baseline). Capture at
+  an edge-case narrow width only when narrow layout is the point of the demo.
 - **Side panels: closed** by default. Open a panel only when it is relevant to
   what is being shown.
 - **Theme:** choose light or dark by relevance; capture **both** when the feature
