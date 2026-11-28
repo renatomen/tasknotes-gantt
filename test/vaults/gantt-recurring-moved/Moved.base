@@ -1,0 +1,14 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+    - '!file.inFolder("_mdbase")'
+views:
+  - type: obsidianGantt
+    name: "Gantt Recurring Moved"
+    tngantt_startDateProperty: note.scheduled
+    tngantt_endDateProperty: note.due
+    tngantt_defaultScale: day
+    order:
+      - file.name
+      - note.scheduled
+      - note.due
