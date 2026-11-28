@@ -12,7 +12,7 @@ import {
   buildGridColumns,
   gridColumnsKey,
   mergeColumnSize,
-  firstColumnWidth,
+  totalColumnsWidth,
   DEFAULT_NAME_WIDTH,
   DEFAULT_COLUMN_WIDTH,
 } from '../../src/bases/gridColumns';
@@ -109,18 +109,33 @@ describe('mergeColumnSize', () => {
   });
 });
 
-describe('firstColumnWidth', () => {
-  it('returns the name column width from columnSize when set (the R4 fallback source)', () => {
-    const cols = buildGridColumns(['file.name'], displayName, { 'file.name': 300 }, 'file.name');
-    expect(firstColumnWidth(cols)).toBe(300);
+describe('totalColumnsWidth', () => {
+  it('sums every rendered column width — the R4 fallback fits the whole grid', () => {
+    const cols = buildGridColumns(
+      ['file.name', 'note.status', 'note.priority'],
+      displayName,
+      { 'file.name': 300 },
+      'file.name',
+    );
+    expect(totalColumnsWidth(cols)).toBe(300 + DEFAULT_COLUMN_WIDTH + DEFAULT_COLUMN_WIDTH);
   });
 
-  it('returns DEFAULT_NAME_WIDTH when the name column is unsized', () => {
+  it('equals the name column width for a name-only order', () => {
     const cols = buildGridColumns(['file.name'], displayName, undefined, 'file.name');
-    expect(firstColumnWidth(cols)).toBe(DEFAULT_NAME_WIDTH);
+    expect(totalColumnsWidth(cols)).toBe(DEFAULT_NAME_WIDTH);
   });
 
   it('falls back to DEFAULT_NAME_WIDTH for an empty column set', () => {
-    expect(firstColumnWidth([])).toBe(DEFAULT_NAME_WIDTH);
+    expect(totalColumnsWidth([])).toBe(DEFAULT_NAME_WIDTH);
+  });
+
+  it('rounds a fractional sum so the re-asserted width equals the persist guard comparison', () => {
+    const cols = buildGridColumns(
+      ['file.name', 'note.status'],
+      displayName,
+      { 'note.status': 140.5 },
+      'file.name',
+    );
+    expect(totalColumnsWidth(cols)).toBe(DEFAULT_NAME_WIDTH + 141);
   });
 });
