@@ -1,0 +1,16 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+    - '!file.inFolder("_mdbase")'
+views:
+  - type: obsidianGantt
+    name: Moved occurrences
+    tngantt_startDateProperty: note.scheduled
+    tngantt_endDateProperty: note.due
+    tngantt_defaultScale: day
+    tngantt_showRecurring: false
+    tngantt_maxHeight: 900
+    order:
+      - file.name
+      - note.scheduled
+      - note.due
