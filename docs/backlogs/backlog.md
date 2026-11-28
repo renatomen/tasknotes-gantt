@@ -882,8 +882,8 @@ files without a theme suffix (`visual-assets.md`: single-theme assets omit it).
 ### Visual assets — capture for shipped features
 These features shipped without a convention-compliant `docs/media/` asset; capture each via
 `/tng-demo` against its e2e fixture and drop the pinned `![]()` into the release notes for the
-version each shipped in. No Obsidian-recording tier is wired into ce-demo-reel yet (P1-adjacent) —
-needs an interactive WDIO capture session. Convention: `docs/conventions/visual-assets.md`.
+version each shipped in. The capture mechanism is a `_local-*-shots` WDIO spec driving real
+Obsidian against the fixture (see `/tng-demo` Step 3). Convention: `docs/conventions/visual-assets.md`.
 - **Visual assets — capture for select-first task-bar click (0.1.0-beta.3)** — first click highlights,
   second click / double-click opens. Fixture: `test/specs/gantt-bar-click.e2e.ts`. Source: PR #188.
 - **Visual assets — capture for focus-on-task (0.1.0-beta.3)** — crosshair → fuzzy search → expand →
