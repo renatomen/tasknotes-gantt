@@ -1903,3 +1903,23 @@ verdict, from different diffs, is the strongest evidence this entry has; it is n
 reviewer's opinion about wording. Accepted and deferred here rather than answered with more
 assertions, which is the loop. The five cases the peer enumerated are the acceptance criteria for
 the unit when it is picked up.
+
+### P2 — Upgrade the wdio stack deliberately (wdio 9.x line) (2026-11-28)
+
+Dependabot PRs #518 and #520 overlapped on `@wdio/mocha-framework` + `wdio-obsidian-service` and #520
+failed build+test outright — the wdio stack does not bump safely piecemeal. Both PRs were closed during
+the 0.1.0-beta.12 campaign dependabot sweep (consolidated in PR #543): e2e-infrastructure upgrades are
+their own unit, not dependabot roulette. When picked up: bump `@wdio/*`, `webdriverio`,
+`wdio-obsidian-service` and `basic-ftp` together on a fresh branch and run the full e2e suite locally
+before pushing, since the e2e check is required on main.
+
+### P2 — Re-land the GitHub Actions group bump (#513) on a fresh branch (2026-11-28)
+
+Dependabot's github-actions group PR #513 was closed: its branch could not be updated and its `build`
+check was already failing. The bumps are SHA-pin hygiene for CI workflows — recreate them manually
+(`gh workflow`/`dependabot.yml` versions) in one PR and watch the build job. Part of the same lesson:
+**dependabot can no longer update its own PRs in this repo** — the "All Branches protection" ruleset
+enforces `non_fast_forward` on `~ALL`, so dependabot's rebase/recreate force-push is refused. Either
+the ruleset gains a `dependabot/**` bypass actor for non-fast-forward (a security-settings decision,
+not an agent's), or routine dependabot PRs should be expected to be recreated manually — which is what
+PR #543 did for the security set.
