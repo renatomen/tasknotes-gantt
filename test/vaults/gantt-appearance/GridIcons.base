@@ -1,0 +1,17 @@
+filters:
+  and:
+    - 'file.ext == "md"'
+    - 'file.inFolder("tasks")'
+views:
+  - type: obsidianGantt
+    name: "Grid Icons"
+    tngantt_startDateProperty: note.scheduled
+    tngantt_endDateProperty: note.due
+    tngantt_statusProperty: note.status
+    tngantt_priorityProperty: note.priority
+    tngantt_barIcon: status
+    tngantt_defaultScale: week
+    order:
+      - file.name
+      - note.status
+      - note.priority
