@@ -28,6 +28,10 @@ bar per instance instead of one plain scheduled→due span, using the same
 | **Skipped** | Dimmed, hatched | A recorded skipped instance. |
 | **Materialized** | Outlined, clickable | Its own occurrence note exists and matches this view's Base query. |
 
+| Light theme | Dark theme |
+| --- | --- |
+| ![Recurring pieces on a task row — completed instances, a hatched skipped instance, and an outlined materialized piece matching the occurrence's own row](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/calendar-items-recurring-light.png) | ![The same recurring pieces in a dark theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/calendar-items-recurring-dark.png) |
+
 Hover a piece for its date and state. Clicking a **materialized** piece opens
 its own note; any other piece opens the parent recurring task.
 

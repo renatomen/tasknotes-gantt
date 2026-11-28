@@ -114,6 +114,10 @@ On **TaskNotes 5** the grid's mapped status and priority columns show the same
 icon ahead of the value; on TaskNotes 4 those cells show no icon. Other
 columns holding the same values show none either way.
 
+| Light theme | Dark theme |
+| --- | --- |
+| ![Grid cells in the mapped Status and Priority columns, each drawing the status or priority icon ahead of the value — ring, pie, check, and ranked dots](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/grid-icons-light.png) | ![The same cells in a dark theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/grid-icons-dark.png) |
+
 ## Date-status indicators { #date-status-indicators }
 
 **[Show date-status indicators on bars](../settings/appearance.md#show-date-status-indicators-on-bars)**

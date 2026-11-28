@@ -294,6 +294,10 @@ Both guard against npm behaviour npm does not show today, and the step the check
 
 In `test/specs/gantt-calendar-items-recurring.e2e.ts`, the test "renders the recorded pieces on the union envelope by default, and nothing for opted-out families" waits for the row's piece states, then queries `.og-instance.og-instance-plain` once to read its paint (the `plainPaint` check, around lines 488–505). A late refresh that repaints the pieces between the wait and that read leaves the query empty, and `expect(plainPaint).not.toBeNull()` fails. It failed once on PR #517's CI and passed on rerun. Fix: wait the paint read into agreement, as the footprint check later in the same test already does ("A late refresh can repaint the pieces between reads").
 
+### P2 — A fresh view seeds the grid pane at the name column's width, hiding mapped property columns (2026-11-28)
+
+On a vault with no persisted `gridWidth`, a Base whose `order` lists property columns mounts with the grid pane roughly a name-column wide: SVAR renders all `order` columns in DOM (probed: `:text` 250px, `:note.status` and `:note.priority` ~146px each), but the pane clips at ~240px so the property columns paint under the chart until the user drags the divider. `GanttContainer.svelte` seeds `gridWidth` only from persisted state (plan 002 U3) — nothing widens the pane to fit the columns SVAR just rendered, and the gantt-store's "force gridWidth = sum(column widths)" recompute only fires on a column change, not at mount. Found while authoring `test/specs/_local-appearance-shots.e2e.ts` (the spec works around it by dragging `.wx-resizer.wx-resizer-x`). Fix direction: when no persisted width exists, seed the grid pane to fit the rendered columns (bounded), or let SVAR's sum forcing apply on the mount pass too.
+
 ### P1 — Schedule validation (errors & warnings), with swapped dates as the first slice (2026-08-10)
 Per-task validation with two severities, surfaced as a badge **left of the gantt bar**
 (hover for a description naming what's wrong). Example warnings: subtask ends beyond
@@ -906,6 +910,13 @@ Obsidian against the fixture (see `/tng-demo` Step 3). Convention: `docs/convent
 - **Visual assets — capture for the inferred-edge drag prompt (0.1.0-beta.11)** — dragging an
   estimate-derived bar and choosing grow-estimate vs write-dates. Fixture:
   `test/specs/gantt-inferred-drag-write.e2e.ts`. Source: PR #314.
+- **Visual assets — RE-CAPTURE the overview and embedded-dashboard shots (TaskNotes 5 glyphs)** —
+  `home-reno-overview-{light,dark}.png` and `embedded-dashboard-{light,dark}.png` still show the
+  TaskNotes 4 ring/dot icons on bars; captured before the fixture-only rule from a Kitchen Reno
+  vault that was never committed. Recapture needs a committed project-shaped fixture (parent task,
+  nested phases, dependency arrows, priorities driving strips/icons) — `gantt-dependencies` is a
+  dependency skeleton only. Found during the 2026-11-28 media refresh, which landed every other
+  stale-and-missing asset.
 - **Visual assets — RE-CAPTURE the context-aware legend (0.1.0-beta.11)** — `gantt-legend-right.png`
   and `gantt-legend-bottom.png` are STALE: captured 2026-08-08 (PR #391), they show a "Date border —
   A red border marks a task…" legend row that PRs #402 and #412 retired on 2026-08-10/11. They were
