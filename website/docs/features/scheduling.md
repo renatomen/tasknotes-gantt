@@ -23,6 +23,9 @@ is read-only, so bars don't move.)*
 
 Dragging a **parent** bar moves its whole subtree — see
 [Parent / child roll-up](parent-child.md#dragging-a-parent-moves-the-whole-subtree).
+A recurring row whose occupancy pieces are showing does not drag; hide
+**Show recurring tasks** first, or change its dates in the grid. See
+[Editing → Rescheduling a recurring task](editing.md#rescheduling-a-recurring-task).
 
 !!! note "📷 Demo image pending"
 

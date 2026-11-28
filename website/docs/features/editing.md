@@ -27,30 +27,37 @@ Edit a task's properties without leaving the timeline:
   dates (with a calendar dropdown), status, priority, and multi-value list fields.
 - Property cells render as real **Obsidian markdown**, so wikilinks are clickable
   and tags show as pills.
-- A column on a field **TaskNotes owns** (status, due, assignees, and its other
-  built-in fields) edits only through the Gantt
-  [field mapping](../settings/fields.md) that claims it; a column on an
-  unclaimed TaskNotes-owned field is **read-only** — edit it through TaskNotes'
-  own task editor instead.
 
 Every inline edit is written through TaskNotes.
+
+A column that holds a field TaskNotes treats as its own — identified by the
+property TaskNotes' field mapping assigns that field — is edited through the
+[Gantt field mapping](../settings/fields.md) that claims it (Status, Priority,
+Assignees, Start, End, and the rest of the mapped roles). A TaskNotes-owned
+column that no mapping claims is **read-only** in the grid; edit it in
+TaskNotes' task editor, the bar context menu, or the note.
 
 | Editing a cell | Date editor | Status picker |
 | :---: | :---: | :---: |
 | ![An inline cell editor open in the grid](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/inline-cell-editing-editor-open.png) | ![A locale-aware date editor with a calendar dropdown](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/inline-cell-editing-date-editor.png) | ![A status picker in a grid cell](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/inline-cell-editing-status-picker.png) |
 
-## Recurring tasks
+## Rescheduling a recurring task { #rescheduling-a-recurring-task }
 
-On TaskNotes 4.15 and later, editing a recurring task's dates records a
-**moved occurrence**: TaskNotes writes the new day to `scheduled`, keeps the
-original rule day in `recurrence_original_date`, and the occurrence shows
-once, on its new day. Editing the dates back onto the rule day clears the
-record.
+*(Companion mode. On TaskNotes 4.15 and later.)*
 
-A recurring task's bar drags only while its recurring pieces are **hidden**
-([Show recurring tasks](calendar-items.md#recurring-task-instances) off).
-With pieces shown, the row's bar is an occupancy envelope and refuses drags —
-its dates change through the grid, the edit modal, or the context menu.
+Changing a recurring task's dates records a **moved occurrence**: `scheduled`
+holds the new day and `recurrence_original_date` holds the original rule date.
+The occurrence then shows once, on the new day. TaskNotes decides what the
+move means; the Gantt passes the new `scheduled` through unchanged. Dragging
+the bar back to the original day clears `recurrence_original_date`.
+
+A recurring row's occupancy pieces never drag. Hide **Show recurring tasks**
+so the row is a plain scheduled→due bar, then drag that bar. Leave recurring
+pieces visible and change dates in the grid, the edit modal, or the context
+menu instead.
+
+Verified TaskNotes versions, and how 4.x calendars can differ, are on
+[Calendar items → Verified TaskNotes version](calendar-items.md#verified-tasknotes-version).
 
 ## Progress
 

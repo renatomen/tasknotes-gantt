@@ -96,7 +96,30 @@ appear side by side in one chart.
 ## Task icons
 
 A small **[Task icon](../settings/appearance.md#task-icon)** can sit on each bar,
-showing its **Status** or **Priority** (companion only), or **None**.
+showing its **Status** or **Priority** (companion only), or **None**. A
+configured Lucide icon on that status or priority still wins, as it does in
+TaskNotes' task list. The mapped status and priority columns in the grid show
+the same icon before the value; another column holding the same text does not.
+
+On **TaskNotes 5** the shapes match the task list. Statuses without a
+configured icon use a ring that fills as the status moves through the
+workflow, a check on a filled disc when completed, and a cross on a filled
+disc when skipped. Priorities are dots ranked by weight: the highest gets a
+ring around its dot, the lowest a smaller dot, and a single weighted priority
+a plain dot. A blank or unknown status or priority still draws **no** icon.
+
+| Light | Dark |
+| :---: | :---: |
+| ![A completed bar with a check and an in-progress bar with a progress pie, light theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/task-icons-status-light.png) | ![The same bars in a dark theme](https://raw.githubusercontent.com/renatomen/tasknotes-gantt/main/docs/media/task-icons-status-dark.png) |
+
+The completed task carries the check; the in-progress task carries the pie.
+
+On **TaskNotes 4** the Gantt keeps the older shapes: an empty ring, a filled
+disc, and a single priority dot.
+
+The [legend](legend.md) lists the same shapes the bars use. Which TaskNotes
+the plugin is verified against is on
+[Calendar items → Verified TaskNotes version](calendar-items.md#verified-tasknotes-version).
 
 The shapes follow TaskNotes' own task list. On **TaskNotes 5** a status with
 no configured icon draws a ring that fills as it moves through the workflow —
