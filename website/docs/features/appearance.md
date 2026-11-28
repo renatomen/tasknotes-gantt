@@ -98,6 +98,22 @@ appear side by side in one chart.
 A small **[Task icon](../settings/appearance.md#task-icon)** can sit on each bar,
 showing its **Status** or **Priority** (companion only), or **None**.
 
+The shapes follow TaskNotes' own task list. On **TaskNotes 5** a status with
+no configured icon draws a ring that fills as it moves through the workflow —
+an empty ring for the first open status, a pie filling by the status's place —
+a filled disc carrying a **check** when completed and a **cross** when
+skipped. A task whose status or priority is empty, or names nothing TaskNotes
+has configured, draws **no icon**. A priority draws a dot whose rank follows
+its configured weight: the heaviest gets a ring around its dot, the lightest
+a smaller dot, and a lone weighted priority a plain dot. On **TaskNotes 4**
+the same channels draw the older shapes — a hollow ring for a status, a
+filled disc, a single dot for a priority. On either version a status or
+priority with a **configured icon** draws that icon, not the state shape.
+
+On **TaskNotes 5** the grid's mapped status and priority columns show the same
+icon ahead of the value; on TaskNotes 4 those cells show no icon. Other
+columns holding the same values show none either way.
+
 ## Date-status indicators { #date-status-indicators }
 
 **[Show date-status indicators on bars](../settings/appearance.md#show-date-status-indicators-on-bars)**
