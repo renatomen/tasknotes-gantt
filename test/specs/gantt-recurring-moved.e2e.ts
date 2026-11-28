@@ -116,17 +116,18 @@ async function barState(name: string): Promise<{ found: boolean; envelope: boole
   }, name);
 }
 
-/** How many `next` pieces on this task sit on the given calendar day. */
-async function nextPiecesOn(name: string, day: string): Promise<number> {
-  return browser.execute((note, iso) => {
+/** How many occurrence pieces of one state, or of any state, sit on this day. */
+async function piecesOn(name: string, day: string, state: 'next' | 'any'): Promise<number> {
+  return browser.execute((note, iso, wanted) => {
     const bar = Array.from(document.querySelectorAll('.og-bases-gantt .wx-bar')).find((element) =>
       (element.getAttribute('data-id') ?? '').endsWith(note),
     );
     if (!bar) return 0;
-    return Array.from(bar.querySelectorAll('.og-instance-next')).filter((piece) =>
+    const selector = wanted === 'next' ? '.og-instance-next' : '.og-instance';
+    return Array.from(bar.querySelectorAll(selector)).filter((piece) =>
       piece.getAttribute('data-og-instance') === iso,
     ).length;
-  }, name, day);
+  }, name, day, state);
 }
 
 describe('moved recurring occurrences', () => {
@@ -171,8 +172,8 @@ describe('moved recurring occurrences', () => {
     let onRuleDay = -1;
     await waitUntilOrExplain(async () => {
       await frontBase();
-      onNewDay = await nextPiecesOn(MOVED, '2026-03-12');
-      onRuleDay = await nextPiecesOn(MOVED, '2026-03-18');
+      onNewDay = await piecesOn(MOVED, '2026-03-12', 'next');
+      onRuleDay = await piecesOn(MOVED, '2026-03-18', 'any');
       return onNewDay === 1 && onRuleDay === 0;
     }, () => `moved next pieces: 12 March=${onNewDay}, 18 March=${onRuleDay}`, { timeout: 90000 });
     expect(onNewDay).toBe(1);
@@ -208,8 +209,8 @@ describe('moved recurring occurrences', () => {
     let onOldDay = -1;
     await waitUntilOrExplain(async () => {
       await frontBase();
-      onNewDay = await nextPiecesOn(DRAG, '2026-03-16');
-      onOldDay = await nextPiecesOn(DRAG, '2026-03-14');
+      onNewDay = await piecesOn(DRAG, '2026-03-16', 'next');
+      onOldDay = await piecesOn(DRAG, '2026-03-14', 'any');
       return onNewDay === 1 && onOldDay === 0;
     }, () => `dragged next pieces: 16 March=${onNewDay}, 14 March=${onOldDay}`, { timeout: 20000 });
 
@@ -232,7 +233,7 @@ describe('moved recurring occurrences', () => {
     let restored = -1;
     await waitUntilOrExplain(async () => {
       await frontBase();
-      restored = await nextPiecesOn(DRAG, '2026-03-14');
+      restored = await piecesOn(DRAG, '2026-03-14', 'next');
       return restored === 1;
     }, () => `the next piece did not return to 14 March (saw ${restored})`, { timeout: 20000 });
   });
