@@ -92,7 +92,7 @@ import { resolveDateLocale } from './dateLocale';
 import { resolveCellRenderType } from './cellRenderType';
 import { getObsidianPropertyWidget } from './obsidianPropertyType';
 import { resolveUserFieldTypes } from './taskNotesFieldTypes';
-import { buildGridColumns, mergeColumnSize, firstColumnWidth, DEFAULT_NAME_WIDTH } from './gridColumns';
+import { buildGridColumns, mergeColumnSize, totalColumnsWidth, DEFAULT_NAME_WIDTH } from './gridColumns';
 import { persistGridWidth, resolveInitialGridWidth } from './gridWidthPersist';
 import { TaskNotesSource, type TaskPatch } from '../datasource';
 import { createCoalescer, type Coalescer } from './coalesce';
@@ -756,20 +756,24 @@ class ObsidianGanttBasesView extends BasesView {
     return out;
   }
 
-  /** Name-column width from the last build; the divider-width fallback when unset (R4). */
-  private lastFirstColumnWidth = DEFAULT_NAME_WIDTH;
+  /** Rendered columns' combined width from the last build; the divider-width fallback when unset (R4). */
+  private lastGridColumnsWidth = DEFAULT_NAME_WIDTH;
 
   /** Component-registered re-assert of the persisted width (Bug B); null while unmounted. */
   private reassertGridWidth: (() => void) | null = null;
 
   /**
    * The effective divider width to seed (px): the persisted `tngantt_tableWidth`
-   * coerced+clamped, else the first-column fallback (R3/R4). Backs both the mount
+   * coerced+clamped, else the columns-fit fallback (R3/R4). Backs both the mount
    * seed and the persist loop-guard's `currentPersisted` — same value in both so
    * a re-asserted fallback is a no-op write, not a spurious pin (see the plan's KTD2).
    */
   private getTableWidth(): number {
-    return resolveInitialGridWidth(this.config.get('tngantt_tableWidth'), this.lastFirstColumnWidth);
+    return resolveInitialGridWidth(
+      this.config.get('tngantt_tableWidth'),
+      this.lastGridColumnsWidth,
+      this.containerEl.clientWidth,
+    );
   }
 
   /**
@@ -1437,6 +1441,11 @@ class ObsidianGanttBasesView extends BasesView {
           // already-persisted width).
           onGridWidthChange: (width: number) =>
             persistGridWidth((key, value) => this.config.set(key, value), this.getTableWidth(), width),
+          // Assert-time width resolve: the re-assert reads the CURRENT
+          // effective width (host-bound fallback included), never the stale
+          // data-store snapshot — so a host resize can't push a mismatching
+          // re-assert through the persist listener and pin an auto width.
+          resolveGridWidth: () => this.getTableWidth(),
           // Re-assert hook (Bug B): the component publishes a width-restore
           // callback that onResize() invokes on reveal/reattach. Null on teardown.
           onReassertGridWidthReady: (reassert: (() => void) | null) => {
@@ -1550,8 +1559,8 @@ class ObsidianGanttBasesView extends BasesView {
     // branded apart at their readers, so the projection names one of each and
     // the compiler refuses the swap that a comment could only warn about.
     const viewMappings = this.buildFieldMappings();
-    // Cache the name-column width as the unset-divider fallback (R4), read by getTableWidth().
-    this.lastFirstColumnWidth = firstColumnWidth(gridColumns);
+    // Cache the rendered columns' combined width as the unset-divider fallback (R4), read by getTableWidth().
+    this.lastGridColumnsWidth = totalColumnsWidth(gridColumns);
     const calendarShading = this.buildCalendarShading(instances);
     const showDateIndicators = this.getShowDateIndicators();
     const highlightWeekends = this.getHighlightWeekends();

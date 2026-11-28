@@ -28,17 +28,41 @@ const TABLE_WIDTH_KEY = 'tngantt_tableWidth';
 export const MIN_TABLE_WIDTH = 50;
 
 /**
+ * Ceiling for the AUTO (unset) divider fallback (px). SVAR's Resizer clamps a
+ * user drag to 50–800px, so an unset view borrowing the same ceiling can never
+ * grow the pane wider than the widest width a user could drag to — a column
+ * set summing past it gets the pane and an inner horizontal scroll instead of
+ * a timeline pushed outside the visible area. Deliberately NOT applied to a
+ * persisted value: a width the user chose (drag or text control) is honoured
+ * as stored.
+ */
+export const MAX_AUTO_TABLE_WIDTH = 800;
+
+/**
+ * Timeline width the AUTO (unset) divider fallback must leave visible (px) —
+ * the same role as {@link MIN_TABLE_WIDTH}, on the chart side. `resize-grid`
+ * is unbounded: seeding the pane wider than the host minus this reserve pushes
+ * the divider outside the visible area with the chart squeezed to nothing, so
+ * the user can never drag it back. Only applies when the host's rendered width
+ * is known; an unlaid-out host (0) keeps the columns/drag-max bound alone.
+ */
+export const MIN_CHART_RESERVE_WIDTH = 200;
+
+/**
  * Resolve the effective divider width to seed at mount from the (possibly unset)
  * persisted value, falling back to the first (name) column's width when unset.
  *
  * A stored value may be a number (the drag path writes a rounded number) or a
  * numeric string (the Bases `text` control writes a string). Coerce, and if it
  * is finite and positive, clamp it up to {@link MIN_TABLE_WIDTH} and round.
- * Otherwise — blank, non-numeric, zero, or negative — return `firstColumnWidth`
- * unchanged (the fallback mirrors the name column whatever its size; it is NOT
- * clamped to the divider minimum). Pure (no Obsidian/DOM) so it unit-tests in
- * isolation; `register`'s `getTableWidth` supplies `firstColumnWidth` from the
- * built grid columns (`this.lastFirstColumnWidth`).
+ * Otherwise — blank, non-numeric, zero, or negative — return `columnsWidth`
+ * bounded by {@link MAX_AUTO_TABLE_WIDTH} and, when the host's rendered width
+ * is supplied, by the host minus {@link MIN_CHART_RESERVE_WIDTH} so the pane
+ * can never swallow the timeline (the fallback mirrors the rendered columns'
+ * combined width; it is NOT clamped to the divider minimum). Pure (no
+ * Obsidian/DOM) so it unit-tests in isolation; `register`'s `getTableWidth`
+ * supplies `columnsWidth` from the built grid columns
+ * (`this.lastGridColumnsWidth`).
  *
  * This is the SEED read only. It must NOT be reused as the persist loop-guard's
  * `currentPersisted` (see {@link persistGridWidth} / {@link nextPersistableWidth}):
@@ -46,19 +70,24 @@ export const MIN_TABLE_WIDTH = 50;
  * and defeat the unchanged-write guard.
  *
  * @param rawPersisted - the stored `tngantt_tableWidth` value (number | string | unset).
- * @param firstColumnWidth - the name column's resolved width (columnSize or default).
+ * @param columnsWidth - the rendered columns' combined resolved width.
+ * @param availableWidth - the host's rendered width in px, or 0 when not yet laid out.
  * @param min - the guardrail floor; defaults to {@link MIN_TABLE_WIDTH}.
  */
 export function resolveInitialGridWidth(
   rawPersisted: unknown,
-  firstColumnWidth: number,
+  columnsWidth: number,
+  availableWidth: number = 0,
   min: number = MIN_TABLE_WIDTH,
 ): number {
   const coerced = Number(rawPersisted);
   if (Number.isFinite(coerced) && coerced > 0) {
     return Math.max(min, Math.round(coerced));
   }
-  return firstColumnWidth;
+  const hostCap = availableWidth > 0
+    ? Math.max(min, availableWidth - MIN_CHART_RESERVE_WIDTH)
+    : MAX_AUTO_TABLE_WIDTH;
+  return Math.min(columnsWidth, hostCap, MAX_AUTO_TABLE_WIDTH);
 }
 
 /**

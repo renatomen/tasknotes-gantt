@@ -374,6 +374,18 @@ describe("Gantt (OG) dependency read fidelity", () => {
       { timeout: 30000 }
     );
 
+    // The columns-fit pane leaves a narrower chart viewport; the torn bar's
+    // handles can sit right of the window edge, where elementFromPoint reads
+    // null (offscreen) rather than "hittable". Scroll the bar mid-viewport —
+    // the claim under test is mask/z-order, not edge geometry.
+    await browser.execute(() => {
+      const bar = document.querySelector<HTMLElement>(
+        '.og-bases-gantt .wx-bar[data-id$="Build Partial.md"]',
+      );
+      const chart = document.querySelector<HTMLElement>(".og-bases-gantt .wx-chart");
+      if (!bar || !chart) return;
+      chart.scrollLeft = Math.max(0, bar.offsetLeft - chart.clientWidth / 2);
+    });
     const state = await readHandleState();
     expect(state.torn).toBe(true);
     expect(state.hostMaskImage).toBe("none");

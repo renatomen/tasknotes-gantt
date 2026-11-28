@@ -36,6 +36,18 @@ async function observe(name?: string) {
     if (leaf) app.workspace.setActiveLeaf(leaf, { focus: true });
     const names = name ? [name] : ['Approval', 'Create Deviation', 'Parent'];
     const root = document.querySelector('.og-bases-gantt');
+    // The columns-fit pane narrows the chart viewport; the scale virtualizes,
+    // so a bar's day cells can sit outside the DOM until scrolled to. Centre
+    // the named bar (or the chart midpoint when unscoped) before reading.
+    const chart = root?.querySelector<HTMLElement>('.wx-chart');
+    const anchor = name
+      ? root?.querySelector<HTMLElement>(`.wx-bar[data-id$="${name}.md"]`)
+      : null;
+    if (chart) {
+      chart.scrollLeft = anchor
+        ? Math.max(0, anchor.offsetLeft - chart.clientWidth / 2)
+        : Math.max(0, (chart.scrollWidth - chart.clientWidth) / 2);
+    }
     const rows = root?.querySelectorAll('.wx-scale .wx-row');
     const cells = Array.from(rows?.[rows.length - 1]?.querySelectorAll('.wx-cell') ?? []).map(cell => ({
       text: cell.textContent, x: cell.getBoundingClientRect().left, width: cell.getBoundingClientRect().width,

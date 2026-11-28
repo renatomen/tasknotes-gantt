@@ -465,8 +465,14 @@ async function mountHost() {
   const chart = container.querySelector<HTMLElement>(".wx-chart");
   const table = container.querySelector<HTMLElement>(".wx-table-container");
   if (!chart || !table) throw new Error("Missing mounted SVAR panes");
+  // The mount-time restore is a programmatic exec, not a user drag — it never
+  // reaches onGridWidthChange. The settle signal is the pane itself at the
+  // seeded 300px.
   await vi.waitFor(
-    () => expect(spies.onGridWidthChange).toHaveBeenLastCalledWith(300),
+    () =>
+      expect(
+        Math.abs(table.getBoundingClientRect().width - 300)
+      ).toBeLessThanOrEqual(1),
     { timeout: 2000, interval: 25 }
   );
   clearCallbacks(spies);
@@ -542,14 +548,12 @@ test("a width-only refresh resizes without changing rendered data or view state"
       Math.abs(table.getBoundingClientRect().width - 420)
     ).toBeLessThanOrEqual(1)
   );
-  await vi.waitFor(
-    () => expect(spies.onGridWidthChange).toHaveBeenLastCalledWith(420),
-    { timeout: 2000, interval: 25 }
-  );
   await settleDebouncedBrowserEvents();
   expectViewStatePreserved(container, state);
   expectNoTaskCallbacks(spies);
-  expect(spies.onGridWidthChange).toHaveBeenCalledTimes(1);
+  // The width application is a restore exec, excluded from persistence — a
+  // refresh-driven resize is not a user drag.
+  expect(spies.onGridWidthChange).not.toHaveBeenCalled();
 });
 
 test("a mixed refresh preserves collapsed state while applying the existing selection reset", async () => {

@@ -226,6 +226,16 @@
      */
     onGridWidthChange?: (width: number) => void;
     /**
+     * Resolve the effective divider width at assert time — register recomputes
+     * it against the CURRENT host width (persisted value, or the bounded
+     * columns-fit fallback). The re-assert must read this, not the stale data
+     * store: a host resize changes the resolved fallback, and exec'ing the old
+     * store value would report a mismatch the persist listener writes back —
+     * pinning an auto width as a stored choice (and stranding the divider
+     * off-host).
+     */
+    resolveGridWidth?: () => number;
+    /**
      * The initial per-view theme mode (plan 002 U3). Seeds the live `mode`
      * state; `auto` follows Obsidian, `light`/`dark` pin this chart's theme.
      */
@@ -289,6 +299,7 @@
     onBarContextMenu,
     onColumnResize,
     onGridWidthChange,
+    resolveGridWidth,
     themeMode = 'auto',
     onThemeModeChange,
     onInferredDragModeChange,
@@ -1114,6 +1125,7 @@
   onDestroy(() => {
     lifecycleDiagnostics.dispose();
     deactivateLegendEscapeScope();
+    gridWidthPersistCleanup?.();
     destroyed = true;
     hostGeneration += 1;
   });
@@ -1543,6 +1555,18 @@
   }
 
   /**
+   * Marker for the width a programmatic restore exec'd (applyPersistedGridWidth).
+   * The listener consumes it so restores never enter the persist debounce —
+   * only a user drag writes `tngantt_tableWidth`. Value-equality against the
+   * resolved width is NOT safe as the discriminator: the resolve is host-live,
+   * so a host change or detach between exec and the debounced callback turns a
+   * no-op guard into a real write.
+   */
+  let restoreWidthInFlight: number | null = null;
+  /** Clears a queued persist write; invoked from onDestroy. */
+  let gridWidthPersistCleanup: (() => void) | null = null;
+
+  /**
    * Persist the grid/timeline divider width (plan 002 U3). SVAR 2.7.0's Resizer
    * execs `resize-grid` on the Gantt api when the user drags the divider, so we
    * listen there (no getTable hop needed — unlike resize-column). Debounced so a
@@ -1553,19 +1577,39 @@
     if (typeof ganttApi?.on !== 'function') return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let pending: number | null = null;
+    gridWidthPersistCleanup = () => {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      // Flush a queued user drag — teardown within the debounce must not
+      // discard a width the user already chose.
+      if (pending != null) onGridWidthChange?.(pending);
+      pending = null;
+    };
     try {
       ganttApi.on('resize-grid', (ev: { width?: number }) => {
         if (!ev || typeof ev.width !== 'number') return;
-        // Track the user's chosen width (also covers our own re-assert exec —
-        // harmless, same value). The column recompute uses setState, not this
-        // event, so its column-sum value never pollutes lastGridWidth.
+        // The column recompute uses setState, not this event, so its
+        // column-sum value never pollutes lastGridWidth.
         lastGridWidth = ev.width;
+        // Our own restore exec: consume the marker, never persist — the width
+        // is the resolved fallback/persisted value, not a user choice. A
+        // restore also means a newer effective width landed (e.g. the Table
+        // width option changed), so it invalidates any still-queued drag.
+        if (restoreWidthInFlight != null) {
+          restoreWidthInFlight = null;
+          if (timer) clearTimeout(timer);
+          timer = null;
+          pending = null;
+          return;
+        }
         if (!onGridWidthChange) return;
         pending = ev.width;
         if (timer) clearTimeout(timer);
         timer = setTimeout(() => {
           timer = null;
-          if (pending != null) onGridWidthChange?.(pending);
+          const width = pending;
+          pending = null;
+          if (width != null) onGridWidthChange?.(width);
         }, 300);
       });
     } catch {
@@ -1580,22 +1624,23 @@
    * re-trigger the recompute (it keys on columns/displayMode), so the value
    * sticks until the next column change.
    *
-   * Re-assert the CURRENT effective width from the data store — register
-   * recomputes it every refresh (the persisted value, or the fresh first-column
-   * fallback) and it equals the persist guard's `currentPersisted`, so a
-   * re-assert is always an unchanged (no-op) write. Using the stale mount-time
-   * `lastGridWidth` instead would let an unset view whose name column was later
-   * resized re-assert — and, via the persist listener, write back — the old
-   * fallback, pinning an auto view to a stale width. `lastGridWidth` remains the
-   * fallback only until the first data value arrives.
+   * Re-assert the CURRENT effective width — resolved at assert time via
+   * `resolveGridWidth` so it always equals the persist guard's
+   * `currentPersisted` and the write is a no-op. Falling back to the data
+   * store (or mount-time `lastGridWidth` before the first data value) only
+   * covers a mount with no resolver wired; a stale store snapshot exec'd after
+   * a host resize would diverge from the resolved fallback and get persisted
+   * as a user choice.
    */
   function applyPersistedGridWidth(): void {
-    const width = get(data)?.gridWidth ?? lastGridWidth;
+    const width = resolveGridWidth?.() ?? get(data)?.gridWidth ?? lastGridWidth;
     if (width == null || !api?.exec) return;
     setTimeout(() => {
       try {
+        restoreWidthInFlight = width;
         api?.exec?.('resize-grid', { width });
       } catch {
+        restoreWidthInFlight = null;
         /* exec unavailable — restore inert; in-session drag still works */
       }
     }, 0);

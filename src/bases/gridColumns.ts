@@ -132,13 +132,19 @@ export function gridColumnsKey(columns: readonly GridColumn[]): string {
 }
 
 /**
- * The first (name) column's resolved width — the divider-width fallback when the
- * `tngantt_tableWidth` setting is unset (R4). The name column is always first
- * ({@link buildGridColumns}); its width is `columnSize[nameProp]` or
- * {@link DEFAULT_NAME_WIDTH}. Falls back to the default for an empty column set.
+ * The rendered columns' combined width — the divider-width fallback when the
+ * `tngantt_tableWidth` setting is unset (R4). Seeding the pane to fit the
+ * columns equals what SVAR's own column recompute forces (gridWidth =
+ * column-sum when every column has a fixed width), so the deferred re-assert
+ * in `applyPersistedGridWidth` can never race it — both compute the same value.
+ * Rounded: a fractional `columnSize` width would otherwise seed 520.5 while the
+ * persist guard compares rounded values — the mismatch would pin the auto
+ * width on first open. Falls back to the name-column default for an empty
+ * column set.
  */
-export function firstColumnWidth(columns: readonly GridColumn[]): number {
-  return columns[0]?.width ?? DEFAULT_NAME_WIDTH;
+export function totalColumnsWidth(columns: readonly GridColumn[]): number {
+  if (columns.length === 0) return DEFAULT_NAME_WIDTH;
+  return Math.round(columns.reduce((sum, c) => sum + c.width, 0));
 }
 
 /**
