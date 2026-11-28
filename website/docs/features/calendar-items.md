@@ -43,6 +43,15 @@ A materialized note also matches your Base query in its own right, so it
 appears **twice** — its own task row, plus the marked piece on the parent's
 row. Intentional, not a duplicate.
 
+**Placement rules.** Two occurrences of one task landing on the same day draw
+**one piece**, in the higher-precedence state — completed, skipped,
+materialized, next, then projected — and hover and click reach that piece.
+A materialized piece sits on its note's `scheduled` day, falling back to its
+occurrence date. A moved occurrence (a recurring task rescheduled to another
+day on TaskNotes 4.15+, see [editing](editing.md#recurring-tasks)) draws
+once, on its new day. An occurrence that a TaskNotes calendar with spans
+turned on draws across several days is **one day** here.
+
 **Coarse zoom:** pieces only tile at **hour**/**day** zoom. Week/month falls
 back to a **dashed spine** across first-to-last instance — never a solid bar,
 because a solid bar would claim continuous occupancy the data doesn't have.
@@ -145,10 +154,16 @@ view, resets on reopen, and is never written to the view's settings.
 | Timeblocks | No — core Daily Notes plugin only |
 | Property-based events | No — reads this view's Base query |
 
-Recurring parity is built against the recurrence engine TaskNotes 4.11.x
-ships; an older install may still work (the Gantt's only hard version check is
-TaskNotes' general compatibility gate), but treat that baseline as "verified
-identical to the calendar," not a strict floor.
+Recurring parity is verified against the recurrence engine TaskNotes **5.0.5**
+ships — that is the baseline "identical to the calendar" is measured against.
+Older installs still render (the Gantt's only hard version check is TaskNotes'
+general compatibility gate); they just may differ from your calendar:
+
+- **TaskNotes 4.11–4.14** predate the model calendar: moved occurrences,
+  Google-calendar moved dates, offset-instant `scheduled` days, and the yearly
+  look-ahead are absent or differ.
+- **TaskNotes 4.15 through 4.x** run an earlier model release — close, but
+  small placement differences remain possible.
 
 ## Related
 

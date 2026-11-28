@@ -65,9 +65,10 @@ when TaskNotes reports an Assignees field, it resolves to that field's property
 — blank means *use the TaskNotes default*, not *no property*. The cell edits as
 a multi-value list, and the change is saved through TaskNotes' Assignees field.
 
-A blank mapping resolves only for a field TaskNotes actually reports. Where it
-reports none, the mapping claims no column even if you name one here, and a
-list you registered as a TaskNotes user field keeps its own editor.
+A blank mapping resolves only for a field TaskNotes actually reports. On
+**TaskNotes 4**, which has no Assignees field, the mapping resolves to
+nothing and claims no column even if you name one here — and a list you
+registered as a TaskNotes user field keeps its own editor, as before.
 
 Point this mapping at a property other than the one TaskNotes persists
 assignees to and the column is read-only. Standalone, there is no Assignees

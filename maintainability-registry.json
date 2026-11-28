@@ -82,6 +82,16 @@
         "scripts/cross-model-peer-review.sh": 10,
         "scripts/check-review-receipts.mjs": 6
       }
+    },
+    {
+      "date": "2026-11-28",
+      "anchorSha": "e4556c77226b4b97a26b8f3bc3f67f95b4c73106",
+      "report": "docs/reports/2026-11-28-001-tasknotes-505-trend-report.md",
+      "concernCounts": {
+        "src/bases/register.ts": 14,
+        "src/controller/GanttController.ts": 14
+      },
+      "atCeiling": 17
     }
   ],
   "boundary": {

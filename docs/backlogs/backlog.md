@@ -1075,6 +1075,24 @@ inferred edge. Today's behaviour is pinned by the planner's test table (the refa
 preserves it); whether a move should route through the prompt gate is a product
 decision. Wants a maintainer call before any behaviour change.
 
+### Cascades that move a recurring successor create a moved occurrence
+Source: `docs/plans/2026-11-26-001-feat-tasknotes-5-0-5-compatibility-plan.md`
+(Deferred to Follow-Up Work). Under TaskNotes 4.15 and later, a dependency
+cascade or subtree shift that moves a recurring successor writes a moved
+occurrence on it — `scheduled` takes the new day, `recurrence_original_date`
+keeps the rule day. Shipped releases already do this; whether the Gantt should
+skip recurring successors or confirm before moving them is a product question.
+Wants a maintainer call before any behavior change.
+
+### Upstream glyph API for TaskNotes status/priority icons
+Source: `docs/plans/2026-11-26-001-feat-tasknotes-5-0-5-compatibility-plan.md`
+(Deferred to Follow-Up Work), KTD17. TaskNotes does not export its icon rule,
+so `src/datasource/taskNotesIconState.ts` copies `statusGlyphState` and
+`priorityGlyphState` — a copy that must be re-synced on every upstream change.
+A companion glyph API offered upstream through the maintainer's TaskNotes fork
+would let the Gantt call TaskNotes' rule instead. Revisit when the fork next
+diverges for its own reasons, or when an icon-rule change upstream lands.
+
 ### Inferred-edge undo: authorship vs appearance
 Source: the inferred-edge drag review. Undoing a shrink-cascade after an
 **Estimate and dates** choice restores the pre-drag dates and (now) the pre-drag
