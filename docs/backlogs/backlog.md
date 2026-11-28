@@ -901,8 +901,8 @@ files without a theme suffix (`visual-assets.md`: single-theme assets omit it).
 ### Visual assets — capture for shipped features
 These features shipped without a convention-compliant `docs/media/` asset; capture each via
 `/tng-demo` against its e2e fixture and drop the pinned `![]()` into the release notes for the
-version each shipped in. No Obsidian-recording tier is wired into ce-demo-reel yet (P1-adjacent) —
-needs an interactive WDIO capture session. Convention: `docs/conventions/visual-assets.md`.
+version each shipped in. The capture mechanism is a `_local-*-shots` WDIO spec driving real
+Obsidian against the fixture (see `/tng-demo` Step 3). Convention: `docs/conventions/visual-assets.md`.
 - **Visual assets — capture for select-first task-bar click (0.1.0-beta.3)** — first click highlights,
   second click / double-click opens. Fixture: `test/specs/gantt-bar-click.e2e.ts`. Source: PR #188.
 - **Visual assets — capture for focus-on-task (0.1.0-beta.3)** — crosshair → fuzzy search → expand →
@@ -925,6 +925,13 @@ needs an interactive WDIO capture session. Convention: `docs/conventions/visual-
 - **Visual assets — capture for the inferred-edge drag prompt (0.1.0-beta.11)** — dragging an
   estimate-derived bar and choosing grow-estimate vs write-dates. Fixture:
   `test/specs/gantt-inferred-drag-write.e2e.ts`. Source: PR #314.
+- **Visual assets — RE-CAPTURE the overview and embedded-dashboard shots (TaskNotes 5 glyphs)** —
+  `home-reno-overview-{light,dark}.png` and `embedded-dashboard-{light,dark}.png` still show the
+  TaskNotes 4 ring/dot icons on bars; captured before the fixture-only rule from a Kitchen Reno
+  vault that was never committed. Recapture needs a committed project-shaped fixture (parent task,
+  nested phases, dependency arrows, priorities driving strips/icons) — `gantt-dependencies` is a
+  dependency skeleton only. Found during the 2026-11-28 media refresh, which landed every other
+  stale-and-missing asset.
 - **Visual assets — RE-CAPTURE the context-aware legend (0.1.0-beta.11)** — `gantt-legend-right.png`
   and `gantt-legend-bottom.png` are STALE: captured 2026-08-08 (PR #391), they show a "Date border —
   A red border marks a task…" legend row that PRs #402 and #412 retired on 2026-08-10/11. They were
@@ -1093,6 +1100,24 @@ prompt the resize gesture gets — the modal only covers resizes on the matching
 inferred edge. Today's behaviour is pinned by the planner's test table (the refactor
 preserves it); whether a move should route through the prompt gate is a product
 decision. Wants a maintainer call before any behaviour change.
+
+### Cascades that move a recurring successor create a moved occurrence
+Source: `docs/plans/2026-11-26-001-feat-tasknotes-5-0-5-compatibility-plan.md`
+(Deferred to Follow-Up Work). Under TaskNotes 4.15 and later, a dependency
+cascade or subtree shift that moves a recurring successor writes a moved
+occurrence on it — `scheduled` takes the new day, `recurrence_original_date`
+keeps the rule day. Shipped releases already do this; whether the Gantt should
+skip recurring successors or confirm before moving them is a product question.
+Wants a maintainer call before any behavior change.
+
+### Upstream glyph API for TaskNotes status/priority icons
+Source: `docs/plans/2026-11-26-001-feat-tasknotes-5-0-5-compatibility-plan.md`
+(Deferred to Follow-Up Work), KTD17. TaskNotes does not export its icon rule,
+so `src/datasource/taskNotesIconState.ts` copies `statusGlyphState` and
+`priorityGlyphState` — a copy that must be re-synced on every upstream change.
+A companion glyph API offered upstream through the maintainer's TaskNotes fork
+would let the Gantt call TaskNotes' rule instead. Revisit when the fork next
+diverges for its own reasons, or when an icon-rule change upstream lands.
 
 ### Inferred-edge undo: authorship vs appearance
 Source: the inferred-edge drag review. Undoing a shrink-cascade after an

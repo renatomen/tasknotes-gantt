@@ -19,6 +19,7 @@ The calendar-note frontmatter uses self-explanatory keys with canonical RFC valu
 | `events` entry with `marker: true` | `TRANSP:TRANSPARENT` `VEVENT` + marker flag (`X-TNGANTT-MARKER` at export) | Same RFC object, different presentation (vertical line). Single-date only. |
 | `events` entry with `pattern`/`rrule` | `TRANSP:TRANSPARENT` `VEVENT` with `RRULE` | Recurring display-only shading. Anchorless entries get `DTSTART` (and `UID`/`DTSTAMP`) completed at export time, not stored. |
 | set `calendars` | Grouping of calendar objects | Vault-level composition; flat (members must be calendars). Scheduling over a set is the union of members' blocking time. |
+| `recurrence_original_date` | `RECURRENCE-ID` (RFC 5545 §3.8.4.4) | TaskNotes **task**-note field, not the calendar-note schema above — recorded here as the boundary proof for moved occurrences. It holds the original rule date of a rescheduled recurring occurrence, exactly as `RECURRENCE-ID` identifies the overridden instance an `RRULE` generated; `scheduled` then plays `DTSTART` of the overriding instance. |
 
 ## TaskNotes occurrence identity
 

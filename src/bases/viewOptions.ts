@@ -478,7 +478,7 @@ function appearanceOptions(): BasesOptions[] {
       displayName: 'Table width (px)',
       key: 'tngantt_tableWidth',
       default: '',
-      placeholder: 'Auto (first column width) — or a pixel width',
+      placeholder: 'Auto (fits the columns) — or a pixel width',
     },
   ];
 }

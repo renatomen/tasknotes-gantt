@@ -79,6 +79,9 @@ with judgment:
   Native fullscreen uses the browser top layer and hides Obsidian popups (modals,
   menus, Notices), so a demo of a modal/menu interaction would capture a blank
   popup. Minimize only when the un-maximized layout is the point of the demo.
+- **Viewport: a reasonable width** — wide enough that bars, labels, and the left
+  grid read uncramped (the shots-spec viewport is a good baseline). Capture at
+  an edge-case narrow width only when narrow layout is the point of the demo.
 - **Side panels: closed** by default. Open a panel only when it is relevant to
   what is being shown.
 - **Theme:** choose light or dark by relevance; capture **both** when the feature
@@ -106,17 +109,22 @@ Per change, the director records which of these applies:
 - **None** — no observable UI change (internal refactor, config, docs-only).
   Record the decision; no asset is required.
 
-Generation is automated by **`/tng-demo`**, which uses `ce-demo-reel` to drive Obsidian
-against a fixture and lands the output into `docs/media/` via
-`scripts/addVisualAsset.mjs`.
+Generation is automated by **`/tng-demo`**. The capture engine is repo-owned: a
+shots spec drives real Obsidian through the same WDIO harness the e2e suite
+uses — authored on the committed `test/specs/gantt-calendar-editor-shots.e2e.ts`
+pattern, named `_local-*` so it stays gitignored and out of CI. It stages a
+committed `test/vaults/*` fixture and writes captures to `.demo-out/`;
+`scripts/addVisualAsset.mjs` lands the output into `docs/media/`.
 
 ## Capturing at PR time
 
 For a UI-affecting change, generate the demo while building it — run **`/tng-demo`**,
 which:
 
-1. **Generates** each asset with `ce-demo-reel` driving Obsidian against a committed
-   fixture (never a real vault, never catbox), applying the house staging above.
+1. **Generates** each asset with a `_local-*-shots` spec (on the committed
+   shots-spec pattern, named per asset set) driving Obsidian against a committed fixture
+   — never a real vault, never catbox — applying the house staging above,
+   run via `npm run e2e:local -- --spec <spec>`.
 2. **Lands** it into `docs/media/` via `scripts/addVisualAsset.mjs` (branch/SHA-pinned).
 3. **Inserts** the pinned markdown `![]()` into the matching PR-body section.
 
