@@ -10,8 +10,8 @@ import { waitUntilOrExplain } from "./helpers/waitReady";
  * Moved-occurrence journey against real Obsidian + TaskNotes 5.0.5.
  *
  * Boots `test/vaults/gantt-recurring-moved`. Dates are pinned in March 2026 so
- * the run date never moves the bars. Journeys are ordered: the drag writes the
- * Daily Check note, and the drag-back journey reads that write.
+ * the run date never moves the bars. The drag-back case arranges its own moved
+ * state, so either drag `it` can run alone.
  *
  * Show recurring stays off for every drag — an occupancy envelope swallows
  * pointerdown, so the bar is only movable as a plain scheduled→due span whose
@@ -173,6 +173,19 @@ async function rowPieces(noteName: string): Promise<RowPieces> {
   }, noteName);
 }
 
+function dayCount(days: string[], day: string): number {
+  return days.filter((entry) => entry === day).length;
+}
+
+function showsMovedDayOnce(row: RowPieces, requiredDay: string, forbiddenDay: string): boolean {
+  return row.found && dayCount(row.days, requiredDay) === 1 && !row.days.includes(forbiddenDay);
+}
+
+function expectMovedDayOnce(row: RowPieces, requiredDay: string, forbiddenDay: string): void {
+  expect(dayCount(row.days, requiredDay)).toBe(1);
+  expect(row.days).not.toContain(forbiddenDay);
+}
+
 async function waitForRowPieces(
   noteName: string,
   requiredDay: string,
@@ -183,12 +196,18 @@ async function waitForRowPieces(
     async () => {
       await activateBaseLeaf();
       row = await rowPieces(noteName);
-      return row.found && row.days.includes(requiredDay) && !row.days.includes(forbiddenDay);
+      return showsMovedDayOnce(row, requiredDay, forbiddenDay);
     },
-    () => `${noteName} pieces never settled; last: ${JSON.stringify(row)}`,
+    () => `${noteName} pieces never settled to once-on-${requiredDay}; last: ${JSON.stringify(row)}`,
     { timeout: 20000 },
   );
   return row;
+}
+
+async function expectPiecesOnce(noteName: string, requiredDay: string, forbiddenDay: string): Promise<void> {
+  await setShowRecurring(true);
+  const row = await waitForRowPieces(noteName, requiredDay, forbiddenDay);
+  expectMovedDayOnce(row, requiredDay, forbiddenDay);
 }
 
 async function barWidth(noteName: string): Promise<number> {
@@ -216,6 +235,17 @@ async function waitForPlainBar(noteName: string): Promise<void> {
     () => `${noteName} never settled as a plain bar; last: ${JSON.stringify(row)} width=${previousWidth}`,
     { timeout: 20000, interval: 400 },
   );
+}
+
+async function dragBar(days: number): Promise<void> {
+  await setShowRecurring(false);
+  await waitForPlainBar(DRAG_NOTE);
+  const drag = await browser.execute(performGanttGesture, {
+    notePath: DRAG_NOTE,
+    edge: "move" as const,
+    days,
+  });
+  expect(drag.pxPerDay).toBeGreaterThan(0);
 }
 
 async function noteYaml(notePath: string): Promise<string> {
@@ -316,49 +346,28 @@ describe("Gantt (OG) recurring moved occurrences", () => {
   });
 
   it("renders the fixture's moved occurrence once on its new day", async () => {
-    await setShowRecurring(true);
-    const row = await waitForRowPieces(MOVED_NOTE, FIXTURE_NEW_DAY, ORIGINAL_DAY);
-    expect(row.days).toContain(FIXTURE_NEW_DAY);
-    expect(row.days).not.toContain(ORIGINAL_DAY);
+    await expectPiecesOnce(MOVED_NOTE, FIXTURE_NEW_DAY, ORIGINAL_DAY);
   });
 
-  it("records a TaskNotes moved occurrence when the recurring bar is dragged", async () => {
-    await setShowRecurring(false);
-    await waitForPlainBar(DRAG_NOTE);
-    const drag = await browser.execute(performGanttGesture, {
-      notePath: DRAG_NOTE,
-      edge: "move" as const,
-      days: DRAG_DAYS,
+  describe("when the recurring bar is dragged off its original day", () => {
+    before(async () => {
+      await dragBar(DRAG_DAYS);
+      await waitForMovedFrontmatter(DRAG_NEW_DAY, ORIGINAL_DAY);
     });
-    expect(drag.pxPerDay).toBeGreaterThan(0);
 
-    const yaml = await waitForMovedFrontmatter(DRAG_NEW_DAY, ORIGINAL_DAY);
-    expect(yamlDate(yaml, "scheduled")).toBe(DRAG_NEW_DAY);
-    expect(yamlDate(yaml, "recurrence_original_date")).toBe(ORIGINAL_DAY);
-
-    await setShowRecurring(true);
-    const row = await waitForRowPieces(DRAG_NOTE, DRAG_NEW_DAY, ORIGINAL_DAY);
-    expect(row.days).toContain(DRAG_NEW_DAY);
-    expect(row.days).not.toContain(ORIGINAL_DAY);
-  });
-
-  it("clears the moved occurrence when the bar is dragged back to its original day", async () => {
-    await setShowRecurring(false);
-    await waitForPlainBar(DRAG_NOTE);
-    const drag = await browser.execute(performGanttGesture, {
-      notePath: DRAG_NOTE,
-      edge: "move" as const,
-      days: -DRAG_DAYS,
+    it("records a TaskNotes moved occurrence", async () => {
+      const yaml = await waitForMovedFrontmatter(DRAG_NEW_DAY, ORIGINAL_DAY);
+      expect(yamlDate(yaml, "scheduled")).toBe(DRAG_NEW_DAY);
+      expect(yamlDate(yaml, "recurrence_original_date")).toBe(ORIGINAL_DAY);
+      await expectPiecesOnce(DRAG_NOTE, DRAG_NEW_DAY, ORIGINAL_DAY);
     });
-    expect(drag.pxPerDay).toBeGreaterThan(0);
 
-    const yaml = await waitForMovedFrontmatter(ORIGINAL_DAY, null);
-    expect(yamlDate(yaml, "scheduled")).toBe(ORIGINAL_DAY);
-    expect(yamlHasKey(yaml, "recurrence_original_date")).toBe(false);
-
-    await setShowRecurring(true);
-    const row = await waitForRowPieces(DRAG_NOTE, ORIGINAL_DAY, DRAG_NEW_DAY);
-    expect(row.days).toContain(ORIGINAL_DAY);
-    expect(row.days).not.toContain(DRAG_NEW_DAY);
+    it("clears the moved occurrence when the bar is dragged back to its original day", async () => {
+      await dragBar(-DRAG_DAYS);
+      const yaml = await waitForMovedFrontmatter(ORIGINAL_DAY, null);
+      expect(yamlDate(yaml, "scheduled")).toBe(ORIGINAL_DAY);
+      expect(yamlHasKey(yaml, "recurrence_original_date")).toBe(false);
+      await expectPiecesOnce(DRAG_NOTE, ORIGINAL_DAY, DRAG_NEW_DAY);
+    });
   });
 });
