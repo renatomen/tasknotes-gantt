@@ -45,6 +45,9 @@ and a vault with no calendars has nothing for *By calendar* to color by. See
 A small icon on each bar. **Default:** None.
 
 **Values:** None · Status · Priority. *(Status/Priority are companion only.)*
+What each status or priority looks like — TaskNotes 5's workflow ring, check,
+and cross, versus TaskNotes 4's ring, disc, and dot — is on
+[Colors, icons & weekends → Task icons](../features/appearance.md#task-icons).
 
 ## Show date-status indicators on bars
 

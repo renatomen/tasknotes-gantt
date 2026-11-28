@@ -63,11 +63,14 @@ Status Property does above.
 The property that holds each task's assignees, as a list. **Leave blank** and,
 when TaskNotes reports an Assignees field, it resolves to that field's property
 — blank means *use the TaskNotes default*, not *no property*. The cell edits as
-a multi-value list, and the change is saved through TaskNotes' Assignees field.
+a multi-value list, and the change is saved through TaskNotes' Assignees field,
+exactly as Status Property writes through TaskNotes' status field.
 
-A blank mapping resolves only for a field TaskNotes actually reports. Where it
-reports none, the mapping claims no column even if you name one here, and a
-list you registered as a TaskNotes user field keeps its own editor.
+A blank mapping resolves only for a field TaskNotes actually reports. TaskNotes
+5 reports Assignees; **TaskNotes 4 does not**. On TaskNotes 4 the mapping
+claims no column even if you name one here, and a list you registered as a
+TaskNotes user field (the usual `assignee` field) keeps its own editor and
+generic write.
 
 Point this mapping at a property other than the one TaskNotes persists
 assignees to and the column is read-only. Standalone, there is no Assignees

@@ -20,6 +20,16 @@ The calendar-note frontmatter uses self-explanatory keys with canonical RFC valu
 | `events` entry with `pattern`/`rrule` | `TRANSP:TRANSPARENT` `VEVENT` with `RRULE` | Recurring display-only shading. Anchorless entries get `DTSTART` (and `UID`/`DTSTAMP`) completed at export time, not stored. |
 | set `calendars` | Grouping of calendar objects | Vault-level composition; flat (members must be calendars). Scheduling over a set is the union of members' blocking time. |
 
+## TaskNotes occurrence identity
+
+This row is a TaskNotes task field, not a calendar-note schema key. It is the
+Gantt's lossless mapping for a moved occurrence's identity, complementary to
+the calendar-note table above.
+
+| Schema field | RFC construct | Notes |
+|---|---|---|
+| `recurrence_original_date` | `RECURRENCE-ID` (RFC 5545 §3.8.4.4) | Identity of a moved occurrence: the original rule date. Placement is the task's `scheduled` day; the occurrence appears once, on that new day. |
+
 ## Semantics pinned by tests
 
 - Exclusive-`DTEND` convention: authored inclusive ranges gain one day at parse; the round-trip preserves it.

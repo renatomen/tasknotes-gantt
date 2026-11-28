@@ -540,6 +540,25 @@ pre-authorized (window-cutoff convention).
 
 ## Medium priority
 
+### P2 — Confirm or skip a recurring successor that a cascade would move (2026-11-28)
+
+Under TaskNotes 4.15 and later, a dependency cascade or subtree shift that
+moves a recurring successor creates a moved occurrence on it; shipped releases
+already do this. Whether the Gantt should skip those successors, or ask before
+recording the move, is a product question — not a bug in the 5.0.5
+compatibility work. Source:
+`docs/plans/2026-11-26-001-feat-tasknotes-5-0-5-compatibility-plan.md`
+(Deferred to Follow-Up Work).
+
+### P2 — Call TaskNotes' icon rule instead of copying it (2026-11-28)
+
+TaskNotes does not export its status and priority glyph rule, so the Gantt
+reproduces it (`src/datasource/taskNotesIconState.ts`). A companion glyph API
+offered upstream through the maintainer's fork would let the Gantt call
+TaskNotes' rule instead of keeping a copy. Source:
+`docs/plans/2026-11-26-001-feat-tasknotes-5-0-5-compatibility-plan.md`
+(Deferred to Follow-Up Work).
+
 ### ⭐ NEXT FEATURE — Availability: authoring (P2g) + hour granularity
 The **day-level half shipped 2026-07-22 (#308)**: availability blocks now drive shading, conflicts, and the
 real Gantt chart at day granularity via the shared `src/controller/calendar/workingDays.ts` seam ([[P2i]]

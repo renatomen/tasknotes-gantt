@@ -41,7 +41,16 @@ its own note; any other piece opens the parent recurring task.
 
 A materialized note also matches your Base query in its own right, so it
 appears **twice** — its own task row, plus the marked piece on the parent's
-row. Intentional, not a duplicate.
+row. Intentional, not a duplicate. The piece on the parent sits on the child's
+**scheduled** day, falling back to its occurrence date when that scheduled
+value is missing or unparseable.
+
+When two occurrences of one task fall on the same day, the Gantt draws **one
+piece** in the higher-precedence state — completed, then skipped, then
+materialized, then next, then projected. Hover and click reach that piece.
+
+An occurrence the TaskNotes calendar would draw across several days when
+spans are on is **one day** in the Gantt.
 
 **Coarse zoom:** pieces only tile at **hour**/**day** zoom. Week/month falls
 back to a **dashed spine** across first-to-last instance — never a solid bar,
@@ -145,10 +154,29 @@ view, resets on reopen, and is never written to the view's settings.
 | Timeblocks | No — core Daily Notes plugin only |
 | Property-based events | No — reads this view's Base query |
 
-Recurring parity is built against the recurrence engine TaskNotes 4.11.x
-ships; an older install may still work (the Gantt's only hard version check is
-TaskNotes' general compatibility gate), but treat that baseline as "verified
-identical to the calendar," not a strict floor.
+## Verified TaskNotes version { #verified-tasknotes-version }
+
+The Gantt is **verified against stock TaskNotes 5.0.5**. Recurring days match
+the TaskNotes 5.0.5 calendar under the same show-recurring, show-completed, and
+show-skipped toggles. Reading, editing, and dependencies keep working on
+TaskNotes 4.11 through 4.x; the Gantt's only hard version check is TaskNotes'
+general compatibility gate.
+
+Recurring **placement** follows 5.0.5 rules on every TaskNotes, so a 4.x
+calendar may show different days than the Gantt. The usual gaps:
+
+- **TaskNotes 4.11–4.14** predate the model calendar. They have no moved
+  occurrences, do not suppress Google-calendar original days after a move, and
+  may place a `scheduled` time that carries a timezone offset on a different
+  local day. The Gantt no longer looks a year ahead for a yearly rule — it uses
+  the visible window.
+- **TaskNotes 4.15 through 4.x** already record moved occurrences, but they ship
+  an earlier model release, so small placement differences remain possible.
+
+[Editing a recurring task's dates](editing.md#rescheduling-a-recurring-task)
+records a moved occurrence on TaskNotes 4.15 and later. Status and priority
+[icons](appearance.md#task-icons) follow TaskNotes 5's task list when TaskNotes
+5 is installed, and keep the older ring, disc, and dot on TaskNotes 4.
 
 ## Related
 
