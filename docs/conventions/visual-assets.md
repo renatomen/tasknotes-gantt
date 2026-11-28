@@ -106,17 +106,21 @@ Per change, the director records which of these applies:
 - **None** — no observable UI change (internal refactor, config, docs-only).
   Record the decision; no asset is required.
 
-Generation is automated by **`/tng-demo`**, which uses `ce-demo-reel` to drive Obsidian
-against a fixture and lands the output into `docs/media/` via
-`scripts/addVisualAsset.mjs`.
+Generation is automated by **`/tng-demo`**. The capture engine is repo-owned: a
+local-only `_local-*-shots.e2e.ts` spec drives real Obsidian through the same
+WDIO harness the e2e suite uses, stages a committed `test/vaults/*` fixture,
+and writes captures to `.demo-out/`; `scripts/addVisualAsset.mjs` lands the
+output into `docs/media/`.
 
 ## Capturing at PR time
 
 For a UI-affecting change, generate the demo while building it — run **`/tng-demo`**,
 which:
 
-1. **Generates** each asset with `ce-demo-reel` driving Obsidian against a committed
-   fixture (never a real vault, never catbox), applying the house staging above.
+1. **Generates** each asset with a `_local-*-shots` spec (on the existing
+   pattern, named per asset set) driving Obsidian against a committed fixture
+   — never a real vault, never catbox — applying the house staging above,
+   run via `npm run e2e:local -- --spec <spec>`.
 2. **Lands** it into `docs/media/` via `scripts/addVisualAsset.mjs` (branch/SHA-pinned).
 3. **Inserts** the pinned markdown `![]()` into the matching PR-body section.
 

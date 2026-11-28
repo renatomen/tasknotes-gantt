@@ -1,5 +1,5 @@
 ---
-description: Generate the visual assets (GIFs/screenshots) a PR or release needs to illustrate UI changes for users — judgment-driven, text-driven, fixtures-only, committed to docs/media/. Uses ce-demo-reel; never catbox.
+description: Generate the visual assets (GIFs/screenshots) a PR or release needs to illustrate UI changes for users — judgment-driven, text-driven, fixtures-only, committed to docs/media/. Uses local _local-*-shots WDIO specs driving real Obsidian; never catbox.
 ---
 
 # /tng-demo — illustrate a PR or release with visuals
@@ -47,21 +47,30 @@ Prefer short and relevant over long and comprehensive.
 
 Produce a brief plan: `<section> → <gif|image|none> → <feature-slug>`.
 
-## Step 3 — Generate each asset with ce-demo-reel (fixtures only)
+## Step 3 — Generate each asset with a shots spec (fixtures only)
 
-Use **`ce-demo-reel`** as the recording engine — it drives Obsidian and records
-automatically. For each planned asset:
+The capture engine is **repo-owned**: a local-only `_local-*-shots.e2e.ts` spec
+drives real Obsidian through the same WDIO harness the e2e suite uses. Author
+one on the existing pattern (`test/specs/_local-*-shots.e2e.ts`, named per
+asset set) — it stages a committed `test/vaults/*` fixture, applies the house
+staging, and writes captures to `.demo-out/`. Run it with
+`npm run e2e:local -- --spec test/specs/<name>.e2e.ts`, then **open each
+produced image and check it** before landing.
 
-- **Target a committed fixture**, never a real vault. Use `test/vaults/*`; **recycle
-  the scenario an existing e2e already stages** where one fits (`test/specs/*.e2e.ts` +
-  its fixture). This is the privacy guarantee — no real/private data can appear.
+- **Target a committed fixture**, never a real vault. **Recycle the scenario an
+  existing e2e already stages** where one fits (`test/specs/*.e2e.ts` + its
+  `test/vaults/*` fixture). This is the privacy guarantee — no real/private
+  data can appear.
 - **Apply the house staging** (from the convention): window **maximized** (the plugin's
   in-Obsidian maximize, not native fullscreen), **side panels closed**, sensible theme
   (capture both light and dark only when the feature differs materially between them).
-- **Save locally — never catbox / litterbox / R2.** ce-demo-reel's "Save locally"
-  destination; the asset gets committed to the repo in the next step.
+- **The `_local-` prefix keeps it out of CI** — these specs capture, they don't
+  assert. Reuse an existing one when its fixture and staging already produce
+  the shot needed; author a new one only for a new surface or scenario.
 
-If exercising the feature requires setup ce-demo-reel can't do headlessly, say so and
+Never catbox / litterbox / R2 — assets are committed to the repo, not hosted.
+
+If exercising the feature requires setup a spec can't do headlessly, say so and
 fall back to a static image rather than skipping evidence silently.
 
 ## Step 4 — Land each asset in the repo
